@@ -4,6 +4,10 @@
   <section class="lc-card">
     <p class="lc-kicker">Student</p>
     <h1>Join a classroom</h1>
-    <p>Session-code and guest-identity handling will be added with the join API.</p>
+    <form method="post" class="lc-form">
+      {% csrf_token %}
+      {{ form.as_p }}
+      <button type="submit">Join</button>
+    </form>
   </section>
 {% endblock %}
