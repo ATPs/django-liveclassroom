@@ -11,7 +11,10 @@ INSTALLED_APPS = [
     "liveclassroom",
 ]
 DATABASES = {"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": ":memory:"}}
-MIDDLEWARE = []
+MIDDLEWARE = [
+    "django.contrib.sessions.middleware.SessionMiddleware",
+    "django.contrib.auth.middleware.AuthenticationMiddleware",
+]
 TEMPLATES = [{"BACKEND": "django.template.backends.django.DjangoTemplates", "APP_DIRS": True}]
 USE_TZ = True
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
