@@ -1,0 +1,25 @@
+#liveclassroom-root {
+  --lc-primary: #0d6658;
+  --lc-background: #f5faf8;
+  --lc-text: #10231e;
+  min-height: 100vh;
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+  padding: 2rem;
+  background: var(--lc-background);
+  color: var(--lc-text);
+  font-family: system-ui, sans-serif;
+}
+
+#liveclassroom-root .lc-card {
+  width: min(100%, 42rem);
+  padding: 2rem;
+  border: 1px solid #c9ddd7;
+  border-radius: 1rem;
+  background: #fff;
+  box-shadow: 0 1rem 3rem rgb(16 35 30 / 8%);
+}
+
+#liveclassroom-root .lc-kicker { color: var(--lc-primary); font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
+#liveclassroom-root a { color: var(--lc-primary); }

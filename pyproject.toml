@@ -1,0 +1,57 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "django-liveclassroom"
+version = "0.1.0"
+description = "Reusable Django app for live, real-time classrooms."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { file = "LICENSE" }
+authors = [{ name = "LiveClassroom contributors" }]
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "Framework :: Django",
+  "Framework :: Django :: 5.2",
+  "Framework :: Django :: 6.0",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+]
+dependencies = [
+  "Django>=5.2,<6.1",
+  "channels>=4.2,<5",
+]
+
+[project.optional-dependencies]
+redis = ["channels_redis>=4.2,<5"]
+dev = [
+  "daphne>=4.1,<5",
+  "pytest>=8.3",
+  "pytest-asyncio>=0.25",
+  "pytest-django>=4.9",
+  "ruff>=0.9",
+]
+
+[project.urls]
+Homepage = "https://github.com/ATPs/django-liveclassroom"
+Repository = "https://github.com/ATPs/django-liveclassroom"
+Issues = "https://github.com/ATPs/django-liveclassroom/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/liveclassroom"]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "liveclassroom_test_settings"
+python_files = ["test_*.py", "*_tests.py"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+exclude = ["src/liveclassroom/migrations"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
