@@ -1,9 +1,61 @@
 {% extends "liveclassroom/base.html" %}
 {% block title %}Teacher console · LiveClassroom{% endblock %}
 {% block content %}
-  <section class="lc-card">
-    <p class="lc-kicker">Teacher</p>
-    <h1>Classroom console</h1>
-    <p>The live-control React island will mount here in the next milestone.</p>
+  <section class="lc-card lc-wide" data-session-id="{{ session.id }}">
+    <p class="lc-kicker">Teacher · {{ session.course }}</p>
+    <h1>{{ session.flow }}</h1>
+    <p>Join code: <strong class="lc-code">{{ session.join_code }}</strong> · <a href="{% url 'liveclassroom:join' %}">student join page</a></p>
+    <p>Status: <strong id="session-status">{{ session.get_status_display }}</strong></p>
+    <button id="start-session">Start classroom</button>
+    <div class="lc-grid">
+      <section>
+        <h2>Flow</h2>
+        {% for item in items %}
+          <button class="lc-item" data-item-id="{{ item.id }}" {% if not item.question_id and item.kind != 'markdown' %}disabled{% endif %}>
+            Push {{ item.position }}. {{ item.title|default:item.get_kind_display }}
+          </button>
+        {% empty %}
+          <p>Add Markdown or Question FlowItems in Django admin.</p>
+        {% endfor %}
+      </section>
+      <section>
+        <h2>Live results</h2>
+        <p id="activity-status">No activity published.</p>
+        <div id="result-summary"></div>
+        <button id="close-activity" disabled>Close answers</button>
+        <button id="reveal-activity" disabled>Reveal answer</button>
+      </section>
+    </div>
   </section>
+  <script>
+    const sessionId = {{ session.id }};
+    let currentActivityId = null;
+    function csrf() { return document.cookie.match(/(?:^|;)\s*csrftoken=([^;]+)/)?.[1] || ""; }
+    async function post(url, body = {}) {
+      const response = await fetch(url, {method: "POST", headers: {"Content-Type": "application/json", "X-CSRFToken": csrf()}, body: JSON.stringify(body)});
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Request failed");
+      return data;
+    }
+    async function refresh() {
+      const response = await fetch(`/api/sessions/${sessionId}/state/`);
+      const state = await response.json();
+      document.querySelector("#session-status").textContent = state.session.status;
+      const activity = state.current_activity;
+      currentActivityId = activity?.id || null;
+      document.querySelector("#activity-status").textContent = activity ? `${activity.definition.title || activity.definition.kind} (${activity.state})` : "No activity published.";
+      document.querySelector("#close-activity").disabled = !activity || activity.state !== "open";
+      document.querySelector("#reveal-activity").disabled = !activity || activity.state !== "closed";
+      if (currentActivityId) {
+        const results = await fetch(`/api/activities/${currentActivityId}/results/`).then(r => r.json());
+        document.querySelector("#result-summary").textContent = `${results.submission_count} submitted · ${Object.entries(results.choices).map(([choice, count]) => `${choice}: ${count}`).join(" · ") || "No answers yet"}`;
+      }
+    }
+    document.querySelector("#start-session").onclick = async () => { try { await post(`/api/sessions/${sessionId}/start/`); await refresh(); } catch (e) { alert(e.message); } };
+    document.querySelectorAll(".lc-item").forEach(button => button.onclick = async () => { try { await post(`/api/sessions/${sessionId}/activities/`, {flow_item_id: Number(button.dataset.itemId)}); await refresh(); } catch (e) { alert(e.message); } });
+    document.querySelector("#close-activity").onclick = async () => { try { await post(`/api/activities/${currentActivityId}/close/`); await refresh(); } catch (e) { alert(e.message); } };
+    document.querySelector("#reveal-activity").onclick = async () => { try { await post(`/api/activities/${currentActivityId}/reveal/`); await refresh(); } catch (e) { alert(e.message); } };
+    refresh();
+    setInterval(refresh, 3000);
+  </script>
 {% endblock %}
