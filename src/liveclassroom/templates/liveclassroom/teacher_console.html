@@ -55,7 +55,11 @@
     document.querySelectorAll(".lc-item").forEach(button => button.onclick = async () => { try { await post(`/api/sessions/${sessionId}/activities/`, {flow_item_id: Number(button.dataset.itemId)}); await refresh(); } catch (e) { alert(e.message); } });
     document.querySelector("#close-activity").onclick = async () => { try { await post(`/api/activities/${currentActivityId}/close/`); await refresh(); } catch (e) { alert(e.message); } };
     document.querySelector("#reveal-activity").onclick = async () => { try { await post(`/api/activities/${currentActivityId}/reveal/`); await refresh(); } catch (e) { alert(e.message); } };
+    const socketScheme = location.protocol === "https:" ? "wss" : "ws";
+    const sessionSocket = new WebSocket(`${socketScheme}://${location.host}/ws/liveclassroom/sessions/${sessionId}/`);
+    sessionSocket.onmessage = () => refresh();
     refresh();
+    // Polling is a reconnect-safe fallback when a network blocks WebSockets.
     setInterval(refresh, 3000);
   </script>
 {% endblock %}
