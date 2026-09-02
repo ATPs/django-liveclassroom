@@ -49,6 +49,17 @@ Open <http://127.0.0.1:8000/>. The Django admin is available at
 4. Publish the Question FlowItem, close responses, and reveal the answer from
    the teacher console.
 
+## Import Markdown/YAML content
+
+Use `:::quiz` directives inside Markdown, then import into an existing course:
+
+```bash
+python standalone/manage.py import_liveclassroom_markdown course-slug examples/courses/rnaseq-intro.md
+```
+
+The importer validates everything before writing and normalizes answer text to
+stable option IDs. See the bundled example for the supported format.
+
 ## Add to an existing Django project
 
 ```python
