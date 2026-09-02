@@ -43,6 +43,14 @@
       if (state.my_submission) box.append(elt("p", "✓ Submitted — waiting for the teacher."));
       if (activity.state === "revealed") { box.append(elt("p", `Answer: ${(question.answer || []).join(", ")}`)); if (question.explanation_markdown) box.append(elt("p", question.explanation_markdown)); }
     }
-    (async () => { await join(); await refresh(); setInterval(refresh, 3000); })();
+    (async () => {
+      await join();
+      await refresh();
+      const socketScheme = location.protocol === "https:" ? "wss" : "ws";
+      const sessionSocket = new WebSocket(`${socketScheme}://${location.host}/ws/liveclassroom/sessions/${sessionId}/`);
+      sessionSocket.onmessage = () => refresh();
+      // Polling is a reconnect-safe fallback when a network blocks WebSockets.
+      setInterval(refresh, 3000);
+    })();
   </script>
 {% endblock %}
