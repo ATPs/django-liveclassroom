@@ -24,6 +24,7 @@ classifiers = [
 dependencies = [
   "Django>=5.2,<6.1",
   "channels>=4.2,<5",
+  "PyYAML>=6,<7",
 ]
 
 [project.optional-dependencies]
