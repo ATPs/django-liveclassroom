@@ -1,0 +1,21 @@
+{% extends "liveclassroom/base.html" %}
+{% block title %}Teacher · LiveClassroom{% endblock %}
+{% block content %}
+  <section class="lc-card lc-wide">
+    <p class="lc-kicker">Teacher</p>
+    <h1>Start a live classroom</h1>
+    <form method="post" class="lc-form">
+      {% csrf_token %}
+      {{ form.as_p }}
+      <button type="submit">Create session</button>
+    </form>
+  </section>
+  <section class="lc-card lc-wide">
+    <h2>Your sessions</h2>
+    {% for session in sessions %}
+      <p><a href="{% url 'liveclassroom:teacher-console' session.id %}">{{ session.course }} — {{ session.flow }}</a> <small>{{ session.get_status_display }} · {{ session.join_code }}</small></p>
+    {% empty %}
+      <p>No sessions yet. Create a course and flow in Django admin, then return here.</p>
+    {% endfor %}
+  </section>
+{% endblock %}
