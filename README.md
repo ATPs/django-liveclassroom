@@ -15,6 +15,8 @@ application.
 - An ASGI WebSocket endpoint that validates a session id and broadcasts
   lightweight session events.
 - A standalone Django project for local development and deployment experiments.
+- A working teacher-paced single-choice quiz loop: create/start a session, join
+  as a guest, submit once, close answers, view live totals, then reveal.
 
 The first milestone deliberately establishes the durable domain model and
 integration boundaries.  Authoring UI, Markdown/YAML import, React islands,
@@ -35,6 +37,17 @@ python standalone/manage.py runserver
 
 Open <http://127.0.0.1:8000/>. The Django admin is available at
 `/admin/`.
+
+## Run the first live quiz
+
+1. In `/admin/`, create a Course, Flow, single-choice Question, and Question
+   FlowItem. The question `data` uses `{"options": [{"id": "A", "text":
+   "…"}]}`; its `answer` is a JSON list such as `["A"]`.
+2. Visit `/teacher/`, create a session, and click **Start classroom**.
+3. Share `/join/` and the displayed join code. Guests enter only a display
+   name, then see the teacher's current activity.
+4. Publish the Question FlowItem, close responses, and reveal the answer from
+   the teacher console.
 
 ## Add to an existing Django project
 
