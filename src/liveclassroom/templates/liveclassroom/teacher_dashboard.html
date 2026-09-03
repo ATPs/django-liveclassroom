@@ -13,7 +13,7 @@
   <section class="lc-card lc-wide">
     <h2>Your sessions</h2>
     {% for session in sessions %}
-      <p><a href="{% url 'liveclassroom:teacher-console' session.id %}">{{ session.course }} — {{ session.flow }}</a> <small>{{ session.get_status_display }} · {{ session.join_code }}</small></p>
+      <p><a href="{% url 'liveclassroom:teacher-console' session.id %}">{{ session.title }}</a> <small>{{ session.get_status_display }}{% if session.archived_at %} · Archived{% endif %} · {{ session.join_code }}</small></p>
     {% empty %}
       <p>No sessions yet. Create a course and flow in Django admin, then return here.</p>
     {% endfor %}

@@ -25,10 +25,12 @@ from .registry import activity_registry
 from .services.analytics import session_analytics
 from .services.classroom import (
     ClassroomError,
+    archive_session,
     can_manage_admission,
     can_view_display,
     can_view_session,
     create_activity_definition,
+    delete_session,
     end_session,
     ensure_channel_states,
     join_authenticated,
@@ -352,6 +354,46 @@ def end(request, session_id: int):
         return _record(session, key, "session.end", request, _error(str(exc), 403))
     response = JsonResponse({"id": session.id, "status": session.status, "version": session.state_version})
     return _record(session, key, "session.end", request, response)
+
+
+@require_POST
+def archive(request, session_id: int):
+    """Archive or restore an ended session while retaining its records."""
+    session = get_object_or_404(LiveSession, pk=session_id)
+    replay, key = _replay(request, session, "session.archive")
+    if replay is not None:
+        return replay
+    try:
+        archived = _body(request).get("archived", True)
+        archive_session(session=session, actor=request.user, archived=archived)
+    except ClassroomError as exc:
+        return _record(session, key, "session.archive", request, _error(str(exc), 403))
+    response = JsonResponse(
+        {
+            "id": session.id,
+            "status": session.status,
+            "archived": session.archived_at is not None,
+            "version": session.state_version,
+        }
+    )
+    return _record(session, key, "session.archive", request, response)
+
+
+@require_POST
+def delete(request, session_id: int):
+    """Permanently delete an archived session only after explicit confirmation."""
+    session = get_object_or_404(LiveSession, pk=session_id)
+    replay, key = _replay(request, session, "session.delete")
+    if replay is not None:
+        return replay
+    try:
+        if _body(request).get("confirm") is not True:
+            raise ClassroomError("Explicit confirmation is required to delete a session.")
+        delete_session(session=session, actor=request.user)
+    except ClassroomError as exc:
+        return _record(session, key, "session.delete", request, _error(str(exc), 403))
+    response = JsonResponse({"id": session.id, "deleted": True})
+    return _record(session, key, "session.delete", request, response)
 
 
 @require_http_methods(["GET", "POST"])

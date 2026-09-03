@@ -26,6 +26,8 @@ application.
   manifests, pause/end lifecycle controls, and staff-only session analytics.
 - Staff-only session archive export plus summary, response, participant, and
   chat CSV datasets.
+- Ended-session archive/restore controls, explicit deletion protection, and a
+  configurable retention cleanup command.
 
 The first milestone deliberately establishes the durable domain model,
 integration boundaries, teacher controls, and a useful reporting surface.

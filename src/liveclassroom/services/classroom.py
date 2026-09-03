@@ -1,6 +1,7 @@
 """Transactional commands for the teacher-paced classroom workflow."""
 
 import secrets
+from datetime import timedelta
 from typing import Any
 
 from django.db import IntegrityError, transaction
@@ -444,6 +445,72 @@ def end_session(*, session: LiveSession, actor) -> LiveSession:
         },
     )
     return session
+
+
+@transaction.atomic
+def archive_session(*, session: LiveSession, actor, archived: bool = True) -> LiveSession:
+    """Archive or restore an ended session without removing its history."""
+    if not can_manage_session(actor, session):
+        raise ClassroomError("You do not have permission to archive this session.")
+    locked = LiveSession.objects.select_for_update().get(pk=session.pk)
+    if locked.status != LiveSession.Status.ENDED:
+        raise ClassroomError("Only an ended session can be archived.")
+    if not isinstance(archived, bool):
+        raise ClassroomError("archived must be a boolean.")
+    desired = timezone.now() if archived else None
+    if (locked.archived_at is not None) == archived:
+        session.archived_at = locked.archived_at
+        return session
+    locked.archived_at = desired
+    locked.save(update_fields=["archived_at", "updated_at"])
+    session.archived_at = desired
+    version = _advance_version(locked)
+    event_id = _append_event(
+        locked,
+        "session.archived" if archived else "session.unarchived",
+        actor,
+        {"archived": archived},
+    )
+    notify_session_after_commit(
+        locked.id,
+        {
+            "protocol": 1,
+            "session_id": locked.id,
+            "version": version,
+            "event_id": event_id,
+            "type": "session.archived" if archived else "session.unarchived",
+            "payload": {"archived": archived},
+        },
+    )
+    return session
+
+
+@transaction.atomic
+def delete_session(*, session: LiveSession, actor) -> None:
+    """Permanently delete an archived ended session after explicit confirmation."""
+    if not can_manage_session(actor, session):
+        raise ClassroomError("You do not have permission to delete this session.")
+    locked = LiveSession.objects.select_for_update().get(pk=session.pk)
+    if locked.status != LiveSession.Status.ENDED or locked.archived_at is None:
+        raise ClassroomError("Archive the ended session before deleting it.")
+    locked.delete()
+
+
+def purge_expired_sessions(*, days: int | None = None) -> int:
+    """Delete ended sessions older than the configured retention window."""
+    if days is None:
+        from liveclassroom.conf import setting
+
+        days = setting("RETENTION_DAYS")
+    if days is None:
+        return 0
+    if isinstance(days, bool) or not isinstance(days, int) or days < 1:
+        raise ClassroomError("Retention days must be a positive integer.")
+    cutoff = timezone.now() - timedelta(days=days)
+    queryset = LiveSession.objects.filter(status=LiveSession.Status.ENDED, ended_at__isnull=False, ended_at__lt=cutoff)
+    session_count = queryset.count()
+    queryset.delete()
+    return session_count
 
 
 @transaction.atomic

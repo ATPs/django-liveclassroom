@@ -9,6 +9,7 @@ DEFAULTS = {
     "DEFAULT_SESSION_MODE": "teacher_paced",
     "ALLOW_IFRAME": False,
     "WEBSOCKET_PATH": "/ws/liveclassroom/sessions/{session_id}/",
+    "RETENTION_DAYS": None,
 }
 
 

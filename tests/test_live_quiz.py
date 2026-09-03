@@ -292,3 +292,25 @@ def test_channel_visibility_can_show_explanation_without_answer(client, classroo
     ]["question"]
     assert "answer" not in question
     assert question["explanation_markdown"]
+
+
+@pytest.mark.django_db
+def test_session_archive_and_delete_api_require_ended_archived_confirmation(client):
+    teacher = get_user_model().objects.create_user(username="archive-teacher")
+    session = LiveSession.objects.create(teacher=teacher, title="Archive API")
+    client.force_login(teacher)
+    archive_url = reverse("liveclassroom:api-v1-archive", args=[session.id])
+    delete_url = reverse("liveclassroom:api-v1-delete", args=[session.id])
+
+    assert post_json(client, archive_url).status_code == 403
+    post_json(client, reverse("liveclassroom:api-v1-start", args=[session.id]))
+    post_json(client, reverse("liveclassroom:api-v1-end", args=[session.id]))
+    assert post_json(client, delete_url, {"confirm": True}).status_code == 403
+    archived = post_json(client, archive_url)
+    assert archived.status_code == 200
+    assert archived.json()["archived"] is True
+    assert post_json(client, delete_url, {"confirm": False}).status_code == 403
+    deleted = post_json(client, delete_url, {"confirm": True})
+    assert deleted.status_code == 200
+    assert deleted.json()["deleted"] is True
+    assert not LiveSession.objects.filter(pk=session.id).exists()

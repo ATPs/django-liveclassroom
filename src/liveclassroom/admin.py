@@ -71,7 +71,7 @@ class QuestionAdmin(admin.ModelAdmin):
 
 @admin.register(LiveSession)
 class LiveSessionAdmin(admin.ModelAdmin):
-    list_display = ("title", "course", "flow", "join_code", "status", "mode", "state_version")
+    list_display = ("title", "course", "flow", "join_code", "status", "archived_at", "mode", "state_version")
     list_filter = ("status", "mode", "access_mode", "admission_mode", "course")
     search_fields = ("title", "join_code", "course__title")
 

@@ -1,5 +1,8 @@
+from datetime import timedelta
+
 import pytest
 from django.contrib.auth import get_user_model
+from django.utils import timezone
 
 from liveclassroom.models import (
     ActivityRunRevision,
@@ -14,17 +17,20 @@ from liveclassroom.models import (
 )
 from liveclassroom.services.classroom import (
     ClassroomError,
+    archive_session,
     can_manage_admission,
     can_manage_session,
     can_view_display,
     can_view_session,
     create_activity_definition,
     create_instant_session,
+    delete_session,
     end_session,
     join_guest,
     launch_item,
     pause_session,
     publish_activity_to_channel,
+    purge_expired_sessions,
     revise_activity,
     start_session,
     submit_answer,
@@ -179,3 +185,24 @@ def test_activity_submission_is_checked_against_definition_and_session_can_pause
     activity.refresh_from_db()
     assert session.status == LiveSession.Status.ENDED
     assert activity.state == "closed"
+
+
+@pytest.mark.django_db
+def test_ended_session_archive_delete_and_retention_cleanup(teacher):
+    session = create_instant_session(owner=teacher, title="Retention")
+    start_session(session=session, actor=teacher)
+    end_session(session=session, actor=teacher)
+
+    with pytest.raises(ClassroomError, match="Archive"):
+        delete_session(session=session, actor=teacher)
+    archive_session(session=session, actor=teacher)
+    session.refresh_from_db()
+    assert session.archived_at is not None
+    archive_session(session=session, actor=teacher, archived=False)
+    session.refresh_from_db()
+    assert session.archived_at is None
+
+    archive_session(session=session, actor=teacher)
+    LiveSession.objects.filter(pk=session.pk).update(ended_at=timezone.now() - timedelta(days=31))
+    assert purge_expired_sessions(days=30) == 1
+    assert not LiveSession.objects.filter(pk=session.pk).exists()
