@@ -24,6 +24,8 @@ application.
   VaultPub Slide View URL adapter.
 - Reusable activity authoring/validation APIs, Markdown/YAML import, activity
   manifests, pause/end lifecycle controls, and staff-only session analytics.
+- Private teacher AI authoring threads with explicit source attachments,
+  durable queued jobs, safe model discovery, and host-configured dispatch.
 - Staff-only session archive export plus summary, response, participant, and
   chat CSV datasets.
 - Ended-session archive/restore controls, explicit deletion protection, and a
@@ -31,8 +33,9 @@ application.
 
 The first milestone deliberately establishes the durable domain model,
 integration boundaries, teacher controls, and a useful reporting surface.
-Visual authoring, React islands, browser acceptance, and production host
-wiring remain planned work.
+The packaged TypeScript teaching surface now mounts on the teacher, display,
+and student pages; a visual builder, browser acceptance, provider-specific AI
+adapters, and production host wiring remain planned work.
 
 ## Quick start
 
@@ -85,6 +88,12 @@ INSTALLED_APPS += ["channels", "liveclassroom"]
 Mount `liveclassroom.routing.websocket_urlpatterns` in the host project's ASGI
 application.  The standalone `asgi.py` is the reference integration.
 
+To rebuild the packaged teaching client after editing TypeScript, run
+`bun run bundle` from `frontend/`. This writes the dependency-free browser
+bundle to `src/liveclassroom/static/liveclassroom/app.js`; `bun run check`
+performs the optional TypeScript typecheck when frontend dependencies are
+installed.
+
 ## Design principles
 
 - Reuse the host project's `AUTH_USER_MODEL`; no custom user model is supplied.
@@ -118,6 +127,23 @@ For the `xcWebServer` installation with `vaultpub_portal`, configure
 the generic adapter. It rechecks the portal's registered-vault and share rules
 and returns teacher-safe note descriptors; student grants remain disabled until
 the host adds scoped grant storage and routes.
+
+## Optional AI authoring backend
+
+Register host-owned model discovery/completion backends and, in production, a
+dispatcher that hands queued jobs to the host worker:
+
+```python
+LIVECLASSROOM = {
+    "AI_BACKENDS": {"host": "myproject.liveclassroom_ai.HostBackend"},
+    "AI_JOB_DISPATCHER": "myproject.liveclassroom_ai.dispatch",
+}
+```
+
+Authoring threads are private to their teacher. Attachments store only typed
+references and fingerprints; protected sources are re-authorized at execution.
+Without a dispatcher, jobs remain queued for an explicit worker call to
+`liveclassroom.services.authoring.run_authoring_job`.
 
 ## License
 

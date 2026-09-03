@@ -768,10 +768,15 @@ def join_guest(*, session: LiveSession, display_name: str, guest_id: str | None 
         raise ClassroomError("This participant was removed from the classroom.")
     if existing and existing.admission_state == Participant.AdmissionState.REJECTED:
         raise ClassroomError("This participant was not admitted to the classroom.")
-    admission_state = (
+    requested_admission_state = (
         Participant.AdmissionState.PENDING
         if session.admission_mode == LiveSession.AdmissionMode.WAITING_ROOM
         else Participant.AdmissionState.ADMITTED
+    )
+    admission_state = (
+        existing.admission_state
+        if existing and existing.admission_state == Participant.AdmissionState.ADMITTED
+        else requested_admission_state
     )
     participant, created = Participant.objects.update_or_create(
         session=session,
@@ -1052,6 +1057,39 @@ def post_message(
         },
     )
     return message
+
+
+@transaction.atomic
+def set_chat_enabled(*, session: LiveSession, enabled: bool, actor) -> LiveSession:
+    """Enable or disable the named public chat without deleting its history."""
+    if not can_manage_admission(actor, session):
+        raise ClassroomError("You do not have permission to manage chat.")
+    if not isinstance(enabled, bool):
+        raise ClassroomError("enabled must be a boolean.")
+    locked = LiveSession.objects.select_for_update().get(pk=session.pk)
+    if locked.chat_enabled == enabled:
+        session.chat_enabled = enabled
+        session.state_version = locked.state_version
+        return session
+    locked.chat_enabled = enabled
+    locked.save(update_fields=["chat_enabled", "updated_at"])
+    version = _advance_version(locked)
+    event_type = "chat.enabled" if enabled else "chat.disabled"
+    event_id = _append_event(locked, event_type, actor, {"enabled": enabled})
+    notify_session_after_commit(
+        locked.id,
+        {
+            "protocol": 1,
+            "session_id": locked.id,
+            "version": version,
+            "event_id": event_id,
+            "type": event_type,
+            "payload": {"enabled": enabled},
+        },
+    )
+    session.chat_enabled = enabled
+    session.state_version = version
+    return session
 
 
 @transaction.atomic

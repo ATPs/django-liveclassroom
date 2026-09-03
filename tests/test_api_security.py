@@ -110,6 +110,59 @@ def test_student_history_keeps_answers_hidden_when_activity_was_revealed_globall
 
 
 @pytest.mark.django_db
+def test_student_history_uses_each_activity_revision_not_current_channel_revision():
+    user_model = get_user_model()
+    teacher = user_model.objects.create_user(username="history-revision-teacher")
+    session = create_instant_session(owner=teacher, title="History revisions")
+    first_definition = create_activity_definition(
+        owner=teacher,
+        title="First question",
+        type_key="liveclassroom.single_choice",
+        definition={
+            "prompt": "First prompt",
+            "options": [{"id": "A", "text": "First option"}],
+            "answer": ["A"],
+            "explanation_markdown": "First explanation",
+        },
+    )
+    second_definition = create_activity_definition(
+        owner=teacher,
+        title="Second question",
+        type_key="liveclassroom.single_choice",
+        definition={
+            "prompt": "Second prompt",
+            "options": [{"id": "B", "text": "Second option"}],
+            "answer": ["B"],
+            "explanation_markdown": "Second explanation",
+        },
+    )
+    start_session(session=session, actor=teacher)
+    first_activity = launch_item(session=session, item=first_definition, actor=teacher)
+    second_activity = launch_item(session=session, item=second_definition, actor=teacher)
+    first_activity.reviewable = True
+    first_activity.save(update_fields=["reviewable"])
+    second_activity.reviewable = True
+    second_activity.save(update_fields=["reviewable"])
+
+    student = Client()
+    joined = post_json(student, reverse("liveclassroom:api-v1-join", args=[session.join_code]), {"display_name": "Ada"})
+    assert joined.status_code == 201
+
+    response = student.get(reverse("liveclassroom:api-v1-history", args=[session.id]))
+
+    assert response.status_code == 200
+    activities = response.json()["activities"]
+    assert [activity["id"] for activity in activities] == [first_activity.id, second_activity.id]
+    assert [activity["definition"]["title"] for activity in activities] == [
+        "First question",
+        "Second question",
+    ]
+    for activity in activities:
+        assert "answer" not in activity["definition"]
+        assert "explanation_markdown" not in activity["definition"]
+
+
+@pytest.mark.django_db
 def test_observer_cannot_export_named_session_archive():
     user_model = get_user_model()
     teacher = user_model.objects.create_user(username="export-teacher")

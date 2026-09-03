@@ -120,6 +120,24 @@ def test_guest_waiting_room_and_authenticated_access_modes(teacher):
 
 
 @pytest.mark.django_db
+def test_guest_retry_preserves_waiting_room_admission(teacher):
+    session = create_instant_session(
+        owner=teacher,
+        title="Retry admission",
+        admission_mode=LiveSession.AdmissionMode.WAITING_ROOM,
+    )
+    start_session(session=session, actor=teacher)
+    participant = join_guest(session=session, display_name="Ada", guest_id="stable-guest")
+    participant.admission_state = Participant.AdmissionState.ADMITTED
+    participant.save(update_fields=["admission_state"])
+
+    retried = join_guest(session=session, display_name="Ada", guest_id="stable-guest")
+
+    assert retried.pk == participant.pk
+    assert retried.admission_state == Participant.AdmissionState.ADMITTED
+
+
+@pytest.mark.django_db
 def test_activity_and_submission_revisions_preserve_history(teacher):
     course = Course.objects.create(title="Course", slug="foundation", created_by=teacher)
     flow = Flow.objects.create(course=course, created_by=teacher, title="Flow", slug="flow")

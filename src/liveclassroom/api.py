@@ -9,9 +9,13 @@ from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
+from .ai import AuthoringAIError, authoring_ai_backends
 from .models import (
     ActivityDefinition,
     AuthoringCommandReceipt,
+    AuthoringJob,
+    AuthoringMessage,
+    AuthoringThread,
     CommandReceipt,
     Course,
     FlowItem,
@@ -23,6 +27,11 @@ from .models import (
 )
 from .registry import activity_registry
 from .services.analytics import session_analytics
+from .services.authoring import (
+    can_view_authoring_thread,
+    create_authoring_request,
+    create_authoring_thread,
+)
 from .services.classroom import (
     ClassroomError,
     archive_session,
@@ -43,6 +52,7 @@ from .services.classroom import (
     revise_activity,
     revise_activity_definition,
     set_activity_state,
+    set_chat_enabled,
     set_participant_admission,
     start_session,
     submit_answer,
@@ -60,8 +70,59 @@ def _body(request) -> dict:
     return payload
 
 
-def _error(message: str, status: int = 400):
-    return JsonResponse({"detail": message}, status=status)
+def _error_code(message: str, status: int) -> str:
+    """Map legacy command messages to the stable public error vocabulary."""
+    normalized = message.casefold()
+    if "idempotency key" in normalized or "already in progress" in normalized:
+        return "idempotency_conflict"
+    if "chat is disabled" in normalized:
+        return "chat_disabled"
+    if (
+        status == 503
+        or "temporarily unavailable" in normalized
+        or "provider" in normalized
+        and "unavailable" in normalized
+    ):
+        return "provider_unavailable"
+    if any(
+        phrase in normalized
+        for phrase in (
+            "not admitted",
+            "join the classroom",
+            "requires a django account",
+            "approved roster",
+            "not on this classroom's roster",
+            "waiting room",
+        )
+    ):
+        return "admission_required"
+    if any(
+        phrase in normalized
+        for phrase in (
+            "no longer accepting answers",
+            "only an open activity",
+            "only a live session",
+            "ended session",
+            "archive the ended session",
+        )
+    ):
+        return "activity_closed"
+    if status == 403 or "permission" in normalized:
+        return "permission_denied"
+    if "stale" in normalized or ("version" in normalized and "current" in normalized):
+        return "stale_revision"
+    if "revision" in normalized:
+        return "invalid_revision"
+    if status == 404:
+        return "not_found"
+    return "invalid_request"
+
+
+def _error(message: str, status: int = 400, *, code: str | None = None):
+    return JsonResponse(
+        {"code": code or _error_code(message, status), "detail": message},
+        status=status,
+    )
 
 
 def _idempotency_key(request) -> str | None:
@@ -261,7 +322,11 @@ def _public_activity(
 ) -> dict | None:
     if not activity:
         return None
-    revision = getattr(channel_state, "current_revision", None) if channel_state is not None else None
+    revision = (
+        getattr(channel_state, "current_revision", None)
+        if channel_state is not None and channel_state.current_activity_id == activity.id
+        else None
+    )
     revision = revision or (activity.current_revision if activity.current_revision_id else None)
     snapshot = revision.definition_snapshot.copy() if revision is not None else activity.definition_snapshot.copy()
     snapshot = deepcopy(snapshot)
@@ -427,6 +492,152 @@ def activity_types(request):
             ],
         }
     )
+
+
+def _authoring_message_payload(message: AuthoringMessage) -> dict:
+    return {
+        "id": message.id,
+        "role": message.role,
+        "content": message.content,
+        "model_identifier": message.model_identifier,
+        "status": message.status,
+        "attachments": [
+            {
+                "id": attachment.id,
+                "source_type": attachment.source_type,
+                "source_id": attachment.source_id,
+                "provider": attachment.provider,
+                "reference": attachment.reference,
+                "source_fingerprint": attachment.source_fingerprint,
+            }
+            for attachment in message.attachments.all()
+        ],
+        "created_at": message.created_at,
+    }
+
+
+def _authoring_job_payload(job: AuthoringJob) -> dict:
+    return {
+        "id": job.id,
+        "status": job.status,
+        "backend_key": job.backend_key,
+        "model_identifier": job.model_identifier,
+        "error_code": job.error_code,
+        "attempt": job.attempt,
+        "message_id": job.message_id,
+        "assistant_message_id": job.assistant_message_id,
+        "queued_at": job.queued_at,
+        "started_at": job.started_at,
+        "completed_at": job.completed_at,
+    }
+
+
+@require_http_methods(["GET", "POST"])
+def authoring_threads(request):
+    """List or create private teacher authoring conversations."""
+    if not getattr(request.user, "is_authenticated", False):
+        return _error("An authenticated teacher is required.", 403)
+    if request.method == "POST":
+        replay, key = _authoring_replay(request, "authoring.thread.create")
+        if replay is not None:
+            return replay
+        try:
+            body = _body(request)
+            thread = create_authoring_thread(
+                owner=request.user,
+                title=body.get("title", "New authoring conversation"),
+            )
+        except ClassroomError as exc:
+            return _record_authoring(request, key, "authoring.thread.create", _error(str(exc), 400))
+        return _record_authoring(
+            request,
+            key,
+            "authoring.thread.create",
+            JsonResponse({"id": thread.id, "title": thread.title}, status=201),
+        )
+    threads = AuthoringThread.objects.filter(owner=request.user).values(
+        "id", "title", "created_at", "updated_at"
+    )
+    return JsonResponse({"threads": list(threads)})
+
+
+@require_GET
+def authoring_models(request):
+    """Expose only safe model metadata from configured AI backends."""
+    if not getattr(request.user, "is_authenticated", False):
+        return _error("An authenticated teacher is required.", 403)
+    backend_key = request.GET.get("backend")
+    try:
+        registry = authoring_ai_backends()
+        keys = [backend_key] if backend_key else registry.keys()
+        models = []
+        for key in keys:
+            for model in registry.get(key).list_models(request=request):
+                if not hasattr(model, "identifier") or not hasattr(model, "label"):
+                    raise AuthoringAIError("Invalid model metadata")
+                models.append({"backend_key": key, "identifier": str(model.identifier), "label": str(model.label)})
+    except Exception:
+        return _error("AI model discovery is temporarily unavailable.", 503)
+    return JsonResponse({"backends": registry.keys(), "models": models})
+
+
+@require_GET
+def authoring_thread(request, thread_id: int):
+    """Return one private conversation and bounded job status."""
+    thread = get_object_or_404(AuthoringThread, pk=thread_id)
+    if not can_view_authoring_thread(request.user, thread):
+        return _error("You do not have permission to view this authoring thread.", 403)
+    messages = list(thread.messages.prefetch_related("attachments").all())
+    return JsonResponse(
+        {
+            "id": thread.id,
+            "title": thread.title,
+            "messages": [_authoring_message_payload(message) for message in messages],
+            "jobs": [_authoring_job_payload(job) for job in thread.jobs.all()],
+        }
+    )
+
+
+@require_POST
+def authoring_message(request, thread_id: int):
+    """Queue a teacher prompt with explicit, re-authorized attachments."""
+    thread = get_object_or_404(AuthoringThread, pk=thread_id)
+    if not can_view_authoring_thread(request.user, thread):
+        return _error("You do not have permission to use this authoring thread.", 403)
+    replay, key = _authoring_replay(request, f"authoring.message.{thread_id}")
+    if replay is not None:
+        return replay
+    try:
+        body = _body(request)
+        prompt, job = create_authoring_request(
+            thread=thread,
+            author=request.user,
+            content=body["content"],
+            backend_key=body["backend_key"],
+            model_identifier=body["model_identifier"],
+            attachments=body.get("attachments", []),
+            request=request,
+            options=body.get("options"),
+        )
+    except KeyError as exc:
+        return _record_authoring(request, key, f"authoring.message.{thread_id}", _error(f"{exc.args[0]} is required."))
+    except ClassroomError as exc:
+        return _record_authoring(request, key, f"authoring.message.{thread_id}", _error(str(exc), 400))
+    return _record_authoring(
+        request,
+        key,
+        f"authoring.message.{thread_id}",
+        JsonResponse({"message": _authoring_message_payload(prompt), "job": _authoring_job_payload(job)}, status=202),
+    )
+
+
+@require_GET
+def authoring_job(request, job_id: int):
+    """Return a teacher-owned job status without provider diagnostics."""
+    job = get_object_or_404(AuthoringJob.objects.select_related("thread"), pk=job_id)
+    if not can_view_authoring_thread(request.user, job.thread):
+        return _error("You do not have permission to view this authoring job.", 403)
+    return JsonResponse(_authoring_job_payload(job))
 
 
 @require_POST
@@ -750,8 +961,12 @@ def chat_messages(request, session_id: int):
         return _error("You are not admitted to this classroom.", 403)
     if not participant and not can_view_session(request.user, session):
         return _error("Join the classroom before viewing chat.", 403)
-    messages = session.messages.filter(deleted_at__isnull=True).values("id", "display_name", "body", "created_at")
-    return JsonResponse({"messages": list(messages)})
+    messages = (
+        session.messages.filter(deleted_at__isnull=True).values("id", "display_name", "body", "created_at")
+        if session.chat_enabled or can_view_session(request.user, session)
+        else []
+    )
+    return JsonResponse({"enabled": session.chat_enabled, "messages": list(messages)})
 
 
 @require_GET
@@ -808,6 +1023,44 @@ def chat_send(request, session_id: int):
     )
 
 
+@require_POST
+def chat_settings(request, session_id: int):
+    """Enable or disable the named public chat for one classroom."""
+    session = get_object_or_404(LiveSession, pk=session_id)
+    replay, key = _replay(request, session, "chat.settings")
+    if replay is not None:
+        return replay
+    try:
+        enabled = _body(request)["enabled"]
+        if not isinstance(enabled, bool):
+            return _record(
+                session,
+                key,
+                "chat.settings",
+                request,
+                _error("enabled must be a boolean."),
+            )
+        set_chat_enabled(session=session, enabled=enabled, actor=request.user)
+    except KeyError as exc:
+        return _record(session, key, "chat.settings", request, _error(f"{exc.args[0]} is required."))
+    except ClassroomError as exc:
+        return _record(session, key, "chat.settings", request, _error(str(exc), 403))
+    return _record(
+        session,
+        key,
+        "chat.settings",
+        request,
+        JsonResponse(
+            {
+                "session_id": session.id,
+                "enabled": session.chat_enabled,
+                "chat_enabled": session.chat_enabled,
+                "version": session.state_version,
+            }
+        ),
+    )
+
+
 @require_GET
 def state(request, session_id: int):
     session = get_object_or_404(LiveSession, pk=session_id)
@@ -838,6 +1091,7 @@ def state(request, session_id: int):
                             "title": session.title,
                             "status": session.status,
                             "version": session.state_version,
+                            "chat_enabled": session.chat_enabled,
                             "access_mode": session.access_mode,
                             "admission_mode": session.admission_mode,
                         },
@@ -913,6 +1167,7 @@ def state(request, session_id: int):
                 "version": session.state_version,
                 "access_mode": session.access_mode,
                 "admission_mode": session.admission_mode,
+                "chat_enabled": session.chat_enabled,
             },
             "channel": channel,
             "current_activity": _public_activity(activity, channel_state=channel_state),

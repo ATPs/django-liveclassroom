@@ -3,6 +3,10 @@ from django.contrib import admin
 from .models import (
     ActivityDefinition,
     ActivityDefinitionRevision,
+    AuthoringAttachment,
+    AuthoringJob,
+    AuthoringMessage,
+    AuthoringThread,
     CommandReceipt,
     Course,
     CourseMembership,
@@ -90,3 +94,7 @@ admin.site.register(SessionMessage)
 admin.site.register(CommandReceipt)
 admin.site.register(SessionChannelState)
 admin.site.register(SessionStaff)
+admin.site.register(AuthoringThread)
+admin.site.register(AuthoringMessage)
+admin.site.register(AuthoringAttachment)
+admin.site.register(AuthoringJob)

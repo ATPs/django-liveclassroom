@@ -10,6 +10,8 @@ DEFAULTS = {
     "ALLOW_IFRAME": False,
     "WEBSOCKET_PATH": "/ws/liveclassroom/sessions/{session_id}/",
     "RETENTION_DAYS": None,
+    "AI_BACKENDS": {},
+    "AI_JOB_DISPATCHER": None,
 }
 
 

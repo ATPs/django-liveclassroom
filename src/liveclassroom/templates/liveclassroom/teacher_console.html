@@ -1,7 +1,7 @@
 {% extends "liveclassroom/base.html" %}
 {% block title %}Teacher console · LiveClassroom{% endblock %}
 {% block content %}
-  <section class="lc-card lc-wide" data-session-id="{{ session.id }}">
+  <section class="lc-card lc-wide" data-session-id="{{ session.id }}" data-liveclassroom-app data-audience="teacher" data-state-url="{% url 'liveclassroom:api-v1-state' session.id %}" data-websocket-url="{{ websocket_url }}">
     <p class="lc-kicker">Teacher · {{ session.title }}</p>
     <h1>{{ session.flow|default:'Instant session' }}</h1>
     <p>Join code: <strong class="lc-code">{{ session.join_code }}</strong> · <a href="{% url 'liveclassroom:join' %}">student join page</a> · <a href="{% url 'liveclassroom:classroom-display' session.id %}">open display</a></p>
@@ -21,6 +21,15 @@
         {% empty %}
           <p>Add reusable activities in the teacher workspace or Django admin.</p>
         {% endfor %}
+      </section>
+      <section aria-live="polite">
+        <h2>Display preview</h2>
+        <div data-liveclassroom-content></div>
+        <p data-liveclassroom-status>{{ session.get_status_display }}</p>
+      </section>
+      <section aria-live="polite">
+        <h2>Student preview</h2>
+        <div data-liveclassroom-participant-preview><p>Publish an activity to preview the student view.</p></div>
       </section>
       <section>
         <h2>Live results</h2>
@@ -60,114 +69,15 @@
         </table>
       </div>
     </section>
+    <section class="lc-chat" data-liveclassroom-chat aria-labelledby="chat-heading">
+      <h2 id="chat-heading">Class chat</h2>
+      <p data-liveclassroom-chat-status aria-live="polite"></p>
+      <ul data-liveclassroom-chat-messages aria-live="polite"><li>No messages yet.</li></ul>
+      <div data-liveclassroom-chat-settings></div>
+      <form data-liveclassroom-chat-form>
+        <label>Message <textarea name="body" rows="2" maxlength="4000"></textarea></label>
+        <button type="submit">Send</button>
+      </form>
+    </section>
   </section>
-  <script>
-    const sessionId = {{ session.id }};
-    const stateUrl = "{% url 'liveclassroom:api-state' session.id %}";
-    const startUrl = "{% url 'liveclassroom:api-start' session.id %}";
-    const pauseUrl = "{% url 'liveclassroom:api-pause' session.id %}";
-    const endUrl = "{% url 'liveclassroom:api-end' session.id %}";
-    const launchUrl = "{% url 'liveclassroom:api-launch' session.id %}";
-    const resultsUrlTemplate = "{% url 'liveclassroom:api-results' 0 %}";
-    const closeUrlTemplate = "{% url 'liveclassroom:api-close' 0 %}";
-    const revealUrlTemplate = "{% url 'liveclassroom:api-reveal' 0 %}";
-    const analyticsUrl = "{% url 'liveclassroom:api-v1-analytics' session.id %}";
-    let currentActivityId = null;
-    function csrf() { return document.cookie.match(/(?:^|;)\s*csrftoken=([^;]+)/)?.[1] || ""; }
-    async function post(url, body = {}) {
-      const response = await fetch(url, {method: "POST", headers: {"Content-Type": "application/json", "X-CSRFToken": csrf()}, body: JSON.stringify(body)});
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.detail || "Request failed");
-      return data;
-    }
-    async function refresh() {
-      const response = await fetch(stateUrl);
-      const state = await response.json();
-      document.querySelector("#session-status").textContent = state.session.status;
-      document.querySelector("#start-session").disabled = ["live", "ended"].includes(state.session.status);
-      document.querySelector("#pause-session").disabled = state.session.status !== "live";
-      document.querySelector("#end-session").disabled = state.session.status === "ended";
-      const activity = state.current_activity;
-      currentActivityId = activity?.id || null;
-      document.querySelector("#activity-status").textContent = activity ? `${activity.definition.title || activity.definition.kind} (${activity.state})` : "No activity published.";
-      document.querySelector("#close-activity").disabled = !activity || activity.state !== "open";
-      document.querySelector("#reveal-activity").disabled = !activity || activity.state !== "closed";
-      if (currentActivityId) {
-        const resultsUrl = resultsUrlTemplate.replace("/0/", `/${currentActivityId}/`);
-        const results = await fetch(resultsUrl).then(r => r.json());
-        document.querySelector("#result-summary").textContent = `${results.submission_count} submitted · ${Object.entries(results.choices || {}).map(([choice, count]) => `${choice}: ${count}`).join(" · ") || "No answers yet"}`;
-      }
-      await refreshAnalytics();
-    }
-    function addCell(row, value) { const cell = document.createElement("td"); cell.textContent = value; row.append(cell); }
-    function connectionLabel(participant) {
-      if (!participant.connected_at) return "Not connected";
-      return participant.disconnected_at ? "Offline" : "Connected";
-    }
-    function renderAnalytics(data) {
-      const attendance = data.attendance;
-      document.querySelector("#analytics-summary").textContent = `${attendance.admitted} admitted · ${attendance.currently_connected} connected · ${attendance.ever_connected} attended · ${attendance.pending} pending`;
-      const activityBody = document.querySelector("#analytics-activities");
-      activityBody.replaceChildren();
-      if (!data.activities.length) {
-        const row = document.createElement("tr"); addCell(row, "No activities yet."); row.cells[0].colSpan = 6; activityBody.append(row);
-      }
-      for (const activity of data.activities) {
-        const row = document.createElement("tr");
-        addCell(row, activity.sequence);
-        addCell(row, activity.title || activity.kind);
-        addCell(row, `${activity.submitted_count}/${activity.eligible_participant_count}`);
-        addCell(row, `${activity.response_rate}%`);
-        addCell(row, activity.stale_submission_count);
-        addCell(row, activity.state);
-        activityBody.append(row);
-      }
-      const participantBody = document.querySelector("#analytics-participants");
-      participantBody.replaceChildren();
-      if (!data.participants.length) {
-        const row = document.createElement("tr"); addCell(row, "No participants yet."); row.cells[0].colSpan = 5; participantBody.append(row);
-      }
-      for (const participant of data.participants) {
-        const row = document.createElement("tr");
-        addCell(row, participant.display_name);
-        addCell(row, participant.admission_state);
-        addCell(row, participant.current_response_count);
-        addCell(row, participant.stale_response_count);
-        addCell(row, connectionLabel(participant));
-        participantBody.append(row);
-      }
-      const current = data.activities.find(activity => activity.id === currentActivityId);
-      document.querySelector("#analytics-responses-caption").textContent = current ? `Responses for ${current.title || current.kind}` : "Responses for the current activity";
-      const responseBody = document.querySelector("#analytics-responses");
-      responseBody.replaceChildren();
-      if (!current || !current.responses.length) {
-        const row = document.createElement("tr"); addCell(row, current ? "No responses yet." : "Publish an activity to review responses."); row.cells[0].colSpan = 4; responseBody.append(row);
-      }
-      if (current) for (const response of current.responses) {
-        const row = document.createElement("tr");
-        addCell(row, response.display_name);
-        addCell(row, JSON.stringify(response.answer));
-        addCell(row, response.revision ?? "-");
-        addCell(row, response.is_stale ? "Stale" : "Current");
-        responseBody.append(row);
-      }
-    }
-    async function refreshAnalytics() {
-      const response = await fetch(analyticsUrl);
-      if (!response.ok) { document.querySelector("#analytics-summary").textContent = "Analytics are unavailable."; return; }
-      renderAnalytics(await response.json());
-    }
-    document.querySelector("#start-session").onclick = async () => { try { await post(startUrl); await refresh(); } catch (e) { alert(e.message); } };
-    document.querySelector("#pause-session").onclick = async () => { try { await post(pauseUrl); await refresh(); } catch (e) { alert(e.message); } };
-    document.querySelector("#end-session").onclick = async () => { if (!confirm("End this classroom? Students will no longer be able to join.")) return; try { await post(endUrl); await refresh(); } catch (e) { alert(e.message); } };
-    document.querySelectorAll(".lc-item").forEach(button => button.onclick = async () => { try { await post(launchUrl, {flow_item_id: Number(button.dataset.itemId)}); await refresh(); } catch (e) { alert(e.message); } });
-    document.querySelector("#close-activity").onclick = async () => { try { await post(closeUrlTemplate.replace("/0/", `/${currentActivityId}/`)); await refresh(); } catch (e) { alert(e.message); } };
-    document.querySelector("#reveal-activity").onclick = async () => { try { await post(revealUrlTemplate.replace("/0/", `/${currentActivityId}/`)); await refresh(); } catch (e) { alert(e.message); } };
-    const socketScheme = location.protocol === "https:" ? "wss" : "ws";
-    const sessionSocket = new WebSocket(`${socketScheme}://${location.host}{{ websocket_url }}`);
-    sessionSocket.onmessage = () => refresh();
-    refresh();
-    // Polling is a reconnect-safe fallback when a network blocks WebSockets.
-    setInterval(refresh, 3000);
-  </script>
 {% endblock %}

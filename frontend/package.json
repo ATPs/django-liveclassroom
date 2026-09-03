@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "build": "tsc --noEmit",
-    "check": "tsc --noEmit"
+    "check": "tsc --noEmit",
+    "bundle": "bun build src/app.ts --outfile ../src/liveclassroom/static/liveclassroom/app.js --target browser --format esm"
   },
   "devDependencies": {
     "typescript": "^5.7.0"

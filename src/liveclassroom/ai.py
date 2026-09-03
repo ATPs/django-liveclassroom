@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
+from importlib import import_module
 from typing import Any, Protocol
+
+from django.conf import settings
 
 
 class AuthoringAIError(RuntimeError):
@@ -43,7 +46,12 @@ class AuthoringAIBackend(Protocol):
         request: Any | None = None,
         attachments: list[dict[str, Any]] | None = None,
     ) -> AIMessage:
-        """Complete a teacher chat without persisting credentials or expanded sources."""
+        """Complete a teacher chat without persisting credentials or expanded sources.
+
+        Hosts that need transient custom-provider settings may read the
+        request-local ``liveclassroom_ai_options`` attribute during this call;
+        the package never serializes or logs that value.
+        """
 
 
 class AuthoringAIRegistry:
@@ -64,6 +72,32 @@ class AuthoringAIRegistry:
         return tuple(sorted(self._backends))
 
 
-def authoring_ai_backends(configured: dict[str, AuthoringAIBackend] | None = None) -> AuthoringAIRegistry:
-    """Build an AI registry from an explicit mapping supplied by the host."""
-    return AuthoringAIRegistry(dict(configured or {}))
+def _load_backend(path: str) -> Any:
+    module_name, separator, attribute = path.rpartition(".")
+    if not separator or not module_name or not attribute:
+        raise AuthoringAIError(f"Invalid authoring AI backend path: {path!r}")
+    try:
+        return getattr(import_module(module_name), attribute)
+    except (ImportError, AttributeError) as exc:
+        raise AuthoringAIError(f"Unable to load authoring AI backend: {path!r}") from exc
+
+
+def authoring_ai_backends(
+    configured: dict[str, AuthoringAIBackend] | None = None,
+) -> AuthoringAIRegistry:
+    """Build a registry from explicit backends or host ``LIVECLASSROOM`` settings."""
+    if configured is None:
+        configured = getattr(settings, "LIVECLASSROOM", {}).get("AI_BACKENDS", {})
+    if not isinstance(configured, dict):
+        raise AuthoringAIError("LIVECLASSROOM['AI_BACKENDS'] must be a mapping")
+
+    backends: dict[str, AuthoringAIBackend] = {}
+    for key, configured_backend in configured.items():
+        backend = _load_backend(configured_backend) if isinstance(configured_backend, str) else configured_backend
+        if isinstance(backend, type):
+            backend = backend()
+        backend_key = str(getattr(backend, "key", key))
+        if backend_key != str(key):
+            raise AuthoringAIError(f"Authoring AI backend key mismatch for {key!r}: {backend_key!r}")
+        backends[backend_key] = backend
+    return AuthoringAIRegistry(backends)
