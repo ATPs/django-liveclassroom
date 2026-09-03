@@ -98,5 +98,9 @@ urlpatterns = [
     path("api/v1/flows/<int:flow_id>/steps/", api_flows.add_step_api, name="api-v1-flow-add-step"),
     path("api/v1/flows/<int:flow_id>/steps/reorder/", api_flows.reorder_steps_api, name="api-v1-flow-reorder-steps"),
     path("api/v1/flows/<int:flow_id>/steps/<int:step_id>/", api_flows.delete_step_api, name="api-v1-flow-delete-step"),
-    path("api/v1/sessions/<int:session_id>/save-flow/", api_flows.save_session_flow_api, name="api-v1-session-save-flow"),
+    path(
+        "api/v1/sessions/<int:session_id>/save-flow/",
+        api_flows.save_session_flow_api,
+        name="api-v1-session-save-flow",
+    ),
 ]

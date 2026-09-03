@@ -1,11 +1,10 @@
 """Tests for LiveClassroom activity plugin registry, built-in types, and system checks."""
 
-from dataclasses import replace
 import pytest
 from django.contrib.auth import get_user_model
 from django.core.checks import Error, Warning
 from django.core.management import call_command
-from django.test import Client
+from django.test import Client, override_settings
 from django.urls import reverse
 
 from liveclassroom.checks import check_activity_registry
@@ -230,8 +229,14 @@ def test_media_definition_validation_and_capabilities():
     assert valid_img["media_type"] == "image"
     assert valid_img["caption"] == "Diagram"
 
-    for valid_type in ("image", "video", "audio", "iframe"):
+    for valid_type in ("image", "video", "audio"):
         assert media.validate({"url": "https://example.com/test", "media_type": valid_type})["media_type"] == valid_type
+
+    # iframe requires the host to opt in via LIVECLASSROOM["ALLOW_IFRAME"].
+    with pytest.raises(ValueError, match="iframes is disabled"):
+        media.validate({"url": "https://example.com/test", "media_type": "iframe"})
+    with override_settings(LIVECLASSROOM={"ALLOW_IFRAME": True}):
+        assert media.validate({"url": "https://example.com/test", "media_type": "iframe"})["media_type"] == "iframe"
 
     # Rejections
     with pytest.raises(ValueError, match="url is required"):
@@ -244,7 +249,12 @@ def test_media_definition_validation_and_capabilities():
         media.validate({"url": "https://example.com/test", "media_type": "executable"})
 
     with pytest.raises(ValueError, match="caption must be text"):
-        media.validate({"url": "https://example.com/test", "caption": 42})
+        media.validate({"url": "https://example.com/test", "media_type": "image", "caption": 42})
+
+    # Executable and credential-bearing URLs are rejected regardless of type.
+    for bad_url in ("javascript:alert(1)", "data:text/html,hi", "file:///etc/passwd", "https://user:pass@example.com/x.png"):
+        with pytest.raises(ValueError):
+            media.validate({"url": bad_url, "media_type": "image"})
 
     # Export
     assert media.export({"watched_seconds": 15}) == {"watched_seconds": 15}
@@ -288,12 +298,21 @@ def test_choice_numeric_and_ranking_builtins():
 
 
 def test_third_party_activity_type_registration(clean_registry):
+    def validate_submission(submission, definition):
+        if len(submission["snippet"]) > 0:
+            return submission
+        raise ValueError("empty snippet")
+
+    def aggregate_submissions(submissions):
+        snippets = [sub.get("snippet", "") for sub in submissions]
+        return {"submission_count": len(snippets), "total_chars": sum(len(s) for s in snippets)}
+
     custom_type = ActivityType(
         key="vendor.code_snippet",
         validate_definition=lambda d: {"language": d.get("language", "python"), "code": str(d.get("code", "")).strip()},
         normalize_submission=lambda s: {"snippet": str(s.get("snippet", "")).strip()},
-        validate_submission=lambda s, d: s if len(s["snippet"]) > 0 else (_ for _ in ()).throw(ValueError("empty snippet")),
-        aggregate_submissions=lambda subs: {"submission_count": len(list(subs)), "total_chars": sum(len(s.get("snippet", "")) for s in subs)},
+        validate_submission=validate_submission,
+        aggregate_submissions=aggregate_submissions,
         export_submission=lambda s: {"exported_snippet": s.get("snippet")},
         capabilities=frozenset({"content", "aggregate"}),
         frontend_manifest={
@@ -351,7 +370,10 @@ def test_system_check_detects_malformed_plugins(clean_registry):
     bad_manifest_type = ActivityType(key="test.missing_manifest", frontend_manifest={})
     activity_registry.register(bad_manifest_type, replace=True)
     messages = check_activity_registry()
-    e002_errors = [m for m in messages if m.id == "liveclassroom.E002" and getattr(m.obj, "key", "") == "test.missing_manifest"]
+    e002_errors = [
+        m for m in messages
+        if m.id == "liveclassroom.E002" and getattr(m.obj, "key", "") == "test.missing_manifest"
+    ]
     assert len(e002_errors) == 1
     activity_registry.unregister("test.missing_manifest")
 
@@ -376,7 +398,10 @@ def test_system_check_detects_malformed_plugins(clean_registry):
     )
     activity_registry.register(bad_cap_type, replace=True)
     messages = check_activity_registry()
-    e003_errors = [m for m in messages if m.id == "liveclassroom.E003" and getattr(m.obj, "key", "") == "test.bad_cap"]
+    e003_errors = [
+        m for m in messages
+        if m.id == "liveclassroom.E003" and getattr(m.obj, "key", "") == "test.bad_cap"
+    ]
     assert len(e003_errors) >= 1
     activity_registry.unregister("test.bad_cap")
 
@@ -388,7 +413,10 @@ def test_system_check_detects_malformed_plugins(clean_registry):
     )
     activity_registry.register(unknown_cap_type, replace=True)
     messages = check_activity_registry()
-    w001_warnings = [m for m in messages if m.id == "liveclassroom.W001" and getattr(m.obj, "key", "") == "test.unknown_cap"]
+    w001_warnings = [
+        m for m in messages
+        if m.id == "liveclassroom.W001" and getattr(m.obj, "key", "") == "test.unknown_cap"
+    ]
     assert len(w001_warnings) == 1
     assert "future_feature" in w001_warnings[0].msg
     activity_registry.unregister("test.unknown_cap")

@@ -10,6 +10,7 @@ from django.db import transaction
 from django.utils.text import slugify
 
 from liveclassroom.models import ActivityDefinition, Flow, FlowItem, FlowStep, Question
+from liveclassroom.registry import activity_registry
 
 
 class ImportError(ValueError):
@@ -152,13 +153,24 @@ def import_markdown_flow(
             type_key = f"liveclassroom.{q_type}"
             stem = item.question.get("stem_markdown", "")
             title = item.title or stem[:80] or "Question"
+            answer = item.question.get("answer", [])
+            if q_type == "true_false":
+                option_map = {
+                    option["id"]: option["text"].strip().lower()
+                    for option in item.question.get("data", {}).get("options", [])
+                }
+                answer = [option_map.get(str(value), str(value)) for value in answer]
             activity_payload = {
                 "prompt": stem,
                 "stem_markdown": stem,
                 "options": item.question.get("data", {}).get("options", []),
-                "answer": item.question.get("answer", []),
+                "answer": answer,
                 "explanation": item.question.get("explanation_markdown", ""),
             }
+            try:
+                activity_payload = activity_registry.get(type_key).validate(activity_payload)
+            except (KeyError, ValueError) as exc:
+                raise ImportError(f"Invalid activity definition for {type_key}: {exc}") from exc
             activity_def = ActivityDefinition.objects.create(
                 owner=owner,
                 course=course,

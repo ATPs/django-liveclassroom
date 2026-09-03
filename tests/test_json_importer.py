@@ -1,4 +1,5 @@
 import json
+
 import pytest
 from django.contrib.auth import get_user_model
 from django.test import Client
@@ -9,7 +10,7 @@ from liveclassroom.importers import (
     import_json_flow,
     parse_json_flow,
 )
-from liveclassroom.models import ActivityDefinition, Course, Flow, FlowItem, FlowStep
+from liveclassroom.models import ActivityDefinition, Course, Flow
 
 
 def post_json(client, url, payload=None, **headers):
@@ -191,7 +192,14 @@ def test_import_flow_api_json_and_markdown(teacher):
 
     # 1. Unauthenticated request rejected
     anon = Client()
-    assert anon.post(reverse("liveclassroom:api-v1-flow-import"), data="{}", content_type="application/json").status_code == 401
+    assert (
+        anon.post(
+            reverse("liveclassroom:api-v1-flow-import"),
+            data="{}",
+            content_type="application/json",
+        ).status_code
+        == 401
+    )
 
     # 2. Import via JSON payload
     json_payload = {
@@ -235,5 +243,9 @@ answer: ["Markup language"]
     assert len(res_md.json()["steps"]) == 2
 
     # 4. Import invalid payload returns 400
-    res_bad = post_json(client, reverse("liveclassroom:api-v1-flow-import"), {"format": "json", "source": {"title": "Bad", "steps": []}})
+    res_bad = post_json(
+        client,
+        reverse("liveclassroom:api-v1-flow-import"),
+        {"format": "json", "source": {"title": "Bad", "steps": []}},
+    )
     assert res_bad.status_code == 400

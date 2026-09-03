@@ -1,11 +1,12 @@
 import json
+
 import pytest
 from django.contrib.auth import get_user_model
 from django.test import Client
 from django.urls import reverse
 
 from liveclassroom.importers import import_markdown_flow
-from liveclassroom.models import ActivityDefinition, Course, CourseMembership, Flow, FlowItem, FlowStep
+from liveclassroom.models import Course, Flow
 from liveclassroom.services.classroom import (
     ClassroomError,
     create_activity_definition,

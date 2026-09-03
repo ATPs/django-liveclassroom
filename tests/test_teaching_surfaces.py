@@ -1,7 +1,7 @@
 """Tests for bilingual teaching surfaces, language switching, and rich renderers."""
 
-import json
 from pathlib import Path
+
 import pytest
 from django.contrib.auth import get_user_model
 from django.urls import reverse
@@ -189,7 +189,10 @@ def test_locales_ts_key_parity_and_coverage():
 
     # Extract keys in en block and zh-Hans block
     import re
-    en_match = re.search(r"en:\s*\{([^}]+(?:\{[^}]+\}[^}]+)*)\},\s*[\"']zh-Hans[\"']:\s*\{([^}]+(?:\{[^}]+\}[^}]+)*)\}", content)
+    en_match = re.search(
+        r"en:\s*\{([^}]+(?:\{[^}]+\}[^}]+)*)\},\s*[\"']zh-Hans[\"']:\s*\{([^}]+(?:\{[^}]+\}[^}]+)*)\}",
+        content,
+    )
     assert en_match is not None, "Both en and zh-Hans dictionaries must be defined in locales.ts"
     en_block, zh_block = en_match.group(1), en_match.group(2)
 

@@ -5,7 +5,6 @@ from django.urls import reverse
 from liveclassroom.models import Flow, LiveSession
 
 
-
 @pytest.mark.django_db
 def test_health_endpoint(client):
     response = client.get(reverse("liveclassroom:health"))

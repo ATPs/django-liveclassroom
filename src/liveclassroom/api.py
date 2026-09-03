@@ -48,6 +48,7 @@ from .services.classroom import (
     pause_session,
     post_message,
     publish_activity_to_channel,
+    redact_aggregate,
     result_summary,
     revise_activity,
     revise_activity_definition,
@@ -1134,7 +1135,7 @@ def state(request, session_id: int):
     )
     for other_state in visible_states:
         aggregate = (
-            result_summary(other_state.current_activity)
+            redact_aggregate(result_summary(other_state.current_activity))
             if other_state.current_activity_id and other_state.show_aggregate
             else None
         )
@@ -1152,7 +1153,7 @@ def state(request, session_id: int):
             "aggregate": aggregate,
         }
     current_aggregate = (
-        result_summary(activity)
+        redact_aggregate(result_summary(activity))
         if activity and channel_state and channel_state.show_aggregate
         else None
     )

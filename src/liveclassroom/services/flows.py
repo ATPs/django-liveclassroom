@@ -4,60 +4,27 @@ from __future__ import annotations
 
 from typing import Any
 
-from django.db import models, transaction
+from django.db import transaction
 from django.utils.text import slugify
 
 from liveclassroom.models import (
     ActivityDefinition,
     Course,
-    CourseMembership,
     Flow,
     FlowItem,
     FlowStep,
     LiveSession,
 )
-from liveclassroom.registry import activity_registry
 from liveclassroom.services.classroom import (
     ClassroomError,
     can_manage_session,
     create_activity_definition,
 )
-
-
-def can_author_course(actor, course: Course | None) -> bool:
-    """Check whether an actor can author flows or activities in the given course."""
-    if not getattr(actor, "is_authenticated", False):
-        return False
-    if course is None:
-        return True
-    if getattr(actor, "is_superuser", False):
-        return True
-    if course.created_by_id == actor.pk:
-        return True
-    return CourseMembership.objects.filter(
-        course_id=course.id,
-        user=actor,
-        role__in=[CourseMembership.Role.TEACHER, CourseMembership.Role.ASSISTANT],
-    ).exists()
-
-
-def can_edit_flow(actor, flow: Flow) -> bool:
-    """Only the flow creator, course creator, or course staff can edit a flow."""
-    if not getattr(actor, "is_authenticated", False):
-        return False
-    if getattr(actor, "is_superuser", False):
-        return True
-    if flow.created_by_id and flow.created_by_id == actor.pk:
-        return True
-    if flow.course_id:
-        if flow.course and flow.course.created_by_id == actor.pk:
-            return True
-        return CourseMembership.objects.filter(
-            course_id=flow.course_id,
-            user=actor,
-            role__in=[CourseMembership.Role.TEACHER, CourseMembership.Role.ASSISTANT],
-        ).exists()
-    return False
+from liveclassroom.services.permissions import (
+    can_author_course,
+    can_edit_flow,
+    can_use_activity_definition,
+)
 
 
 def can_view_flow(actor, flow: Flow) -> bool:
@@ -173,6 +140,8 @@ def add_flow_step(
     if activity_definition is not None:
         if activity_definition.course_id and flow.course_id and activity_definition.course_id != flow.course_id:
             raise ClassroomError("The activity must belong to the flow's course.")
+        if not can_use_activity_definition(actor, activity_definition):
+            raise ClassroomError("You do not have permission to use this activity.")
         if not title:
             title = activity_definition.title
         if content is None:

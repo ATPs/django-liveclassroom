@@ -24,6 +24,7 @@ from .services.flows import (
     save_session_as_flow,
     update_flow,
 )
+from .services.permissions import can_use_activity_definition
 
 
 def _serialize_flow(flow: Flow) -> dict[str, Any]:
@@ -232,6 +233,13 @@ def add_step_api(request, flow_id: int):
         activity_def = None
         if body.get("activity_definition_id"):
             activity_def = get_object_or_404(ActivityDefinition, pk=body["activity_definition_id"])
+            if not can_use_activity_definition(request.user, activity_def):
+                return _record_authoring(
+                    request,
+                    key,
+                    command_type,
+                    _error("You do not have permission to use this activity.", 403),
+                )
         elif body.get("activity_definition") and isinstance(body["activity_definition"], dict):
             inline = body["activity_definition"]
             type_key = inline.get("type_key") or inline.get("type")

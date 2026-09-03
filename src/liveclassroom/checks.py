@@ -66,7 +66,8 @@ def check_activity_registry(app_configs: Any = None, **kwargs: Any) -> list[Erro
                 if not isinstance(val, str) or not val.strip():
                     messages.append(
                         Error(
-                            f"Activity type {key!r} frontend_manifest is missing or has empty surface key: {surface_key!r}.",
+                            f"Activity type {key!r} frontend_manifest is missing or has empty surface "
+                            f"key: {surface_key!r}.",
                             hint=f"Required surface keys: {', '.join(REQUIRED_MANIFEST_KEYS)}.",
                             id="liveclassroom.E002",
                             obj=activity_type,

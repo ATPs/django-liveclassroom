@@ -11,7 +11,6 @@ from liveclassroom.models import (
     ActivityDefinition,
     ActivityDefinitionRevision,
     ActivityRunRevision,
-    Course,
     CourseMembership,
     FlowItem,
     FlowStep,
@@ -28,6 +27,7 @@ from liveclassroom.models import (
 from liveclassroom.registry import activity_registry
 
 from .events import notify_session_after_commit
+from .permissions import can_edit_flow, can_use_activity_definition
 
 
 class ClassroomError(Exception):
@@ -143,7 +143,7 @@ def activity_snapshot(item: FlowItem | FlowStep | ActivityDefinition) -> dict[st
         "title": item.title,
         "content": item.content,
     }
-    if item.question_id:
+    if getattr(item, "question_id", None):
         question = item.question
         snapshot["question"] = {
             "id": question.id,
@@ -156,21 +156,6 @@ def activity_snapshot(item: FlowItem | FlowStep | ActivityDefinition) -> dict[st
     return snapshot
 
 
-def _can_author_course(actor, course_id: int | None) -> bool:
-    """Check course authoring rights without coupling the API to a host model."""
-    if not getattr(actor, "is_authenticated", False) or course_id is None:
-        return False
-    if actor.is_superuser:
-        return True
-    course = Course.objects.filter(pk=course_id).first()
-    if course is not None and course.created_by_id == actor.pk:
-        return True
-    course = CourseMembership.objects.filter(course_id=course_id, user=actor).first()
-    if course is not None and course.role == CourseMembership.Role.TEACHER:
-        return True
-    return False
-
-
 def _validate_launch_source(*, session: LiveSession, item, actor) -> None:
     """Prevent a session controller from launching unrelated private content."""
     flow = getattr(item, "flow", None)
@@ -179,20 +164,17 @@ def _validate_launch_source(*, session: LiveSession, item, actor) -> None:
             raise ClassroomError("The selected item does not belong to this session's flow.")
         if session.course_id and flow.course_id not in {None, session.course_id}:
             raise ClassroomError("The selected item does not belong to this session's course.")
-        if flow.course_id and not _can_author_course(actor, flow.course_id):
-            raise ClassroomError("You do not have permission to use this flow.")
-        if flow.created_by_id and flow.created_by_id != actor.pk and not actor.is_superuser:
+        # The session's own flow is always launchable by a session manager;
+        # otherwise require the same edit rights as flow authoring.
+        if session.flow_id != flow.pk and not can_edit_flow(actor, flow):
             raise ClassroomError("You do not have permission to use this flow.")
 
     definition = item if isinstance(item, ActivityDefinition) else getattr(item, "activity_definition", None)
     if definition is None:
         return
-    if definition.course_id:
-        if session.course_id != definition.course_id:
-            raise ClassroomError("The selected activity does not belong to this session's course.")
-        if not _can_author_course(actor, definition.course_id):
-            raise ClassroomError("You do not have permission to use this activity.")
-    elif definition.owner_id != actor.pk and not actor.is_superuser:
+    if definition.course_id and session.course_id != definition.course_id:
+        raise ClassroomError("The selected activity does not belong to this session's course.")
+    if not can_use_activity_definition(actor, definition):
         raise ClassroomError("You do not have permission to use this activity.")
 
 
@@ -215,6 +197,30 @@ def _ensure_run_revision(activity: LiveActivity, actor=None, source_revision=Non
     activity.current_revision = revision
     activity.current_revision_id = revision.id
     return revision
+
+
+def _activity_validation_definition(activity: LiveActivity) -> dict[str, Any]:
+    """Return the definition payload used to validate and aggregate a run's answers."""
+    definition = (
+        activity.current_revision.definition_snapshot
+        if activity.current_revision_id
+        else activity.definition_snapshot
+    )
+    if not isinstance(definition, dict):
+        return {}
+    definition_content = definition.get("content", definition)
+    if not isinstance(definition_content, dict):
+        definition_content = definition
+    validation_definition = definition_content
+    if isinstance(definition.get("question"), dict):
+        question = definition["question"]
+        question_data = question.get("data") if isinstance(question.get("data"), dict) else {}
+        validation_definition = {
+            **definition_content,
+            "options": question_data.get("options", question_data.get("choices", [])),
+            "answer": question.get("answer"),
+        }
+    return validation_definition
 
 
 def ensure_channel_states(session: LiveSession) -> list[SessionChannelState]:
@@ -428,7 +434,8 @@ def end_session(*, session: LiveSession, actor) -> LiveSession:
     )
     locked.status = LiveSession.Status.ENDED
     locked.ended_at = locked.ended_at or now
-    locked.save(update_fields=["status", "ended_at", "updated_at"])
+    locked.chat_enabled = False
+    locked.save(update_fields=["status", "ended_at", "chat_enabled", "updated_at"])
     session.status = locked.status
     session.ended_at = locked.ended_at
     version = _advance_version(locked)
@@ -631,6 +638,10 @@ def update_channel_visibility(*, session: LiveSession, channel: str, actor, **ch
     version = _advance_version(session)
     state.version = version
     state.save(update_fields=[*changes, "version", "updated_at"])
+    # Keep the durable per-activity review flag in sync with the participants
+    # channel so student history retrieval never disagrees with channel state.
+    if channel == SessionChannelState.Channel.PARTICIPANTS and "allow_review" in changes and state.current_activity_id:
+        LiveActivity.objects.filter(pk=state.current_activity_id).update(reviewable=changes["allow_review"])
     event_id = _append_event(
         session,
         "channel.visibility.updated",
@@ -929,17 +940,7 @@ def submit_answer(*, activity: LiveActivity, participant: Participant, answer: d
     except (KeyError, ValueError) as exc:
         raise ClassroomError(str(exc)) from exc
     run_revision = _ensure_run_revision(activity)
-    definition = run_revision.definition_snapshot
-    definition_content = definition.get("content", definition)
-    validation_definition = definition_content
-    if isinstance(definition.get("question"), dict):
-        question = definition["question"]
-        question_data = question.get("data") if isinstance(question.get("data"), dict) else {}
-        validation_definition = {
-            **definition_content,
-            "options": question_data.get("options", question_data.get("choices", [])),
-            "answer": question.get("answer"),
-        }
+    validation_definition = _activity_validation_definition(activity)
     try:
         answer = activity_type.validate_answer(answer, validation_definition)
         score_data = activity_type.score(answer, validation_definition)
@@ -1003,7 +1004,9 @@ def result_summary(activity: LiveActivity) -> dict[str, Any]:
             if activity.current_revision_id
             else None
         ) or f"liveclassroom.{activity.kind}"
-        aggregate = activity_registry.get(type_key).aggregate(answers)
+        aggregate = activity_registry.get(type_key).aggregate(
+            answers, definition=_activity_validation_definition(activity)
+        )
     except (KeyError, ValueError):
         aggregate = {"submission_count": len(answers), "choices": {}}
     return {
@@ -1014,11 +1017,27 @@ def result_summary(activity: LiveActivity) -> dict[str, Any]:
     }
 
 
+_AGGREGATE_RAW_KEYS = frozenset({"values", "raw_answers"})
+
+
+def redact_aggregate(aggregate: dict[str, Any]) -> dict[str, Any]:
+    """Remove raw individual answers before an aggregate reaches an audience.
+
+    Short text, numeric, rating, ranking, and word-cloud aggregates carry the
+    raw submitted values for teacher moderation. Those must never reach the
+    participant or display channels through ``state``; staff analytics, results,
+    and exports use ``result_summary`` directly and keep the full data.
+    """
+    return {key: value for key, value in aggregate.items() if key not in _AGGREGATE_RAW_KEYS}
+
+
 @transaction.atomic
 def post_message(
     *, session: LiveSession, body: str, actor=None, participant: Participant | None = None
 ) -> SessionMessage:
     """Create a named public chat message after checking session participation."""
+    if session.status == LiveSession.Status.ENDED:
+        raise ClassroomError("This classroom has ended.")
     if not session.chat_enabled:
         raise ClassroomError("Chat is disabled for this classroom.")
     if not isinstance(body, str):
@@ -1067,6 +1086,8 @@ def set_chat_enabled(*, session: LiveSession, enabled: bool, actor) -> LiveSessi
     if not isinstance(enabled, bool):
         raise ClassroomError("enabled must be a boolean.")
     locked = LiveSession.objects.select_for_update().get(pk=session.pk)
+    if locked.status == LiveSession.Status.ENDED and enabled:
+        raise ClassroomError("Chat cannot be enabled after the session has ended.")
     if locked.chat_enabled == enabled:
         session.chat_enabled = enabled
         session.state_version = locked.state_version

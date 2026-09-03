@@ -7,6 +7,7 @@ from collections import Counter
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import urlsplit
 
 
 @dataclass(frozen=True)
@@ -501,18 +502,58 @@ def _markdown_definition(definition: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+_MEDIA_URL_SCHEMES = frozenset({"http", "https"})
+_MEDIA_EXTENSIONS = {
+    "image": (".png", ".jpg", ".jpeg", ".svg", ".webp", ".gif"),
+    "video": (".mp4", ".webm"),
+    "audio": (".mp3", ".ogg", ".wav"),
+}
+
+
+def _infer_media_type(url: str) -> str:
+    """Mirror the frontend's URL-extension inference for server-side enforcement."""
+    path = urlsplit(url).path.lower()
+    for media_type, extensions in _MEDIA_EXTENSIONS.items():
+        if any(path.endswith(extension) for extension in extensions):
+            return media_type
+    return "iframe"
+
+
+def _validate_media_url(url: str) -> str:
+    """Canonicalize a media URL, rejecting executable or credential-bearing forms."""
+    if any(ord(char) < 0x20 or ord(char) == 0x7F for char in url):
+        raise ValueError("url contains control characters.")
+    parsed = urlsplit(url)
+    if parsed.scheme:
+        if parsed.scheme.lower() not in _MEDIA_URL_SCHEMES:
+            raise ValueError("url must use http or https.")
+        if parsed.username is not None or parsed.password is not None:
+            raise ValueError("url must not contain credentials.")
+    elif not url.startswith("/"):
+        raise ValueError("relative url must start with '/'.")
+    return url
+
+
 def _media_definition(definition: dict[str, Any]) -> dict[str, Any]:
     result = _copy_definition(definition)
     url = result.get("url")
     if url is None or not isinstance(url, str) or not url.strip():
         raise ValueError("url is required.")
-    result["url"] = url.strip()
+    url = _validate_media_url(url.strip())
+    result["url"] = url
 
     media_type = result.get("media_type")
-    if media_type is not None:
-        if not isinstance(media_type, str) or media_type.strip().lower() not in VALID_MEDIA_TYPES:
-            raise ValueError(f"media_type must be one of {sorted(VALID_MEDIA_TYPES)}.")
-        result["media_type"] = media_type.strip().lower()
+    if media_type is None:
+        media_type = _infer_media_type(url)
+    if not isinstance(media_type, str) or media_type.strip().lower() not in VALID_MEDIA_TYPES:
+        raise ValueError(f"media_type must be one of {sorted(VALID_MEDIA_TYPES)}.")
+    media_type = media_type.strip().lower()
+    if media_type == "iframe":
+        from liveclassroom.conf import setting
+
+        if not setting("ALLOW_IFRAME"):
+            raise ValueError("Embedding ordinary iframes is disabled by the host.")
+    result["media_type"] = media_type
 
     caption = result.get("caption")
     if caption is not None:
