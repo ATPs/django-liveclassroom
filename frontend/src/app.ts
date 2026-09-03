@@ -791,15 +791,6 @@ function renderTeacherControls(root: Root, state: SessionState, stateUrl: string
     visibility.append(wrapper, document.createElement("br"));
   }
   actionHost.append(visibility);
-  const chat = document.createElement("label");
-  const chatCheckbox = document.createElement("input");
-  chatCheckbox.type = "checkbox";
-  chatCheckbox.checked = state.session.chat_enabled === true;
-  chatCheckbox.addEventListener("change", () => void execute(root, actionUrl(stateUrl, "chat/settings"), {
-    enabled: chatCheckbox.checked,
-  }));
-  chat.append(chatCheckbox, document.createTextNode(" Enable class chat"));
-  actionHost.append(chat);
 }
 
 function renderAdmission(root: Root, participants: Array<Record<string, unknown>>, stateUrl: string): void {
@@ -888,7 +879,9 @@ async function refreshMountedState(root: Root | null, explicitStateUrl?: string)
       if (sessionStatus) sessionStatus.textContent = state.session.status;
       await refreshTeacherAnalytics(root, state, stateUrl);
     }
-    if (audience !== "display") await refreshChat(root, stateUrl);
+    if (audience === "teacher" || (audience === "student" && state.participant?.admission_state === "admitted")) {
+      await refreshChat(root, stateUrl);
+    }
     if (audience === "student" && state.participant?.admission_state === "admitted") {
       renderStudentHistory(root, stateUrl);
     }
