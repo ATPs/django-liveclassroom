@@ -28,7 +28,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-redis = ["channels_redis>=4.2,<5"]
+postgres = ["psycopg>=3.2,<4"]
 dev = [
   "daphne>=4.1,<5",
   "pytest>=8.3",

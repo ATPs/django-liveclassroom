@@ -8,19 +8,29 @@ application.
 ## What is included now
 
 - Course, flow, question, live-session, participant, activity, submission, and
-  audit-event models.
+  audit-event models, including immutable activity/answer revisions, named
+  chat messages, admission state, and independent display/participant channels.
 - Django admin for authoring and inspecting the core data.
 - HTTP endpoints for the classroom landing page, teacher console, and student
   join page.
-- An ASGI WebSocket endpoint that validates a session id and broadcasts
-  lightweight session events.
+- An authenticated ASGI WebSocket endpoint that broadcasts lightweight,
+  versioned session events; PostgreSQL `LISTEN/NOTIFY` is the optional
+  cross-worker wake-up path.
 - A standalone Django project for local development and deployment experiments.
 - A working teacher-paced single-choice quiz loop: create/start a session, join
   as a guest, submit once, close answers, view live totals, then reveal.
+- Instant sessions, authenticated or guest entry, waiting-room admission,
+  channel-specific reveal settings, hot activity revisions, and a host-neutral
+  VaultPub Slide View URL adapter.
+- Reusable activity authoring/validation APIs, Markdown/YAML import, activity
+  manifests, pause/end lifecycle controls, and staff-only session analytics.
+- Staff-only session archive export plus summary, response, participant, and
+  chat CSV datasets.
 
-The first milestone deliberately establishes the durable domain model and
-integration boundaries.  Authoring UI, Markdown/YAML import, React islands,
-and live teacher controls come next.
+The first milestone deliberately establishes the durable domain model,
+integration boundaries, teacher controls, and a useful reporting surface.
+Visual authoring, React islands, browser acceptance, and production host
+wiring remain planned work.
 
 ## Quick start
 
@@ -80,7 +90,32 @@ application.  The standalone `asgi.py` is the reference integration.
   WebSockets notify connected clients.
 - Store an immutable content snapshot on every launched `LiveActivity` so
   historical classroom results remain reproducible.
-- Support signed guest identity later without making a student account mandatory.
+- Do not add Redis or another external message broker. SQLite uses the local
+  in-memory channel layer; PostgreSQL deployments can enable the notification
+  relay and clients refetch authoritative state over HTTP.
+
+## Optional VaultPub provider
+
+Register the reusable adapter in a host project that mounts the VaultPub portal:
+
+```python
+LIVECLASSROOM = {
+    "CONTENT_PROVIDERS": {
+        "vaultpub": "liveclassroom.integrations.vaultpub.VaultPubProvider",
+    },
+}
+```
+
+The adapter accepts registered-vault and temporary-share `__slides__` URLs,
+including percent-encoded Unicode paths, and adds the explicit `embed=1` mode.
+Protected participant grants remain host-owned callbacks so portal permissions
+are checked on every use.
+
+For the `xcWebServer` installation with `vaultpub_portal`, configure
+`vaultpub_portal.liveclassroom_provider.XcWebServerVaultPubProvider` instead of
+the generic adapter. It rechecks the portal's registered-vault and share rules
+and returns teacher-safe note descriptors; student grants remain disabled until
+the host adds scoped grant storage and routes.
 
 ## License
 

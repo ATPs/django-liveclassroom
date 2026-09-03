@@ -1,53 +1,96 @@
 {% extends "liveclassroom/base.html" %}
-{% block title %}{{ session.course }} · LiveClassroom{% endblock %}
+{% block title %}{{ session.title }} · LiveClassroom{% endblock %}
 {% block content %}
   <section class="lc-card" data-session-id="{{ session.id }}" data-pending-name="{{ pending_name|default:'' }}">
-    <p class="lc-kicker">{{ session.course }}</p>
-    <h1 id="student-title">Connecting…</h1>
+    <p class="lc-kicker">{{ session.title }}</p>
+    <h1 id="student-title">Connecting...</h1>
     <div id="student-content"><p>Waiting for the teacher.</p></div>
   </section>
   <script>
     const root = document.querySelector("[data-session-id]");
     const sessionId = root.dataset.sessionId;
     const pendingName = root.dataset.pendingName;
+    const accessMode = "{{ session.access_mode }}";
+    const authenticated = {{ request.user.is_authenticated|yesno:"true,false" }};
+    const stateUrl = "{% url 'liveclassroom:api-state' session.id %}";
+    const guestJoinUrl = "{% url 'liveclassroom:api-join' session.join_code %}";
+    const accountJoinUrl = "{% url 'liveclassroom:api-join-account' session.id %}";
+    const submitUrlTemplate = "{% url 'liveclassroom:api-submit' 0 %}";
     let joined = false;
     function csrf() { return document.cookie.match(/(?:^|;)\s*csrftoken=([^;]+)/)?.[1] || ""; }
     function elt(tag, text) { const node = document.createElement(tag); node.textContent = text; return node; }
     async function join() {
-      if (!pendingName) return;
-      const response = await fetch(`/api/sessions/join/{{ session.join_code }}/`, {method: "POST", headers: {"Content-Type": "application/json", "X-CSRFToken": csrf()}, body: JSON.stringify({display_name: pendingName})});
+      if (!pendingName && (!authenticated || accessMode === "guest")) return;
+      const endpoint = pendingName ? guestJoinUrl : accountJoinUrl;
+      const response = await fetch(endpoint, {method: "POST", headers: {"Content-Type": "application/json", "X-CSRFToken": csrf()}, body: JSON.stringify(pendingName ? {display_name: pendingName} : {})});
       if (response.ok) joined = true;
       else document.querySelector("#student-content").textContent = (await response.json()).detail;
     }
     async function refresh() {
-      const state = await fetch(`/api/sessions/${sessionId}/state/`).then(r => r.json());
+      const stateResponse = await fetch(stateUrl);
+      const state = await stateResponse.json();
+      if (!stateResponse.ok) { document.querySelector("#student-content").textContent = state.detail || "Classroom state is unavailable."; return; }
       const activity = state.current_activity;
       const box = document.querySelector("#student-content");
       box.replaceChildren();
+      if (state.participant && state.participant.admission_state !== "admitted") { document.querySelector("#student-title").textContent = "Waiting for admission"; box.append(elt("p", "The teacher must admit you before you can participate.")); return; }
       if (!activity) { document.querySelector("#student-title").textContent = "Waiting for the teacher"; box.append(elt("p", "The teacher has not published an item yet.")); return; }
       const definition = activity.definition;
       document.querySelector("#student-title").textContent = definition.title || definition.kind;
-      const question = definition.question;
-      if (!question) { box.append(elt("p", definition.content.markdown || "Content published.")); return; }
+      const content = definition.content || {};
+      const type = (definition.type_key || `liveclassroom.${definition.kind || ""}`).split(".").pop();
+      const question = definition.question || (["single_choice", "multiple_choice", "true_false", "poll"].includes(type) ? {
+        stem_markdown: content.prompt || content.stem_markdown || "",
+        data: {options: content.options || content.choices || []},
+        answer: content.answer || content.correct_answer || [],
+        explanation_markdown: content.explanation_markdown || content.explanation || ""
+      } : null);
+      if (!question && ["short_text", "word_cloud", "numeric", "rating"].includes(type)) {
+        const form = document.createElement("form");
+        const input = document.createElement(type === "short_text" || type === "word_cloud" ? "textarea" : "input");
+        input.name = type === "numeric" || type === "rating" ? "value" : "text";
+        if (input.tagName === "INPUT") input.type = "number";
+        input.disabled = activity.state !== "open";
+        if (state.my_submission?.answer) input.value = state.my_submission.answer[input.name] || "";
+        form.append(input);
+        if (activity.state === "open") {
+          const button = elt("button", state.my_submission ? "Update answer" : "Submit answer");
+          button.type = "submit";
+          form.append(button);
+          form.onsubmit = async (event) => {
+            event.preventDefault();
+            const value = input.value.trim();
+            if (!value) return;
+            const payload = {[input.name]: type === "numeric" || type === "rating" ? Number(value) : value};
+            const submitUrl = submitUrlTemplate.replace("/0/", `/${activity.id}/`);
+            const response = await fetch(submitUrl, {method: "POST", headers: {"Content-Type": "application/json", "X-CSRFToken": csrf()}, body: JSON.stringify({answer: payload})});
+            if (!response.ok) alert((await response.json()).detail);
+            await refresh();
+          };
+        }
+        box.append(form);
+        return;
+      }
+      if (!question) { box.append(elt("p", content.markdown || "Content published.")); return; }
       box.append(elt("p", question.stem_markdown));
       const choices = question.data.options || [];
       const form = document.createElement("form");
       for (const option of choices) {
-        const label = document.createElement("label"); const input = document.createElement("input"); input.type = "radio"; input.name = "choice"; input.value = option.id; input.disabled = activity.state !== "open" || !!state.my_submission; label.append(input, ` ${option.text}`); form.append(label, document.createElement("br"));
+        const label = document.createElement("label"); const input = document.createElement("input"); input.type = type === "multiple_choice" ? "checkbox" : "radio"; input.name = type === "multiple_choice" ? "choices" : "choice"; input.value = option.id; input.disabled = activity.state !== "open"; if (state.my_submission?.answer?.choice === option.id || state.my_submission?.answer?.choices?.includes(option.id)) input.checked = true; label.append(input, ` ${option.text}`); form.append(label, document.createElement("br"));
       }
-      if (activity.state === "open" && !state.my_submission) {
-        const button = elt("button", "Submit answer"); button.type = "submit"; form.append(button);
-        form.onsubmit = async (event) => { event.preventDefault(); const choice = new FormData(form).get("choice"); if (!choice) return; const response = await fetch(`/api/activities/${activity.id}/submissions/`, {method: "POST", headers: {"Content-Type": "application/json", "X-CSRFToken": csrf()}, body: JSON.stringify({answer: {choice}})}); if (!response.ok) alert((await response.json()).detail); await refresh(); };
+      if (activity.state === "open") {
+        const button = elt("button", state.my_submission ? "Update answer" : "Submit answer"); button.type = "submit"; form.append(button);
+        form.onsubmit = async (event) => { event.preventDefault(); const values = [...new FormData(form).getAll(type === "multiple_choice" ? "choices" : "choice")]; if (!values.length) return; const answer = type === "multiple_choice" ? {choices: values} : {choice: values[0]}; const submitUrl = submitUrlTemplate.replace("/0/", `/${activity.id}/`); const response = await fetch(submitUrl, {method: "POST", headers: {"Content-Type": "application/json", "X-CSRFToken": csrf()}, body: JSON.stringify({answer})}); if (!response.ok) alert((await response.json()).detail); await refresh(); };
       }
       box.append(form);
-      if (state.my_submission) box.append(elt("p", "✓ Submitted — waiting for the teacher."));
+      if (state.my_submission) box.append(elt("p", state.my_submission.is_stale ? "This activity changed. Review and submit again." : "Answer saved."));
       if (activity.state === "revealed") { box.append(elt("p", `Answer: ${(question.answer || []).join(", ")}`)); if (question.explanation_markdown) box.append(elt("p", question.explanation_markdown)); }
     }
     (async () => {
       await join();
       await refresh();
       const socketScheme = location.protocol === "https:" ? "wss" : "ws";
-      const sessionSocket = new WebSocket(`${socketScheme}://${location.host}/ws/liveclassroom/sessions/${sessionId}/`);
+      const sessionSocket = new WebSocket(`${socketScheme}://${location.host}{{ websocket_url }}`);
       sessionSocket.onmessage = () => refresh();
       // Polling is a reconnect-safe fallback when a network blocks WebSockets.
       setInterval(refresh, 3000);

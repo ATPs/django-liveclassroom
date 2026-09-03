@@ -1,0 +1,44 @@
+{% extends "liveclassroom/base.html" %}
+{% block title %}{{ session.title }} - Display{% endblock %}
+{% block content %}
+  <section class="lc-card lc-wide" data-session-id="{{ session.id }}" data-display="true">
+    <p class="lc-kicker">Classroom display</p>
+    <h1 id="display-title">{{ session.title }}</h1>
+    <div id="display-content"><p>Waiting for the teacher.</p></div>
+    <p id="display-status" aria-live="polite">Connecting...</p>
+  </section>
+  <script>
+    const root = document.querySelector("[data-display]");
+    const sessionId = root.dataset.sessionId;
+    const stateUrl = "{% url 'liveclassroom:api-state' session.id %}?channel=display";
+    function elt(tag, text) { const node = document.createElement(tag); node.textContent = text; return node; }
+    async function refresh() {
+      const response = await fetch(stateUrl, {credentials: "same-origin"});
+      if (!response.ok) { document.querySelector("#display-status").textContent = "Display access is unavailable."; return; }
+      const state = await response.json();
+      const activity = state.current_activity;
+      const box = document.querySelector("#display-content");
+      box.replaceChildren();
+      if (!activity) { box.append(elt("p", "No activity published.")); }
+      else {
+        const definition = activity.definition || {};
+        document.querySelector("#display-title").textContent = definition.title || state.session.title;
+        const content = definition.content || {};
+        const question = definition.question || (definition.type_key && ["single_choice", "multiple_choice", "true_false", "poll"].includes(definition.type_key.split(".").pop()) ? {stem_markdown: content.prompt || content.stem_markdown || "", data: {options: content.options || content.choices || []}, answer: content.answer || content.correct_answer || [], explanation_markdown: content.explanation_markdown || content.explanation || ""} : null);
+        if (question) {
+          box.append(elt("p", question.stem_markdown || ""));
+          for (const option of (question.data?.options || [])) box.append(elt("p", `${option.id}. ${option.text}`));
+        } else if (content.markdown) box.append(elt("p", content.markdown));
+        else box.append(elt("p", "Content published."));
+        if (state.aggregate) box.append(elt("p", `${state.aggregate.submission_count} responses`));
+      }
+      document.querySelector("#display-status").textContent = `State ${state.session.version} - ${state.session.status}`;
+    }
+    const socketScheme = location.protocol === "https:" ? "wss" : "ws";
+    const socket = new WebSocket(`${socketScheme}://${location.host}{{ websocket_url }}`);
+    socket.onmessage = refresh;
+    socket.onclose = () => { document.querySelector("#display-status").textContent = "Reconnecting..."; };
+    refresh();
+    setInterval(refresh, 3000);
+  </script>
+{% endblock %}

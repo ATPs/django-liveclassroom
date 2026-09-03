@@ -1,6 +1,9 @@
 from django.contrib import admin
 
 from .models import (
+    ActivityDefinition,
+    ActivityDefinitionRevision,
+    CommandReceipt,
     Course,
     CourseMembership,
     Flow,
@@ -9,7 +12,10 @@ from .models import (
     LiveSession,
     Participant,
     Question,
+    SessionChannelState,
     SessionEvent,
+    SessionMessage,
+    SessionStaff,
     Submission,
 )
 
@@ -36,6 +42,19 @@ class FlowAdmin(admin.ModelAdmin):
     prepopulated_fields = {"slug": ("title",)}
 
 
+@admin.register(ActivityDefinition)
+class ActivityDefinitionAdmin(admin.ModelAdmin):
+    list_display = ("title", "type_key", "owner", "course", "status", "updated_at")
+    list_filter = ("type_key", "status", "course")
+    search_fields = ("title", "type_key")
+
+
+@admin.register(ActivityDefinitionRevision)
+class ActivityDefinitionRevisionAdmin(admin.ModelAdmin):
+    list_display = ("definition", "revision", "changed_by", "created_at")
+    list_filter = ("schema_version",)
+
+
 @admin.register(FlowItem)
 class FlowItemAdmin(admin.ModelAdmin):
     list_display = ("flow", "position", "kind", "title", "question")
@@ -52,9 +71,9 @@ class QuestionAdmin(admin.ModelAdmin):
 
 @admin.register(LiveSession)
 class LiveSessionAdmin(admin.ModelAdmin):
-    list_display = ("course", "flow", "join_code", "status", "mode", "state_version")
-    list_filter = ("status", "mode", "course")
-    search_fields = ("join_code", "course__title")
+    list_display = ("title", "course", "flow", "join_code", "status", "mode", "state_version")
+    list_filter = ("status", "mode", "access_mode", "admission_mode", "course")
+    search_fields = ("title", "join_code", "course__title")
 
 
 @admin.register(Participant)
@@ -67,3 +86,7 @@ class ParticipantAdmin(admin.ModelAdmin):
 admin.site.register(LiveActivity)
 admin.site.register(Submission)
 admin.site.register(SessionEvent)
+admin.site.register(SessionMessage)
+admin.site.register(CommandReceipt)
+admin.site.register(SessionChannelState)
+admin.site.register(SessionStaff)

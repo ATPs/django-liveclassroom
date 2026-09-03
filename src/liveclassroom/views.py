@@ -1,11 +1,12 @@
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import Http404, JsonResponse
-from django.shortcuts import redirect
+from django.shortcuts import get_object_or_404, redirect
 from django.views.generic import FormView, TemplateView
 
+from .conf import websocket_path
 from .forms import CreateSessionForm, JoinSessionForm
 from .models import LiveSession
-from .services.classroom import can_manage_session
+from .services.classroom import can_manage_session, can_view_display
 
 
 class HomeView(TemplateView):
@@ -35,7 +36,7 @@ class TeacherConsoleView(LoginRequiredMixin, TemplateView):
     template_name = "liveclassroom/teacher_console.html"
 
     def dispatch(self, request, *args, **kwargs):
-        self.session = LiveSession.objects.select_related("course", "flow").get(pk=kwargs["session_id"])
+        self.session = get_object_or_404(LiveSession.objects.select_related("course", "flow"), pk=kwargs["session_id"])
         if not can_manage_session(request.user, self.session):
             raise Http404
         return super().dispatch(request, *args, **kwargs)
@@ -43,7 +44,30 @@ class TeacherConsoleView(LoginRequiredMixin, TemplateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["session"] = self.session
-        context["items"] = self.session.flow.items.select_related("question").all()
+        context["websocket_url"] = websocket_path(self.session.id)
+        context["items"] = (
+            self.session.flow.items.select_related("question", "activity_definition").all()
+            if self.session.flow_id
+            else []
+        )
+        return context
+
+
+class ClassroomDisplayView(LoginRequiredMixin, TemplateView):
+    """Render a restricted projector surface for a teacher, co-host, or observer."""
+
+    template_name = "liveclassroom/classroom_display.html"
+
+    def dispatch(self, request, *args, **kwargs):
+        self.session = get_object_or_404(LiveSession, pk=kwargs["session_id"])
+        if not can_view_display(request.user, self.session):
+            raise Http404
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["session"] = self.session
+        context["websocket_url"] = websocket_path(self.session.id)
         return context
 
 
@@ -65,9 +89,10 @@ class StudentSessionView(TemplateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        session = LiveSession.objects.get(pk=kwargs["session_id"])
+        session = get_object_or_404(LiveSession, pk=kwargs["session_id"])
         context["session"] = session
         context["pending_name"] = self.request.session.get(f"liveclassroom.pending_name.{session.id}")
+        context["websocket_url"] = websocket_path(session.id)
         return context
 
 

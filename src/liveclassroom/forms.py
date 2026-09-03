@@ -1,4 +1,5 @@
 from django import forms
+from django.db.models import Q
 
 from .models import CourseMembership, Flow, LiveSession
 
@@ -6,7 +7,7 @@ from .models import CourseMembership, Flow, LiveSession
 class CreateSessionForm(forms.ModelForm):
     class Meta:
         model = LiveSession
-        fields = ["course", "flow", "mode"]
+        fields = ["title", "course", "flow", "mode", "access_mode", "admission_mode", "chat_enabled"]
 
     def __init__(self, *args, user, **kwargs):
         super().__init__(*args, **kwargs)
@@ -17,7 +18,9 @@ class CreateSessionForm(forms.ModelForm):
         self.fields["course"].queryset = self.fields["course"].queryset.filter(id__in=courses) | self.fields[
             "course"
         ].queryset.filter(created_by=user)
-        self.fields["flow"].queryset = Flow.objects.filter(course__in=self.fields["course"].queryset)
+        self.fields["flow"].queryset = Flow.objects.filter(
+            Q(course__in=self.fields["course"].queryset) | Q(created_by=user)
+        ).distinct()
 
     def clean(self):
         cleaned_data = super().clean()
@@ -30,6 +33,8 @@ class CreateSessionForm(forms.ModelForm):
     def save(self, commit=True):
         instance = super().save(commit=False)
         instance.teacher = self.user
+        if instance.course_id is None and instance.flow_id and instance.flow.course_id:
+            instance.course = instance.flow.course
         if commit:
             instance.save()
         return instance
