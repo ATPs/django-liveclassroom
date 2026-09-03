@@ -1,14 +1,17 @@
 from django.urls import path
 
-from . import api, views
+from . import api, api_flows, views
 
 app_name = "liveclassroom"
 
 urlpatterns = [
     path("", views.HomeView.as_view(), name="home"),
     path("teacher/", views.TeacherDashboardView.as_view(), name="teacher-dashboard"),
+    path("teacher/builder/", views.FlowBuilderView.as_view(), name="flow-builder"),
+    path("teacher/flows/<int:flow_id>/builder/", views.FlowBuilderView.as_view(), name="flow-builder-detail"),
     path("teacher/sessions/<int:session_id>/", views.TeacherConsoleView.as_view(), name="teacher-console"),
     path("teacher/sessions/<int:session_id>/display/", views.ClassroomDisplayView.as_view(), name="classroom-display"),
+
     path("join/", views.JoinView.as_view(), name="join"),
     path("sessions/<int:session_id>/", views.StudentSessionView.as_view(), name="student-session"),
     path("health/", views.health, name="health"),
@@ -88,4 +91,12 @@ urlpatterns = [
     path("api/v1/activities/<int:activity_id>/revise/", api.revise, name="api-v1-revise"),
     path("api/v1/activities/<int:activity_id>/submissions/", api.submit, name="api-v1-submit"),
     path("api/v1/activities/<int:activity_id>/results/", api.results, name="api-v1-results"),
+    path("api/v1/flows/", api_flows.flows_collection, name="api-v1-flows"),
+    path("api/v1/flows/import/", api_flows.import_flow_api, name="api-v1-flow-import"),
+    path("api/v1/flows/<int:flow_id>/", api_flows.flow_detail, name="api-v1-flow-detail"),
+    path("api/v1/flows/<int:flow_id>/duplicate/", api_flows.duplicate_flow_api, name="api-v1-flow-duplicate"),
+    path("api/v1/flows/<int:flow_id>/steps/", api_flows.add_step_api, name="api-v1-flow-add-step"),
+    path("api/v1/flows/<int:flow_id>/steps/reorder/", api_flows.reorder_steps_api, name="api-v1-flow-reorder-steps"),
+    path("api/v1/flows/<int:flow_id>/steps/<int:step_id>/", api_flows.delete_step_api, name="api-v1-flow-delete-step"),
+    path("api/v1/sessions/<int:session_id>/save-flow/", api_flows.save_session_flow_api, name="api-v1-session-save-flow"),
 ]

@@ -9,11 +9,23 @@ from .models import LiveSession
 from .services.classroom import can_manage_session, can_view_display
 
 
-class HomeView(TemplateView):
+class LocaleContextMixin:
+    """Provide active_lang context to templates based on ?lang=, session, or default."""
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        lang = self.request.GET.get("lang")
+        if not lang and hasattr(self.request, "LANGUAGE_CODE"):
+            lang = self.request.LANGUAGE_CODE
+        context["active_lang"] = lang or "en"
+        return context
+
+
+class HomeView(LocaleContextMixin, TemplateView):
     template_name = "liveclassroom/home.html"
 
 
-class TeacherDashboardView(LoginRequiredMixin, FormView):
+class TeacherDashboardView(LoginRequiredMixin, LocaleContextMixin, FormView):
     template_name = "liveclassroom/teacher_dashboard.html"
     form_class = CreateSessionForm
 
@@ -32,7 +44,7 @@ class TeacherDashboardView(LoginRequiredMixin, FormView):
         return context
 
 
-class TeacherConsoleView(LoginRequiredMixin, TemplateView):
+class TeacherConsoleView(LoginRequiredMixin, LocaleContextMixin, TemplateView):
     template_name = "liveclassroom/teacher_console.html"
 
     def dispatch(self, request, *args, **kwargs):
@@ -53,7 +65,7 @@ class TeacherConsoleView(LoginRequiredMixin, TemplateView):
         return context
 
 
-class ClassroomDisplayView(LoginRequiredMixin, TemplateView):
+class ClassroomDisplayView(LoginRequiredMixin, LocaleContextMixin, TemplateView):
     """Render a restricted projector surface for a teacher, co-host, or observer."""
 
     template_name = "liveclassroom/classroom_display.html"
@@ -71,7 +83,7 @@ class ClassroomDisplayView(LoginRequiredMixin, TemplateView):
         return context
 
 
-class JoinView(FormView):
+class JoinView(LocaleContextMixin, FormView):
     template_name = "liveclassroom/join.html"
     form_class = JoinSessionForm
 
@@ -84,7 +96,7 @@ class JoinView(FormView):
         return redirect("liveclassroom:student-session", session_id=session.id)
 
 
-class StudentSessionView(TemplateView):
+class StudentSessionView(LocaleContextMixin, TemplateView):
     template_name = "liveclassroom/student_session.html"
 
     def get_context_data(self, **kwargs):
@@ -93,6 +105,23 @@ class StudentSessionView(TemplateView):
         context["session"] = session
         context["pending_name"] = self.request.session.get(f"liveclassroom.pending_name.{session.id}")
         context["websocket_url"] = websocket_path(session.id)
+        return context
+
+
+class FlowBuilderView(LoginRequiredMixin, LocaleContextMixin, TemplateView):
+    template_name = "liveclassroom/builder.html"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        flow_id = kwargs.get("flow_id")
+        if flow_id:
+            context["flow_id"] = flow_id
+        session_id = kwargs.get("session_id") or self.request.GET.get("session_id")
+        if session_id:
+            try:
+                context["session_id"] = int(session_id)
+            except (TypeError, ValueError):
+                pass
         return context
 
 

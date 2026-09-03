@@ -487,6 +487,7 @@ def activity_types(request):
                     "key": activity_type.key,
                     "schema_version": 1,
                     "capabilities": sorted(activity_type.capabilities),
+                    "frontend_manifest": dict(activity_type.frontend_manifest),
                 }
                 for activity_type in sorted(activity_registry.all(), key=lambda item: item.key)
             ],

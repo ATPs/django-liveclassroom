@@ -119,6 +119,68 @@ export async function postJson<T>(
   return payload;
 }
 
+export async function putJson<T>(
+  url: string,
+  body: Record<string, unknown> = {},
+  idempotencyKey?: string,
+): Promise<T> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "X-CSRFToken": csrfToken(),
+  };
+  if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
+  const response = await fetch(url, {
+    method: "PUT",
+    credentials: "same-origin",
+    headers,
+    body: JSON.stringify(body),
+  });
+  const payload = await response.json().catch(() => ({})) as T & ApiError;
+  if (!response.ok) throw new Error(payload.detail ?? "Request failed");
+  return payload;
+}
+
+export async function patchJson<T>(
+  url: string,
+  body: Record<string, unknown> = {},
+  idempotencyKey?: string,
+): Promise<T> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "X-CSRFToken": csrfToken(),
+  };
+  if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
+  const response = await fetch(url, {
+    method: "PATCH",
+    credentials: "same-origin",
+    headers,
+    body: JSON.stringify(body),
+  });
+  const payload = await response.json().catch(() => ({})) as T & ApiError;
+  if (!response.ok) throw new Error(payload.detail ?? "Request failed");
+  return payload;
+}
+
+export async function deleteJson<T>(
+  url: string,
+  idempotencyKey?: string,
+): Promise<T> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "X-CSRFToken": csrfToken(),
+  };
+  if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
+  const response = await fetch(url, {
+    method: "DELETE",
+    credentials: "same-origin",
+    headers,
+  });
+  const payload = await response.json().catch(() => ({})) as T & ApiError;
+  if (!response.ok) throw new Error(payload.detail ?? "Request failed");
+  return payload;
+}
+
+
 export function apiEndpoint(stateUrl: string, resource: string): string {
   const url = new URL(stateUrl, window.location.href);
   const statePath = /^(.*\/sessions\/)(\d+)\/state\/?$/;

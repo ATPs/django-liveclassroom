@@ -5,10 +5,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
+from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.utils.text import slugify
 
-from liveclassroom.models import Flow, FlowItem, Question
+from liveclassroom.models import ActivityDefinition, Flow, FlowItem, FlowStep, Question
 
 
 class ImportError(ValueError):
@@ -119,20 +120,84 @@ def parse_markdown(source: str, *, fallback_slug: str | None = None) -> ParsedFl
 
 
 @transaction.atomic
-def import_markdown_flow(*, course, source: str, fallback_slug: str | None = None) -> Flow:
-    """Validate all source before creating a new flow and its question snapshots."""
+def import_markdown_flow(
+    *,
+    course,
+    source: str,
+    creator=None,
+    fallback_slug: str | None = None,
+) -> Flow:
+    """Validate all source before creating a new flow, question snapshots, activity definitions, and flow steps."""
     parsed = parse_markdown(source, fallback_slug=fallback_slug)
     if Flow.objects.filter(course=course, slug=parsed.slug).exists():
         raise ImportError(f"Course already has a flow with slug {parsed.slug!r}.")
-    flow = Flow.objects.create(course=course, title=parsed.title, slug=parsed.slug, description=parsed.description)
+
+    owner = creator or getattr(course, "created_by", None)
+    if owner is None:
+        user_model = get_user_model()
+        owner = user_model.objects.filter(is_superuser=True).first() or user_model.objects.first()
+
+    flow = Flow.objects.create(
+        course=course,
+        created_by=creator or getattr(course, "created_by", None),
+        title=parsed.title,
+        slug=parsed.slug,
+        description=parsed.description,
+    )
     for position, item in enumerate(parsed.items, start=1):
         question = Question.objects.create(**item.question) if item.question else None
+        activity_def = None
+        if item.question and owner is not None:
+            q_type = item.question.get("question_type", "single_choice")
+            type_key = f"liveclassroom.{q_type}"
+            stem = item.question.get("stem_markdown", "")
+            title = item.title or stem[:80] or "Question"
+            activity_payload = {
+                "prompt": stem,
+                "stem_markdown": stem,
+                "options": item.question.get("data", {}).get("options", []),
+                "answer": item.question.get("answer", []),
+                "explanation": item.question.get("explanation_markdown", ""),
+            }
+            activity_def = ActivityDefinition.objects.create(
+                owner=owner,
+                course=course,
+                type_key=type_key,
+                title=title,
+                definition=activity_payload,
+                status=ActivityDefinition.Status.READY,
+            )
+
         FlowItem.objects.create(
-            flow=flow, position=position, kind=item.kind, title=item.title, content=item.content, question=question
+            flow=flow,
+            position=position,
+            kind=item.kind,
+            title=item.title,
+            content=item.content,
+            question=question,
+            activity_definition=activity_def,
         )
+
+        step_kind = "activity" if activity_def is not None else item.kind
+        step_content = activity_def.definition if activity_def is not None else item.content
+        FlowStep.objects.create(
+            flow=flow,
+            position=position,
+            activity_definition=activity_def,
+            kind=step_kind,
+            title=item.title or (activity_def.title if activity_def else ""),
+            content=step_content,
+        )
+
     return flow
 
 
-def import_markdown_file(*, course, path: str | Path, fallback_slug: str | None = None) -> Flow:
+def import_markdown_file(
+    *,
+    course,
+    path: str | Path,
+    creator=None,
+    fallback_slug: str | None = None,
+) -> Flow:
     source = Path(path).read_text(encoding="utf-8")
-    return import_markdown_flow(course=course, source=source, fallback_slug=fallback_slug)
+    return import_markdown_flow(course=course, source=source, creator=creator, fallback_slug=fallback_slug)

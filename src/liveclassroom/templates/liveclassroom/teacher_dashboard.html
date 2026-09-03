@@ -2,6 +2,9 @@
 {% block title %}Teacher · LiveClassroom{% endblock %}
 {% block content %}
   <section class="lc-card lc-wide">
+    <div class="lc-actions" style="float: right; margin-top: 0;">
+      <a href="{% url 'liveclassroom:flow-builder' %}" style="text-decoration: none;"><button type="button">Flow Builder</button></a>
+    </div>
     <p class="lc-kicker">Teacher</p>
     <h1>Start a live classroom</h1>
     <form method="post" class="lc-form">
@@ -15,7 +18,7 @@
     {% for session in sessions %}
       <p><a href="{% url 'liveclassroom:teacher-console' session.id %}">{{ session.title }}</a> <small>{{ session.get_status_display }}{% if session.archived_at %} · Archived{% endif %} · {{ session.join_code }}</small></p>
     {% empty %}
-      <p>No sessions yet. Create a course and flow in Django admin, then return here.</p>
+      <p>No sessions yet. Create a flow in the <a href="{% url 'liveclassroom:flow-builder' %}">Flow Builder</a>, then return here.</p>
     {% endfor %}
   </section>
 {% endblock %}

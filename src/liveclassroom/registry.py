@@ -1,6 +1,8 @@
 """Small, stable registry for third-party activity types."""
 
 import math
+import re
+import string
 from collections import Counter
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
@@ -13,11 +15,12 @@ class ActivityType:
     validate_definition: Callable[[dict[str, Any]], dict[str, Any]] | None = None
     normalize_submission: Callable[[dict[str, Any]], dict[str, Any]] | None = None
     validate_submission: Callable[[dict[str, Any], dict[str, Any]], dict[str, Any]] | None = None
-    aggregate_submissions: Callable[[Iterable[dict[str, Any]]], dict[str, Any]] | None = None
+    aggregate_submissions: Callable[..., dict[str, Any]] | None = None
     score_submission: Callable[[dict[str, Any], dict[str, Any]], dict[str, Any]] | None = None
     export_submission: Callable[[dict[str, Any]], dict[str, Any]] | None = None
     capabilities: frozenset[str] = field(default_factory=frozenset)
     migrate_definition: Callable[[dict[str, Any], int], dict[str, Any]] | None = None
+    frontend_manifest: dict[str, str] = field(default_factory=dict)
 
     def validate(self, definition: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(definition, dict):
@@ -35,11 +38,18 @@ class ActivityType:
             return definition
         return self.migrate_definition(definition, from_version)
 
-    def aggregate(self, submissions: Iterable[dict[str, Any]]) -> dict[str, Any]:
+    def aggregate(
+        self,
+        submissions: Iterable[dict[str, Any]],
+        definition: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Aggregate normalized answers through the optional plugin callback."""
         if self.aggregate_submissions is None:
             return {"submission_count": sum(1 for _ in submissions)}
-        return self.aggregate_submissions(submissions)
+        try:
+            return self.aggregate_submissions(submissions, definition=definition)
+        except TypeError:
+            return self.aggregate_submissions(submissions)
 
     def validate_answer(self, submission: dict[str, Any], definition: dict[str, Any]) -> dict[str, Any]:
         """Validate a normalized answer against the definition that is being run."""
@@ -63,8 +73,8 @@ class ActivityTypeRegistry:
         self._types: dict[str, ActivityType] = {}
 
     def register(self, activity_type: ActivityType, *, replace: bool = False) -> ActivityType:
-        if not activity_type.key or "." not in activity_type.key:
-            raise ValueError("Activity type keys must be namespaced, for example liveclassroom.poll.")
+        if not activity_type.key:
+            raise ValueError("Activity type key cannot be empty.")
         if activity_type.key in self._types and not replace:
             raise ValueError(f"Activity type {activity_type.key!r} is already registered.")
         self._types[activity_type.key] = activity_type
@@ -355,6 +365,163 @@ def _plain_export(answer: dict[str, Any]) -> dict[str, Any]:
     return dict(answer)
 
 
+VALID_MEDIA_TYPES: frozenset[str] = frozenset({"image", "video", "audio", "iframe"})
+DEFAULT_STOP_WORDS: frozenset[str] = frozenset(
+    {
+        "a", "about", "above", "after", "again", "against", "all", "am", "an", "and",
+        "any", "are", "as", "at", "be", "because", "been", "before", "being", "below",
+        "between", "both", "but", "by", "could", "did", "do", "does", "doing", "down",
+        "during", "each", "few", "for", "from", "further", "had", "has", "have",
+        "having", "he", "her", "here", "hers", "herself", "him", "himself", "his",
+        "how", "i", "if", "in", "into", "is", "it", "its", "itself", "just", "me",
+        "more", "most", "my", "myself", "no", "nor", "not", "now", "of", "off", "on",
+        "once", "only", "or", "other", "our", "ours", "ourselves", "out", "over",
+        "own", "same", "she", "should", "so", "some", "such", "than", "that", "the",
+        "their", "theirs", "them", "themselves", "then", "there", "these", "they",
+        "this", "those", "through", "to", "too", "under", "until", "up", "very",
+        "was", "we", "were", "what", "when", "where", "which", "while", "who",
+        "whom", "why", "will", "with", "you", "your", "yours", "yourself",
+        "yourselves",
+    }
+)
+
+
+def _manifest(name: str) -> dict[str, str]:
+    return {
+        "editor": f"liveclassroom/editors/{name}.js",
+        "student_renderer": f"liveclassroom/renderers/{name}.js",
+        "display_renderer": f"liveclassroom/renderers/{name}.js",
+        "analytics": f"liveclassroom/analytics/{name}.js",
+    }
+
+
+def _word_cloud_definition(definition: dict[str, Any]) -> dict[str, Any]:
+    result = _text_definition(definition)
+    max_length = result.get("max_length")
+    if max_length is not None:
+        if isinstance(max_length, bool):
+            raise ValueError("max_length must be an integer.")
+        try:
+            max_length = int(max_length)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("max_length must be an integer.") from exc
+        if max_length < 1:
+            raise ValueError("max_length must be greater than zero.")
+        result["max_length"] = max_length
+    stop_words = result.get("stop_words")
+    if stop_words is not None:
+        if not isinstance(stop_words, (list, tuple, set)):
+            raise ValueError("stop_words must be a list of strings.")
+        normalized_stop_words: list[str] = []
+        for word in stop_words:
+            if not isinstance(word, str) or not word.strip():
+                raise ValueError("Each stop word must be non-empty text.")
+            normalized_stop_words.append(word.strip().lower())
+        result["stop_words"] = normalized_stop_words
+    return result
+
+
+def _aggregate_word_cloud(
+    answers: Iterable[dict[str, Any]],
+    definition: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    stop_words = set(DEFAULT_STOP_WORDS)
+    if definition and isinstance(definition.get("stop_words"), (list, tuple, set)):
+        stop_words.update(str(w).strip().lower() for w in definition["stop_words"] if str(w).strip())
+
+    word_counts: Counter[str] = Counter()
+    raw_answers: list[str] = []
+
+    for answer in answers:
+        if not isinstance(answer, dict):
+            continue
+        text = answer.get("text", answer.get("value"))
+        if not isinstance(text, str):
+            continue
+        stripped_text = text.strip()
+        if not stripped_text:
+            continue
+        raw_answers.append(stripped_text)
+        tokens = re.findall(r"\b\w+\b", stripped_text.lower())
+        for token in tokens:
+            cleaned = token.strip(string.punctuation + "_")
+            if cleaned and cleaned not in stop_words:
+                word_counts[cleaned] += 1
+
+    return {
+        "submission_count": len(raw_answers),
+        "word_frequencies": dict(word_counts),
+        "words": dict(word_counts),
+        "raw_answers": raw_answers,
+        "values": raw_answers,
+    }
+
+
+def _timer_definition(definition: dict[str, Any]) -> dict[str, Any]:
+    result = _copy_definition(definition)
+    duration = result.get("duration_seconds")
+    if duration is None:
+        raise ValueError("duration_seconds is required.")
+    if isinstance(duration, bool):
+        raise ValueError("duration_seconds must be a positive number.")
+    try:
+        duration = float(duration)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("duration_seconds must be a positive number.") from exc
+    if not math.isfinite(duration) or duration <= 0:
+        raise ValueError("duration_seconds must be a positive number.")
+    result["duration_seconds"] = int(duration) if duration.is_integer() else duration
+
+    label = result.get("label")
+    if label is not None:
+        if not isinstance(label, str):
+            raise ValueError("label must be text.")
+        result["label"] = label.strip()
+
+    auto_start = result.get("auto_start")
+    if auto_start is not None:
+        if not isinstance(auto_start, bool):
+            raise ValueError("auto_start must be a boolean.")
+        result["auto_start"] = auto_start
+    return result
+
+
+def _markdown_definition(definition: dict[str, Any]) -> dict[str, Any]:
+    result = _copy_definition(definition)
+    markdown = result.get("markdown")
+    if markdown is None or not isinstance(markdown, str) or not markdown.strip():
+        raise ValueError("markdown content is required.")
+    result["markdown"] = markdown.strip()
+
+    title = result.get("title")
+    if title is not None:
+        if not isinstance(title, str):
+            raise ValueError("title must be text.")
+        result["title"] = title.strip()
+    return result
+
+
+def _media_definition(definition: dict[str, Any]) -> dict[str, Any]:
+    result = _copy_definition(definition)
+    url = result.get("url")
+    if url is None or not isinstance(url, str) or not url.strip():
+        raise ValueError("url is required.")
+    result["url"] = url.strip()
+
+    media_type = result.get("media_type")
+    if media_type is not None:
+        if not isinstance(media_type, str) or media_type.strip().lower() not in VALID_MEDIA_TYPES:
+            raise ValueError(f"media_type must be one of {sorted(VALID_MEDIA_TYPES)}.")
+        result["media_type"] = media_type.strip().lower()
+
+    caption = result.get("caption")
+    if caption is not None:
+        if not isinstance(caption, str):
+            raise ValueError("caption must be text.")
+        result["caption"] = caption.strip()
+    return result
+
+
 for _activity_type in (
     ActivityType(
         "liveclassroom.single_choice",
@@ -365,6 +532,7 @@ for _activity_type in (
         score_submission=_score_choice,
         export_submission=_plain_export,
         capabilities=frozenset({"choices", "correctness", "aggregate"}),
+        frontend_manifest=_manifest("single_choice"),
     ),
     ActivityType(
         "liveclassroom.multiple_choice",
@@ -375,6 +543,7 @@ for _activity_type in (
         score_submission=_score_choice,
         export_submission=_plain_export,
         capabilities=frozenset({"choices", "correctness", "aggregate"}),
+        frontend_manifest=_manifest("multiple_choice"),
     ),
     ActivityType(
         "liveclassroom.true_false",
@@ -385,6 +554,7 @@ for _activity_type in (
         score_submission=_score_choice,
         export_submission=_plain_export,
         capabilities=frozenset({"choices", "correctness", "aggregate"}),
+        frontend_manifest=_manifest("true_false"),
     ),
     ActivityType(
         "liveclassroom.poll",
@@ -394,6 +564,7 @@ for _activity_type in (
         aggregate_submissions=_aggregate,
         export_submission=_plain_export,
         capabilities=frozenset({"choices", "aggregate"}),
+        frontend_manifest=_manifest("poll"),
     ),
     ActivityType(
         "liveclassroom.short_text",
@@ -403,6 +574,7 @@ for _activity_type in (
         aggregate_submissions=_aggregate,
         export_submission=_plain_export,
         capabilities=frozenset({"text", "aggregate"}),
+        frontend_manifest=_manifest("short_text"),
     ),
     ActivityType(
         "liveclassroom.numeric",
@@ -412,6 +584,7 @@ for _activity_type in (
         aggregate_submissions=_aggregate,
         export_submission=_plain_export,
         capabilities=frozenset({"numeric", "aggregate"}),
+        frontend_manifest=_manifest("numeric"),
     ),
     ActivityType(
         "liveclassroom.rating",
@@ -421,6 +594,7 @@ for _activity_type in (
         aggregate_submissions=_aggregate,
         export_submission=_plain_export,
         capabilities=frozenset({"rating", "aggregate"}),
+        frontend_manifest=_manifest("rating"),
     ),
     ActivityType(
         "liveclassroom.ranking",
@@ -430,19 +604,39 @@ for _activity_type in (
         aggregate_submissions=_aggregate,
         export_submission=_plain_export,
         capabilities=frozenset({"ranking", "aggregate"}),
+        frontend_manifest=_manifest("ranking"),
     ),
     ActivityType(
         "liveclassroom.word_cloud",
-        validate_definition=_text_definition,
+        validate_definition=_word_cloud_definition,
         normalize_submission=_normalize_text,
         validate_submission=_validate_text,
-        aggregate_submissions=_aggregate,
+        aggregate_submissions=_aggregate_word_cloud,
         export_submission=_plain_export,
         capabilities=frozenset({"text", "aggregate"}),
+        frontend_manifest=_manifest("word_cloud"),
     ),
-    ActivityType("liveclassroom.markdown", export_submission=_plain_export, capabilities=frozenset({"content"})),
-    ActivityType("liveclassroom.media", export_submission=_plain_export, capabilities=frozenset({"content"})),
-    ActivityType("liveclassroom.timer", export_submission=_plain_export, capabilities=frozenset({"timed"})),
+    ActivityType(
+        "liveclassroom.markdown",
+        validate_definition=_markdown_definition,
+        export_submission=_plain_export,
+        capabilities=frozenset({"content"}),
+        frontend_manifest=_manifest("markdown"),
+    ),
+    ActivityType(
+        "liveclassroom.media",
+        validate_definition=_media_definition,
+        export_submission=_plain_export,
+        capabilities=frozenset({"content"}),
+        frontend_manifest=_manifest("media"),
+    ),
+    ActivityType(
+        "liveclassroom.timer",
+        validate_definition=_timer_definition,
+        export_submission=_plain_export,
+        capabilities=frozenset({"timed"}),
+        frontend_manifest=_manifest("timer"),
+    ),
     ActivityType(
         "liveclassroom.question",
         normalize_submission=_copy_definition,
@@ -451,6 +645,7 @@ for _activity_type in (
         score_submission=_score_choice,
         export_submission=_plain_export,
         capabilities=frozenset({"legacy", "aggregate", "correctness"}),
+        frontend_manifest=_manifest("question"),
     ),
 ):
     activity_registry.register(_activity_type)
