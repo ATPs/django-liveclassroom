@@ -79,9 +79,6 @@ def test_teacher_console_enables_reusable_activity_steps(client):
     step = FlowStep.objects.create(
         flow=flow,
         position=1,
-        kind="activity",
-        title=definition.title,
-        content=definition.definition,
         activity_definition=definition,
     )
     session = LiveSession.objects.create(teacher=user, title="Prepared class", flow=flow)
@@ -90,8 +87,9 @@ def test_teacher_console_enables_reusable_activity_steps(client):
     response = client.get(reverse("liveclassroom:teacher-console", args=[session.id]))
 
     assert response.status_code == 200
-    button = f'<button class="lc-item" data-step-id="{step.id}" >'.encode()
+    button = f'<button class="lc-item" data-step-id="{step.id}">'.encode()
     assert button in response.content
+    assert b"Prepared poll" in response.content
 
 
 @pytest.mark.django_db

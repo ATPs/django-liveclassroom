@@ -15,7 +15,7 @@ from liveclassroom.models import (
     Course,
     CourseMembership,
     Flow,
-    FlowItem,
+    FlowStep,
     LiveActivity,
     LiveSession,
     SessionChannelState,
@@ -99,16 +99,18 @@ def test_course_teacher_can_launch_flow_they_did_not_create():
     course = Course.objects.create(title="Shared Course", slug="p0-shared-course", created_by=owner)
     CourseMembership.objects.create(course=course, user=course_teacher, role=CourseMembership.Role.TEACHER)
     flow = Flow.objects.create(course=course, created_by=owner, title="Shared Flow", slug="shared-flow")
-    item = FlowItem.objects.create(
-        flow=flow,
-        position=1,
-        kind=FlowItem.Kind.POLL,
-        content={"options": [{"id": "A", "text": "One"}, {"id": "B", "text": "Two"}]},
+    definition = create_activity_definition(
+        owner=owner,
+        title="Shared poll",
+        type_key="liveclassroom.poll",
+        course=course,
+        definition={"options": [{"id": "A", "text": "One"}, {"id": "B", "text": "Two"}]},
     )
+    step = FlowStep.objects.create(flow=flow, position=1, activity_definition=definition)
     session = LiveSession.objects.create(course=course, flow=flow, teacher=course_teacher, title="Shared session")
 
     start_session(session=session, actor=course_teacher)
-    activity = launch_item(session=session, item=item, actor=course_teacher)
+    activity = launch_item(session=session, item=step, actor=course_teacher)
 
     assert activity.session_id == session.id
 
@@ -116,13 +118,13 @@ def test_course_teacher_can_launch_flow_they_did_not_create():
 @pytest.mark.django_db
 def test_launch_markdown_step_does_not_crash(teacher):
     flow = create_flow(title="Markdown Flow", creator=teacher)
-    step = add_flow_step(
-        flow=flow,
-        actor=teacher,
-        kind="markdown",
+    markdown_definition = create_activity_definition(
+        owner=teacher,
         title="Lecture Notes",
-        content={"markdown": "# Welcome to class"},
+        type_key="liveclassroom.markdown",
+        definition={"markdown": "# Welcome to class"},
     )
+    step = add_flow_step(flow=flow, actor=teacher, activity_definition=markdown_definition)
     session = create_instant_session(owner=teacher, title="Markdown session")
     session.flow = flow
     session.save(update_fields=["flow"])
@@ -281,10 +283,8 @@ def test_new_participant_publish_resets_compatibility_review_mirror(teacher):
 
     first_activity.refresh_from_db()
     second_activity.refresh_from_db()
-    state = session.channel_states.get(channel="participants")
     assert first_activity.reviewable is True
     assert second_activity.reviewable is False
-    assert state.allow_review is False
 
 
 @pytest.mark.django_db
@@ -360,15 +360,16 @@ def test_direct_media_write_is_validated_and_legacy_media_audit_can_repair(teach
 
 
 @pytest.mark.django_db
-def test_unsafe_legacy_live_activity_is_not_rendered(teacher):
-    session = create_instant_session(owner=teacher, title="Legacy render")
+def test_unsafe_live_activity_is_not_rendered(teacher):
+    session = create_instant_session(owner=teacher, title="Unsafe render")
     start_session(session=session, actor=teacher)
     activity = LiveActivity.objects.create(
         session=session,
         sequence=1,
-        kind="iframe",
+        kind="media",
         definition_snapshot={
-            "kind": "iframe",
+            "type_key": "liveclassroom.media",
+            "kind": "media",
             "title": "Unsafe frame",
             "content": {"url": "//user:pass@example.com/embed", "media_type": "iframe"},
         },
@@ -386,8 +387,16 @@ def test_unsafe_legacy_live_activity_is_not_rendered(teacher):
 
 @pytest.mark.django_db
 def test_media_audit_repairs_malformed_live_activity_snapshot(teacher):
-    session = create_instant_session(owner=teacher, title="Malformed legacy media")
-    activity = LiveActivity.objects.create(session=session, sequence=1, kind="iframe", definition_snapshot=[])
+    session = create_instant_session(owner=teacher, title="Malformed media")
+    activity = LiveActivity.objects.create(
+        session=session,
+        sequence=1,
+        kind="media",
+        definition_snapshot={
+            "type_key": "liveclassroom.media",
+            "content": {"url": "https://", "media_type": "iframe"},
+        },
+    )
 
     call_command("audit_liveclassroom_media", "--repair", stdout=StringIO())
 

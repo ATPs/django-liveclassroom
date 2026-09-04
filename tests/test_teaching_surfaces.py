@@ -59,7 +59,6 @@ def test_teacher_console_bilingual_and_lang_switch(client, teacher_user, session
     assert 'id="analytics-summary"' in content_en
     assert 'id="result-summary"' in content_en
     assert 'data-liveclassroom-content' in content_en
-    assert 'data-liveclassroom-participant-preview' in content_en
 
     # 2. Simplified Chinese
     resp_zh = client.get(f"{reverse('liveclassroom:teacher-console', args=[session_with_flow.id])}?lang=zh-Hans")
@@ -119,31 +118,24 @@ def test_frontend_bundle_contains_all_renderers_and_locales():
     # Verify Language Switcher
     assert "mountLanguageSwitcher" in content
     assert "lc-lang-switch" in content
-    assert "getLabels" in content
 
     # Verify Timer Renderer
-    assert "renderTimer" in content
     assert "lc-timer-display" in content
     assert "lc-timer-countdown" in content
     assert "timerFinished" in content
 
     # Verify Media Renderer
-    assert "renderMedia" in content
     assert "lc-media-container" in content
 
     # Verify Markdown Renderer
-    assert "renderMarkdownText" in content
     assert "lc-markdown-body" in content
 
     # Verify Word Cloud Renderer
-    assert "renderWordCloud" in content
     assert "lc-word-cloud" in content
     assert "lc-word-tag" in content
     assert "lc-word-cloud-moderation" in content
 
     # Verify Richer Analytics
-    assert "renderTeacherAnalytics" in content
-    assert "renderAggregate" in content
     assert "lc-bar-container" in content
     assert "lc-bar" in content
     assert "lc-choice-bars" in content

@@ -103,7 +103,7 @@ def json_archive(session: LiveSession) -> Iterator[str]:
     yield '{"protocol_version":1,"session":'
     yield _encode({
         "id": session.id, "title": session.title, "join_code": session.join_code, "status": session.status,
-        "mode": session.mode, "access_mode": session.access_mode, "admission_mode": session.admission_mode,
+        "access_mode": session.access_mode, "admission_mode": session.admission_mode,
         "created_at": session.created_at, "started_at": session.started_at, "ended_at": session.ended_at,
     })
     yield ',"participants":'

@@ -10,14 +10,14 @@ from liveclassroom.services.classroom import ClassroomError, create_instant_sess
 
 
 @pytest.mark.django_db
-@override_settings(LIVECLASSROOM={"JOIN_CODE_LENGTH": 8, "DEFAULT_SESSION_MODE": "student_paced"})
+@override_settings(LIVECLASSROOM={"JOIN_CODE_LENGTH": 8})
 def test_session_defaults_and_join_code_length_follow_host_configuration():
     teacher = get_user_model().objects.create_user(username="configured-teacher")
     session = create_instant_session(owner=teacher, title="Configured classroom")
 
     assert join_code_length() == 8
     assert len(session.join_code) == 8
-    assert session.mode == LiveSession.Mode.STUDENT_PACED
+    assert session.access_mode == LiveSession.AccessMode.GUEST
 
 
 @pytest.mark.django_db
