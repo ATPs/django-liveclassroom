@@ -76,12 +76,9 @@ def test_teacher_console_enables_reusable_activity_steps(client):
         type_key="liveclassroom.poll",
         definition={"options": [{"id": "A", "text": "One"}]},
     )
-    step = FlowStep.objects.create(
+    FlowStep.objects.create(
         flow=flow,
         position=1,
-        kind="activity",
-        title=definition.title,
-        content=definition.definition,
         activity_definition=definition,
     )
     session = LiveSession.objects.create(teacher=user, title="Prepared class", flow=flow)
@@ -90,8 +87,8 @@ def test_teacher_console_enables_reusable_activity_steps(client):
     response = client.get(reverse("liveclassroom:teacher-console", args=[session.id]))
 
     assert response.status_code == 200
-    button = f'<button class="lc-item" data-step-id="{step.id}" >'.encode()
-    assert button in response.content
+    assert b"data-flow-steps=" in response.content
+    assert b"Prepared poll" in response.content
 
 
 @pytest.mark.django_db
@@ -119,3 +116,20 @@ def test_builder_uses_mounted_api_prefix(client):
 
     assert response.status_code == 200
     assert b'data-api-v1-url="/classroom/api/v1/flows/"' in response.content
+
+
+@pytest.mark.django_db
+@override_settings(ROOT_URLCONF="tests.mounted_urls")
+def test_teacher_console_exposes_mounted_surface_urls(client):
+    user = get_user_model().objects.create_user(username="mounted-console-teacher")
+    session = LiveSession.objects.create(teacher=user, title="Mounted class", join_code="MOUNT1")
+    client.force_login(user)
+
+    response = client.get(reverse("liveclassroom:teacher-console", args=[session.id]))
+
+    assert response.status_code == 200
+    content = response.content.decode()
+    assert f'data-qr-url="/classroom/teacher/sessions/{session.id}/join-qr.svg"' in content
+    assert f'data-display-url="/classroom/teacher/sessions/{session.id}/display/"' in content
+    assert f'data-export-url="/classroom/api/v1/sessions/{session.id}/export/"' in content
+    assert f'data-student-view-url="/classroom/teacher/sessions/{session.id}/student-view/"' in content

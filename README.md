@@ -41,9 +41,11 @@ application.
 
 The first milestone deliberately establishes the durable domain model,
 integration boundaries, teacher controls, and a useful reporting surface.
-The packaged TypeScript teaching surface now mounts on the teacher, display,
-and student pages; a visual builder, browser acceptance, provider-specific AI
-adapters, and production host wiring remain planned work.
+The packaged teaching surfaces are React 19 islands (teacher console, classroom
+display, and student session) over a scoped, token-driven stylesheet with
+automatic dark mode, a presentation-focused full-viewport display, and complete
+EN/zh-Hans coverage including the server-rendered pages. Browser acceptance,
+provider-specific AI adapters, and production host wiring remain planned work.
 
 ## Quick start
 

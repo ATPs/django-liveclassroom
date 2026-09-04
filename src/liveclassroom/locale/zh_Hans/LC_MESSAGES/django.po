@@ -1,0 +1,109 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: django-liveclassroom\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Language: zh-Hans\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+msgid "Reusable Django app"
+msgstr "可复用的 Django 应用"
+
+msgid "Live classroom foundations are installed and ready for authoring."
+msgstr "直播课堂基础已安装，可用于内容创作。"
+
+msgid "Teacher console"
+msgstr "教师控制台"
+
+msgid "Join a session"
+msgstr "加入课堂"
+
+msgid "Student"
+msgstr "学生"
+
+msgid "Join a classroom"
+msgstr "加入课堂"
+
+msgid "Join"
+msgstr "加入"
+
+msgid "Teacher"
+msgstr "教师"
+
+msgid "Start a live classroom"
+msgstr "开始直播课堂"
+
+msgid "Create session"
+msgstr "创建课堂"
+
+msgid "Your sessions"
+msgstr "我的课堂"
+
+msgid "Flow Builder"
+msgstr "流程编辑器"
+
+msgid "Archived"
+msgstr "已归档"
+
+msgid "No sessions yet. Create a flow in the Flow Builder, then return here."
+msgstr "暂无课堂。请在流程编辑器中创建流程后返回。"
+
+msgid "Title"
+msgstr "标题"
+
+msgid "Course"
+msgstr "课程"
+
+msgid "Flow"
+msgstr "流程"
+
+msgid "Access mode"
+msgstr "访问方式"
+
+msgid "Admission mode"
+msgstr "准入方式"
+
+msgid "Enable class chat"
+msgstr "开启课堂聊天"
+
+msgid "Choose a flow belonging to the selected course."
+msgstr "请选择属于所选课程的流程。"
+
+msgid "Join code"
+msgstr "加入码"
+
+msgid "Your name"
+msgstr "你的名字"
+
+msgid "Guest link"
+msgstr "访客链接"
+
+msgid "Authenticated users"
+msgstr "认证用户"
+
+msgid "Guest link and authenticated users"
+msgstr "访客链接与认证用户"
+
+msgid "Open"
+msgstr "开放"
+
+msgid "Waiting room"
+msgstr "等候室"
+
+msgid "Roster only"
+msgstr "仅名单"
+
+msgid "No classroom exists with this code."
+msgstr "该加入码对应的课堂不存在。"
+
+msgid "Draft"
+msgstr "草稿"
+
+msgid "Live"
+msgstr "进行中"
+
+msgid "Paused"
+msgstr "已暂停"
+
+msgid "Ended"
+msgstr "已结束"

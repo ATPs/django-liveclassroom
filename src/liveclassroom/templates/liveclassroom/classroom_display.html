@@ -1,15 +1,11 @@
 {% extends liveclassroom_base_template %}
 {% block title %}{{ session.title }} - Display{% endblock %}
 {% block content %}
-  <section class="lc-card lc-wide" data-session-id="{{ session.id }}" data-display="true" data-liveclassroom-app data-audience="display" data-state-url="{% url 'liveclassroom:api-v1-state' session.id %}" data-websocket-url="{{ websocket_url }}" data-locale="{{ active_lang|default:'en' }}">
+  <section class="lc-display-shell" data-session-id="{{ session.id }}" data-display="true" data-liveclassroom-app data-audience="display" data-state-url="{% url 'liveclassroom:api-v1-state' session.id %}" data-websocket-url="{{ websocket_url }}" data-locale="{{ active_lang|default:'en' }}">
     <button type="button" class="lc-lang-switch" aria-label="Switch language / 切换语言">EN / 中文</button>
     <p class="lc-kicker">Classroom display</p>
     <h1 id="display-title">{{ session.title }}</h1>
     <div id="display-content" data-liveclassroom-content><p>Waiting for the teacher.</p></div>
     <p id="display-status" data-liveclassroom-status aria-live="polite">Connecting...</p>
-    <section class="lc-chat" data-liveclassroom-chat aria-label="Class chat">
-      <p data-liveclassroom-chat-status aria-live="polite"></p>
-      <ul data-liveclassroom-chat-messages aria-live="polite"><li>No messages yet.</li></ul>
-    </section>
   </section>
 {% endblock %}

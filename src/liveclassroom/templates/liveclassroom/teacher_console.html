@@ -1,84 +1,23 @@
 {% extends liveclassroom_base_template %}
 {% block title %}Teacher console · LiveClassroom{% endblock %}
 {% block content %}
-  <section class="lc-card lc-wide" data-session-id="{{ session.id }}" data-is-superuser="{{ request.user.is_superuser|yesno:'true,false' }}" data-liveclassroom-app data-audience="teacher" data-state-url="{% url 'liveclassroom:api-v1-state' session.id %}" data-websocket-url="{{ websocket_url }}" data-locale="{{ active_lang|default:'en' }}">
-    <button type="button" class="lc-lang-switch" aria-label="Switch language / 切换语言">EN / 中文</button>
-    <p class="lc-kicker">Teacher · {{ session.title }}</p>
-    <h1>{{ session.flow|default:'Instant session' }}</h1>
-    <p>Join code: <strong class="lc-code">{{ session.join_code }}</strong> · <a href="{% url 'liveclassroom:join' %}?code={{ session.join_code|urlencode }}">student join page</a> · <a href="{% url 'liveclassroom:classroom-display' session.id %}">open display</a> · <a href="{% url 'liveclassroom:student-view' session.id %}">Student view</a></p>
-    <figure class="lc-join-qr">
-      <img src="{% url 'liveclassroom:join-qr' session.id %}" alt="QR code for joining {{ session.title }}">
-      <figcaption>Student join code: {{ session.join_code }}</figcaption>
-    </figure>
-    <p>Status: <strong id="session-status">{{ session.get_status_display }}</strong></p>
-    <div class="lc-actions" aria-label="Classroom controls">
-      <button id="start-session">Start classroom</button>
-      <button id="pause-session" disabled>Pause</button>
-      <button id="end-session" disabled>End classroom</button>
-    </div>
-    <div class="lc-grid">
-      <section>
-        <h2>Flow</h2>
-        {% for step in steps %}
-          <button class="lc-item" data-step-id="{{ step.id }}">
-            Push {{ step.position }}. {{ step.activity_definition.title }}
-          </button>
-        {% empty %}
-          <p>Add reusable activities in the <a href="{% url 'liveclassroom:flow-builder' %}?session_id={{ session.id }}">Flow Builder</a> or Django admin.</p>
-        {% endfor %}
-      </section>
-      <section aria-live="polite">
-        <h2>Display preview</h2>
-        <div data-liveclassroom-content></div>
-        <p data-liveclassroom-status>{{ session.get_status_display }}</p>
-      </section>
-      <section>
-        <h2>Live results</h2>
-        <p id="activity-status">No activity published.</p>
-        <div id="result-summary"></div>
-        <button id="close-activity" disabled>Close answers</button>
-        <button id="reveal-activity" disabled>Reveal answer</button>
-      </section>
-    </div>
-    <section class="lc-analytics" aria-labelledby="analytics-heading">
-      <div class="lc-analytics-header">
-        <div>
-          <h2 id="analytics-heading">Session analytics</h2>
-          <p id="analytics-summary" aria-live="polite">Loading attendance and responses...</p>
-        </div>
-        <a href="{% url 'liveclassroom:api-v1-export' session.id %}?format=csv&amp;dataset=summary">Download summary CSV</a>
-      </div>
-      <div class="lc-table-wrap">
-        <table class="lc-table">
-          <caption>Response rate by activity</caption>
-          <thead><tr><th scope="col">#</th><th scope="col">Activity</th><th scope="col">Responses</th><th scope="col">Rate</th><th scope="col">Stale</th><th scope="col">State</th></tr></thead>
-          <tbody id="analytics-activities"><tr><td colspan="6">No activities yet.</td></tr></tbody>
-        </table>
-      </div>
-      <div class="lc-table-wrap">
-        <table class="lc-table">
-          <caption>Participant attendance and response timeline</caption>
-          <thead><tr><th scope="col">Participant</th><th scope="col">Admission</th><th scope="col">Current</th><th scope="col">Stale</th><th scope="col">Connection</th></tr></thead>
-          <tbody id="analytics-participants"><tr><td colspan="5">No participants yet.</td></tr></tbody>
-        </table>
-      </div>
-      <div class="lc-table-wrap">
-        <table class="lc-table">
-          <caption id="analytics-responses-caption">Responses for the current activity</caption>
-          <thead><tr><th scope="col">Participant</th><th scope="col">Answer</th><th scope="col">Revision</th><th scope="col">Status</th></tr></thead>
-          <tbody id="analytics-responses"><tr><td colspan="4">Publish an activity to review responses.</td></tr></tbody>
-        </table>
-      </div>
-    </section>
-    <section class="lc-chat" data-liveclassroom-chat aria-labelledby="chat-heading">
-      <h2 id="chat-heading">Class chat</h2>
-      <p data-liveclassroom-chat-status aria-live="polite"></p>
-      <ul data-liveclassroom-chat-messages aria-live="polite"><li>No messages yet.</li></ul>
-      <div data-liveclassroom-chat-settings></div>
-      <form data-liveclassroom-chat-form>
-        <label>Message <textarea name="body" rows="2" maxlength="4000"></textarea></label>
-        <button type="submit">Send</button>
-      </form>
-    </section>
+  <section class="lc-card lc-wide"
+    data-liveclassroom-app data-audience="teacher"
+    data-session-id="{{ session.id }}"
+    data-is-superuser="{{ request.user.is_superuser|yesno:'true,false' }}"
+    data-state-url="{% url 'liveclassroom:api-v1-state' session.id %}"
+    data-websocket-url="{{ websocket_url }}"
+    data-locale="{{ active_lang|default:'en' }}"
+    data-session-title="{{ session.title }}"
+    data-flow-title="{{ flow_title }}"
+    data-join-code="{{ session.join_code }}"
+    data-join-url="{% url 'liveclassroom:join' %}?code={{ session.join_code|urlencode }}"
+    data-display-url="{% url 'liveclassroom:classroom-display' session.id %}"
+    data-qr-url="{% url 'liveclassroom:join-qr' session.id %}"
+    data-export-url="{% url 'liveclassroom:api-v1-export' session.id %}"
+    data-builder-url="{% url 'liveclassroom:flow-builder' %}?session_id={{ session.id }}"
+    data-student-view-url="{% url 'liveclassroom:student-view' session.id %}"
+    data-flow-steps='{{ flow_steps_json }}'>
+    <noscript><p>The live console needs JavaScript.</p></noscript>
   </section>
 {% endblock %}

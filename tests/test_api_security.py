@@ -65,7 +65,7 @@ def test_observer_state_does_not_include_projector_channel():
 
     assert response.status_code == 200
     assert set(response.json()["channels"]) == {"participants"}
-    default_state = observer_client.get(reverse("liveclassroom:api-state", args=[session.id]))
+    default_state = observer_client.get(reverse("liveclassroom:api-v1-state", args=[session.id]))
     assert default_state.status_code == 200
     assert set(default_state.json()["channels"]) == {"participants"}
 

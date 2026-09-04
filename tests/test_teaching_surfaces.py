@@ -41,7 +41,36 @@ def test_base_template_lang_attribute_and_fallback(client):
     # Query param ?lang=zh-CN updates html lang attribute
     resp_cn = client.get(f"{reverse('liveclassroom:home')}?lang=zh-CN")
     assert resp_cn.status_code == 200
-    assert b'<html lang="zh-CN">' in resp_cn.content
+    assert b'<html lang="zh-Hans">' in resp_cn.content
+
+
+@pytest.mark.django_db
+def test_server_rendered_pages_are_bilingual(client, teacher_user):
+    # English default
+    home_en = client.get(reverse("liveclassroom:home"))
+    assert "Teacher console" in home_en.content.decode()
+
+    # Chinese via ?lang=
+    home_zh = client.get(f"{reverse('liveclassroom:home')}?lang=zh-Hans")
+    assert "教师控制台" in home_zh.content.decode()
+
+    join_zh = client.get(f"{reverse('liveclassroom:join')}?lang=zh-Hans")
+    assert "加入课堂" in join_zh.content.decode()
+    assert "加入码" in join_zh.content.decode()
+
+    client.force_login(teacher_user)
+    dash_zh = client.get(f"{reverse('liveclassroom:teacher-dashboard')}?lang=zh-Hans")
+    assert "我的课堂" in dash_zh.content.decode()
+    assert "开始直播课堂" in dash_zh.content.decode()
+
+
+@pytest.mark.django_db
+def test_locale_aliases_expose_supported_react_locale(client, teacher_user, session_with_flow):
+    client.force_login(teacher_user)
+    response = client.get(f"{reverse('liveclassroom:teacher-console', args=[session_with_flow.id])}?lang=zh-CN")
+
+    assert response.status_code == 200
+    assert 'data-locale="zh-Hans"' in response.content.decode()
 
 
 @pytest.mark.django_db
@@ -52,14 +81,11 @@ def test_teacher_console_bilingual_and_lang_switch(client, teacher_user, session
     resp_en = client.get(reverse("liveclassroom:teacher-console", args=[session_with_flow.id]))
     assert resp_en.status_code == 200
     content_en = resp_en.content.decode()
-    assert 'class="lc-lang-switch"' in content_en
     assert 'data-locale="en"' in content_en
     assert 'data-audience="teacher"' in content_en
-    assert 'id="start-session"' in content_en
-    assert 'id="analytics-summary"' in content_en
-    assert 'id="result-summary"' in content_en
-    assert 'data-liveclassroom-content' in content_en
-    assert 'data-liveclassroom-participant-preview' in content_en
+    assert 'data-flow-steps=' in content_en
+    assert 'data-qr-url=' in content_en
+    assert 'data-session-title=' in content_en
 
     # 2. Simplified Chinese
     resp_zh = client.get(f"{reverse('liveclassroom:teacher-console', args=[session_with_flow.id])}?lang=zh-Hans")
@@ -67,7 +93,6 @@ def test_teacher_console_bilingual_and_lang_switch(client, teacher_user, session
     content_zh = resp_zh.content.decode()
     assert '<html lang="zh-Hans">' in content_zh
     assert 'data-locale="zh-Hans"' in content_zh
-    assert 'class="lc-lang-switch"' in content_zh
 
 
 @pytest.mark.django_db
@@ -118,32 +143,38 @@ def test_frontend_bundle_contains_all_renderers_and_locales():
 
     # Verify Language Switcher
     assert "mountLanguageSwitcher" in content
+    assert "mountStudentSession" in content
+    assert "mountClassroomDisplay" in content
+    assert "mountTeacherConsole" in content
+    assert "mountStudentView" in content
     assert "lc-lang-switch" in content
-    assert "getLabels" in content
+    assert "start-session" in content
+    assert "analytics-summary" in content
+    assert "result-summary" in content
+    assert "student-content" in content
+    assert "display-content" in content
+    assert "lc-join-qr" in content
+    assert "lc-item" in content
+    assert "data-liveclassroom-chat" in content
+    assert "data-liveclassroom-history" in content
 
     # Verify Timer Renderer
-    assert "renderTimer" in content
     assert "lc-timer-display" in content
     assert "lc-timer-countdown" in content
     assert "timerFinished" in content
 
     # Verify Media Renderer
-    assert "renderMedia" in content
     assert "lc-media-container" in content
 
     # Verify Markdown Renderer
-    assert "renderMarkdownText" in content
     assert "lc-markdown-body" in content
 
     # Verify Word Cloud Renderer
-    assert "renderWordCloud" in content
     assert "lc-word-cloud" in content
     assert "lc-word-tag" in content
     assert "lc-word-cloud-moderation" in content
 
     # Verify Richer Analytics
-    assert "renderTeacherAnalytics" in content
-    assert "renderAggregate" in content
     assert "lc-bar-container" in content
     assert "lc-bar" in content
     assert "lc-choice-bars" in content
@@ -163,6 +194,13 @@ def test_css_contains_teaching_surface_styles():
     assert css_path.exists(), "liveclassroom.css must exist"
     css = css_path.read_text(encoding="utf-8")
 
+    # Design tokens and theming
+    assert "--lc-accent" in css
+    assert "--lc-surface" in css
+    assert "--lc-text" in css
+    assert "prefers-color-scheme: dark" in css
+    assert "prefers-reduced-motion" in css
+    assert ":focus-visible" in css
     # Language Switcher
     assert ".lc-lang-switch" in css
     # Timer
@@ -180,6 +218,8 @@ def test_css_contains_teaching_surface_styles():
     assert ".lc-bar-container" in css
     assert ".lc-bar" in css
     assert ".lc-rate-badge" in css
+    # Buttons
+    assert ".lc-btn-primary" in css
 
 
 def test_locales_ts_key_parity_and_coverage():

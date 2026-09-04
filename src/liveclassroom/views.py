@@ -1,8 +1,12 @@
+import json
+
 import qrcode
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
+from django.utils import translation
+from django.utils.translation import gettext_lazy as _
 from django.views.generic import FormView, TemplateView
 from qrcode.image.svg import SvgPathImage
 
@@ -13,14 +17,30 @@ from .services.classroom import can_manage_session, can_view_display
 
 
 class LocaleContextMixin:
-    """Provide active_lang context to templates based on ?lang=, session, or default."""
+    """Provide active_lang context and active translation based on ?lang=."""
+
+    def resolve_locale(self) -> str:
+        lang = (self.request.GET.get("lang") or "").strip().lower()
+        if lang.startswith("zh"):
+            return "zh-Hans"
+        if lang.startswith("en"):
+            return "en"
+        if hasattr(self.request, "LANGUAGE_CODE"):
+            return self.request.LANGUAGE_CODE
+        return "en"
+
+    def dispatch(self, request, *args, **kwargs):
+        # TemplateResponse renders lazily, so render inside the override to make
+        # {% translate %} and lazy form labels resolve in the active locale.
+        with translation.override(self.resolve_locale()):
+            response = super().dispatch(request, *args, **kwargs)
+            if hasattr(response, "render"):
+                response.render()
+            return response
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        lang = self.request.GET.get("lang")
-        if not lang and hasattr(self.request, "LANGUAGE_CODE"):
-            lang = self.request.LANGUAGE_CODE
-        context["active_lang"] = lang or "en"
+        context["active_lang"] = self.resolve_locale()
         context["liveclassroom_base_template"] = base_template()
         return context
 
@@ -61,8 +81,21 @@ class TeacherConsoleView(LoginRequiredMixin, LocaleContextMixin, TemplateView):
         context = super().get_context_data(**kwargs)
         context["session"] = self.session
         context["websocket_url"] = websocket_path(self.session.id)
-        context["steps"] = (
+        steps = (
             self.session.flow.steps.select_related("activity_definition").all() if self.session.flow_id else []
+        )
+        context["steps"] = steps
+        context["flow_title"] = self.session.flow.title if self.session.flow_id else ""
+        context["flow_steps_json"] = json.dumps(
+            [
+                {
+                    "id": step.id,
+                    "position": step.position,
+                    "title": step.activity_definition.title,
+                }
+                for step in steps
+            ],
+            ensure_ascii=False,
         )
         return context
 
@@ -117,7 +150,7 @@ class JoinView(LocaleContextMixin, FormView):
     def form_valid(self, form):
         session = LiveSession.objects.filter(join_code__iexact=form.cleaned_data["join_code"]).first()
         if not session:
-            form.add_error("join_code", "No classroom exists with this code.")
+            form.add_error("join_code", _("No classroom exists with this code."))
             return self.form_invalid(form)
         self.request.session[f"liveclassroom.pending_name.{session.id}"] = form.cleaned_data["display_name"]
         return redirect("liveclassroom:student-session", session_id=session.id)

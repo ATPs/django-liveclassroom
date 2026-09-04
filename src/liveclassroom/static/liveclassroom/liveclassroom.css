@@ -1,172 +1,578 @@
+/* LiveClassroom scoped design system.
+ *
+ * Every rule is scoped under #liveclassroom-root so installing this app cannot
+ * take over a host site's own styles. All classes are prefixed `lc-`.
+ */
+
+/* ---------------------------------------------------------------------------
+ * Design tokens (light theme) — the single source of truth for the app.
+ * ------------------------------------------------------------------------- */
 #liveclassroom-root {
-  --lc-primary: #0d6658;
-  --lc-background: #f5faf8;
-  --lc-text: #10231e;
+  color-scheme: light dark;
+
+  /* Neutral surfaces, borders, and text (slate family). */
+  --lc-bg: #f8fafc;
+  --lc-surface: #ffffff;
+  --lc-surface-2: #f1f5f9;
+  --lc-surface-3: #e2e8f0;
+  --lc-border: #e2e8f0;
+  --lc-border-strong: #cbd5e1;
+  --lc-text: #0f172a;
+  --lc-text-2: #475569;
+  --lc-text-3: #94a3b8;
+
+  /* Accent — the single brand hue (teal), preserved from the original design. */
+  --lc-accent: #0d6658;
+  --lc-accent-hover: #0a5246;
+  --lc-accent-active: #08423a;
+  --lc-accent-soft: #e7f3f0;
+  --lc-accent-border: #b9d9d2;
+  --lc-on-accent: #ffffff;
+
+  /* Semantic. */
+  --lc-success: #15803d;
+  --lc-success-soft: #dcfce7;
+  --lc-warning: #b45309;
+  --lc-warning-soft: #fef3c7;
+  --lc-danger: #b91c1c;
+  --lc-danger-soft: #fee2e2;
+
+  /* Shape, depth, type, and motion. */
+  --lc-ring: var(--lc-accent);
+  --lc-shadow-sm: 0 1px 2px rgb(15 23 42 / 6%);
+  --lc-shadow-md: 0 4px 12px rgb(15 23 42 / 8%);
+  --lc-radius-sm: 0.375rem;
+  --lc-radius: 0.5rem;
+  --lc-radius-lg: 0.75rem;
+  --lc-radius-xl: 1rem;
+  --lc-font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
+    "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --lc-font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --lc-transition: 150ms ease;
+}
+
+/* ---------------------------------------------------------------------------
+ * Dark theme — hand-picked values that preserve contrast, not an invert.
+ * ------------------------------------------------------------------------- */
+@media (prefers-color-scheme: dark) {
+  #liveclassroom-root {
+    --lc-bg: #0b1220;
+    --lc-surface: #111a2c;
+    --lc-surface-2: #1a2438;
+    --lc-surface-3: #26334b;
+    --lc-border: #26334b;
+    --lc-border-strong: #3b4a66;
+    --lc-text: #e6edf7;
+    --lc-text-2: #9fb0c8;
+    --lc-text-3: #64748b;
+
+    --lc-accent: #2fd6c0;
+    --lc-accent-hover: #5ce3d2;
+    --lc-accent-active: #22c2ad;
+    --lc-accent-soft: #10312e;
+    --lc-accent-border: #1e4f48;
+    --lc-on-accent: #04211c;
+
+    --lc-success: #4ade80;
+    --lc-success-soft: #102e1b;
+    --lc-warning: #fbbf24;
+    --lc-warning-soft: #33270a;
+    --lc-danger: #f87171;
+    --lc-danger-soft: #3a1416;
+
+    --lc-shadow-sm: 0 1px 2px rgb(0 0 0 / 40%);
+    --lc-shadow-md: 0 4px 16px rgb(0 0 0 / 45%);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Base
+ * ------------------------------------------------------------------------- */
+#liveclassroom-root {
   min-height: 100vh;
   box-sizing: border-box;
   display: grid;
   place-items: center;
   padding: 2rem;
-  background: var(--lc-background);
+  background: var(--lc-bg);
   color: var(--lc-text);
-  font-family: system-ui, sans-serif;
+  font-family: var(--lc-font-sans);
+  font-size: 1rem;
+  line-height: 1.5;
 }
 
+#liveclassroom-root *,
+#liveclassroom-root *::before,
+#liveclassroom-root *::after {
+  box-sizing: border-box;
+}
+
+#liveclassroom-root a {
+  color: var(--lc-accent);
+  text-decoration-thickness: 0.08em;
+  text-underline-offset: 2px;
+}
+
+#liveclassroom-root a:hover {
+  color: var(--lc-accent-hover);
+}
+
+/* Accessible focus ring on every interactive element. */
+#liveclassroom-root :is(a, button, input, select, textarea, [tabindex]) {
+  outline: none;
+}
+
+#liveclassroom-root :is(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--lc-ring);
+  outline-offset: 2px;
+}
+
+/* ---------------------------------------------------------------------------
+ * Cards and layout
+ * ------------------------------------------------------------------------- */
 #liveclassroom-root .lc-card {
   position: relative;
   width: min(100%, 42rem);
   padding: 2rem;
-  border: 1px solid #c9ddd7;
-  border-radius: 1rem;
-  background: #fff;
-  box-shadow: 0 1rem 3rem rgb(16 35 30 / 8%);
+  border: 1px solid var(--lc-border);
+  border-radius: var(--lc-radius-lg);
+  background: var(--lc-surface);
+  box-shadow: var(--lc-shadow-sm);
 }
 
-#liveclassroom-root .lc-wide { width: min(100%, 68rem); }
-#liveclassroom-root .lc-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin: 1rem 0; }
-#liveclassroom-root .lc-form p { display: grid; gap: .35rem; }
-#liveclassroom-root button { margin: .25rem 0; padding: .55rem .8rem; border: 0; border-radius: .45rem; background: var(--lc-primary); color: #fff; cursor: pointer; }
-#liveclassroom-root button:disabled { opacity: .5; cursor: not-allowed; }
-#liveclassroom-root .lc-code { letter-spacing: .1em; font-size: 1.2em; }
-#liveclassroom-root .lc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; margin-top: 1.5rem; }
-#liveclassroom-root .lc-item { display: block; width: 100%; text-align: left; }
-#liveclassroom-root .lc-analytics { margin-top: 2rem; }
-#liveclassroom-root .lc-chat { margin-top: 2rem; }
-#liveclassroom-root .lc-chat ul { max-height: 16rem; overflow-y: auto; padding-left: 1.25rem; }
-#liveclassroom-root .lc-chat label { display: grid; gap: .35rem; }
-#liveclassroom-root .lc-chat textarea { width: 100%; box-sizing: border-box; padding: .5rem; font: inherit; }
-#liveclassroom-root [data-liveclassroom-history] { margin-top: 2rem; }
-#liveclassroom-root .lc-analytics-header { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; }
-#liveclassroom-root .lc-table-wrap { overflow-x: auto; margin-top: 1rem; }
-#liveclassroom-root .lc-table { width: 100%; min-width: 34rem; border-collapse: collapse; font-size: .95rem; }
-#liveclassroom-root .lc-table th,
-#liveclassroom-root .lc-table td { padding: .6rem .7rem; border-bottom: 1px solid #dce9e5; text-align: left; vertical-align: top; }
-#liveclassroom-root .lc-table th { background: #f2f8f6; font-weight: 700; }
-#liveclassroom-root .lc-table caption { padding: .5rem 0; text-align: left; font-weight: 700; }
-@media (max-width: 44rem) { #liveclassroom-root .lc-grid { grid-template-columns: 1fr; gap: 1rem; } }
-@media (max-width: 44rem) { #liveclassroom-root .lc-analytics-header { align-items: flex-start; flex-direction: column; gap: .25rem; } }
-
-#liveclassroom-root .lc-kicker { color: var(--lc-primary); font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
-#liveclassroom-root a { color: var(--lc-primary); }
-
-/* Builder & Shared Button Styles */
-#liveclassroom-root .lc-btn-sm { padding: .35rem .65rem; font-size: .85rem; border-radius: .35rem; margin: 0; }
-#liveclassroom-root .lc-btn-primary { background: var(--lc-primary); color: #fff; border: 0; }
-#liveclassroom-root .lc-btn-secondary { background: #235d55; color: #fff; border: 0; }
-#liveclassroom-root .lc-btn-outline { background: transparent; color: var(--lc-text); border: 1px solid #c9ddd7; }
-#liveclassroom-root .lc-btn-outline:hover { background: #eaf3f0; }
-#liveclassroom-root .lc-btn-subtle { background: #e8f3ef; color: var(--lc-primary); border: 1px solid #c9ddd7; font-weight: 600; }
-#liveclassroom-root .lc-btn-danger { background: #b33939; color: #fff; border: 0; }
-#liveclassroom-root .lc-btn-icon { padding: .25rem .5rem; font-weight: bold; font-size: .95rem; background: #eef5f3; color: var(--lc-text); border: 1px solid #c9ddd7; border-radius: .3rem; }
-
-/* Builder Layout */
-#liveclassroom-root .lc-builder-root { width: min(100%, 76rem); padding: 1.5rem; }
-#liveclassroom-root .lc-builder-layout { display: flex; gap: 1.5rem; align-items: flex-start; }
-#liveclassroom-root .lc-builder-main { flex: 1 1 65%; min-width: 0; }
-#liveclassroom-root .lc-builder-sidebar { flex: 1 1 35%; min-width: 20rem; max-width: 28rem; border: 1px solid #d4e6e0; border-radius: .75rem; background: #fbfdfc; padding: 1rem; box-sizing: border-box; }
-@media (max-width: 58rem) {
-  #liveclassroom-root .lc-builder-layout { flex-direction: column; }
-  #liveclassroom-root .lc-builder-sidebar { max-width: 100%; width: 100%; }
+#liveclassroom-root .lc-wide {
+  width: min(100%, 68rem);
 }
 
-/* Builder Topbar */
-#liveclassroom-root .lc-builder-topbar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 1rem; padding-bottom: 1rem; border-bottom: 1px solid #dce9e5; margin-bottom: 1rem; }
-#liveclassroom-root .lc-builder-title-group { display: flex; flex-wrap: wrap; align-items: baseline; gap: 1rem; }
-#liveclassroom-root .lc-builder-title-group h2 { margin: 0; font-size: 1.5rem; }
-#liveclassroom-root .lc-builder-actions { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
-#liveclassroom-root .lc-builder-flow-select { padding: .35rem .6rem; border-radius: .35rem; border: 1px solid #c9ddd7; font: inherit; background: #fff; }
+/* Full-viewport presentation surface for the classroom display. */
+#liveclassroom-root .lc-display-shell {
+  position: relative;
+  width: min(100%, 90rem);
+  min-height: calc(100dvh - 4rem);
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 1rem;
+  padding: 2rem;
+  background: var(--lc-surface);
+  border: 1px solid var(--lc-border);
+  border-radius: var(--lc-radius-lg);
+  box-shadow: var(--lc-shadow-sm);
+  text-align: center;
+}
 
-/* Status Banners */
-#liveclassroom-root .lc-builder-status { padding: .65rem 1rem; border-radius: .5rem; margin-bottom: 1rem; font-size: .9rem; font-weight: 500; }
-#liveclassroom-root .lc-builder-status-success { background: #e3f5ec; color: #10593c; border: 1px solid #bce6d0; }
-#liveclassroom-root .lc-builder-status-error { background: #fde8e8; color: #9b1c1c; border: 1px solid #f8b4b4; }
+#liveclassroom-root .lc-display-shell h1 {
+  font-size: clamp(2rem, 6vw, 4.5rem);
+  line-height: 1.1;
+  margin: 0;
+  align-self: center;
+}
 
-/* Flow Details */
-#liveclassroom-root .lc-builder-flow-info h1 { margin: 0 0 .35rem 0; font-size: 1.6rem; }
-#liveclassroom-root .lc-builder-flow-desc { color: #526660; margin: 0 0 .5rem 0; }
-#liveclassroom-root .lc-badge { display: inline-block; padding: .2rem .5rem; background: #e3f0ec; color: var(--lc-primary); border-radius: .3rem; font-size: .8rem; font-weight: 600; }
+#liveclassroom-root .lc-display-shell #display-content {
+  align-self: center;
+}
 
-/* Steps Section */
-#liveclassroom-root .lc-builder-steps-section { margin-top: 1.5rem; }
-#liveclassroom-root .lc-builder-steps-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
-#liveclassroom-root .lc-builder-steps-header h3 { margin: 0; font-size: 1.25rem; }
-#liveclassroom-root .lc-builder-step-list { display: flex; flex-direction: column; gap: .85rem; }
-#liveclassroom-root .lc-empty-notice { color: #718882; font-style: italic; padding: 1rem 0; }
+#liveclassroom-root .lc-display-toolbar {
+  position: absolute;
+  top: 1.25rem;
+  left: 1.25rem;
+}
 
-/* Step Card */
-#liveclassroom-root .lc-builder-step-card { border: 1px solid #d4e6e0; border-radius: .65rem; background: #fff; padding: .85rem 1rem; box-shadow: 0 1px 3px rgba(16, 35, 30, .05); }
-#liveclassroom-root .lc-builder-step-header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: .75rem; }
-#liveclassroom-root .lc-builder-step-title-area { display: flex; align-items: center; gap: .65rem; flex-wrap: wrap; }
-#liveclassroom-root .lc-step-pos { font-weight: 700; color: #718882; font-size: .9rem; }
-#liveclassroom-root .lc-step-type-badge { font-size: .75rem; text-transform: uppercase; font-weight: 700; letter-spacing: .05em; background: #e5f1ee; color: var(--lc-primary); padding: .15rem .45rem; border-radius: .25rem; }
-#liveclassroom-root .lc-step-name { font-size: 1.05rem; }
-#liveclassroom-root .lc-builder-step-actions { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; }
+#liveclassroom-root .lc-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 1rem 0;
+}
 
-/* Step Live Preview */
-#liveclassroom-root .lc-builder-step-preview { margin-top: .85rem; padding: .85rem; border-top: 1px dashed #c9ddd7; background: #f8fbfa; border-radius: 0 0 .5rem .5rem; }
-#liveclassroom-root .lc-preview-header { margin-bottom: .5rem; color: var(--lc-primary); font-weight: 600; }
-#liveclassroom-root .lc-preview-prompt { margin: 0 0 .65rem 0; font-size: 1rem; }
-#liveclassroom-root .lc-preview-options-list { display: grid; gap: .35rem; margin-bottom: .65rem; }
-#liveclassroom-root .lc-preview-option-item { padding: .35rem .6rem; background: #fff; border: 1px solid #dce9e5; border-radius: .35rem; font-size: .9rem; }
-#liveclassroom-root .lc-preview-answer { color: #10593c; font-weight: 600; font-size: .9rem; margin: .35rem 0; }
-#liveclassroom-root .lc-preview-explanation { color: #526660; font-size: .85rem; font-style: italic; margin: .25rem 0; }
-#liveclassroom-root .lc-preview-tf-row { display: flex; gap: .5rem; margin-bottom: .5rem; }
-#liveclassroom-root .lc-preview-input { width: 100%; box-sizing: border-box; padding: .45rem; border: 1px solid #c9ddd7; border-radius: .35rem; background: #fff; }
-#liveclassroom-root .lc-preview-rating-row { display: flex; gap: .35rem; }
-#liveclassroom-root .lc-rating-btn { padding: .35rem .6rem; font-size: .85rem; background: #f2f7f5; color: var(--lc-text); border: 1px solid #c9ddd7; border-radius: .25rem; }
-#liveclassroom-root .lc-preview-timer-box { font-size: 1.15rem; font-weight: 700; color: var(--lc-primary); padding: .65rem; background: #eef7f4; border-radius: .45rem; text-align: center; }
-#liveclassroom-root .lc-preview-markdown { padding: .5rem; background: #fff; border: 1px solid #dce9e5; border-radius: .35rem; font-family: inherit; white-space: pre-wrap; font-size: .9rem; }
-#liveclassroom-root .lc-preview-media { text-align: center; padding: .5rem; }
+#liveclassroom-root .lc-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
+  gap: 1.5rem;
+  margin-top: 1.5rem;
+}
 
-/* Add Step Form */
-#liveclassroom-root .lc-builder-step-form { margin-bottom: 1.5rem; padding: 1.25rem; border: 1px solid #bce0d5; border-radius: .75rem; background: #f4faf7; }
-#liveclassroom-root .lc-builder-step-form h4 { margin: 0 0 .85rem 0; font-size: 1.15rem; color: var(--lc-primary); }
-#liveclassroom-root .lc-form-group { display: flex; flex-direction: column; gap: .3rem; margin-bottom: .75rem; }
-#liveclassroom-root .lc-form-row { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
-#liveclassroom-root .lc-form-group label { font-size: .85rem; font-weight: 600; color: #2f4941; }
+#liveclassroom-root .lc-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+}
+
+#liveclassroom-root .lc-code {
+  letter-spacing: 0.1em;
+  font-size: 1.2em;
+  font-variant-numeric: tabular-nums;
+}
+
+#liveclassroom-root .lc-kicker {
+  color: var(--lc-accent);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.8rem;
+  margin: 0 0 0.25rem;
+}
+
+/* ---------------------------------------------------------------------------
+ * Buttons
+ * ------------------------------------------------------------------------- */
+#liveclassroom-root button {
+  margin: 0.25rem 0;
+  padding: 0.55rem 0.85rem;
+  font: inherit;
+  font-weight: 500;
+  line-height: 1.2;
+  border: 1px solid var(--lc-border-strong);
+  border-radius: var(--lc-radius);
+  background: var(--lc-surface);
+  color: var(--lc-text);
+  cursor: pointer;
+  transition: background var(--lc-transition), border-color var(--lc-transition),
+    color var(--lc-transition);
+}
+
+#liveclassroom-root button:hover {
+  background: var(--lc-surface-2);
+}
+
+#liveclassroom-root button:active {
+  background: var(--lc-surface-3);
+}
+
+#liveclassroom-root button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* Base button class usable on both <button> and <a>. */
+#liveclassroom-root .lc-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  margin: 0.25rem 0;
+  padding: 0.55rem 0.85rem;
+  font: inherit;
+  font-weight: 500;
+  line-height: 1.2;
+  border: 1px solid var(--lc-border-strong);
+  border-radius: var(--lc-radius);
+  text-decoration: none;
+  cursor: pointer;
+  transition: background var(--lc-transition), border-color var(--lc-transition),
+    color var(--lc-transition);
+}
+
+#liveclassroom-root .lc-btn-sm {
+  padding: 0.35rem 0.65rem;
+  font-size: 0.85rem;
+  border-radius: var(--lc-radius-sm);
+  margin: 0;
+}
+
+#liveclassroom-root .lc-btn-primary {
+  background: var(--lc-accent);
+  border-color: var(--lc-accent);
+  color: var(--lc-on-accent);
+}
+
+#liveclassroom-root .lc-btn-primary:hover {
+  background: var(--lc-accent-hover);
+  border-color: var(--lc-accent-hover);
+}
+
+#liveclassroom-root .lc-btn-primary:active {
+  background: var(--lc-accent-active);
+  border-color: var(--lc-accent-active);
+}
+
+#liveclassroom-root .lc-btn-secondary,
+#liveclassroom-root .lc-btn-subtle {
+  background: var(--lc-accent-soft);
+  border-color: var(--lc-accent-border);
+  color: var(--lc-accent);
+  font-weight: 600;
+}
+
+#liveclassroom-root .lc-btn-secondary:hover,
+#liveclassroom-root .lc-btn-subtle:hover {
+  background: var(--lc-accent-border);
+}
+
+#liveclassroom-root .lc-btn-outline {
+  background: transparent;
+  color: var(--lc-text);
+  border: 1px solid var(--lc-border-strong);
+}
+
+#liveclassroom-root .lc-btn-outline:hover {
+  background: var(--lc-surface-2);
+}
+
+#liveclassroom-root .lc-btn-danger {
+  background: var(--lc-danger);
+  border-color: var(--lc-danger);
+  color: #ffffff;
+}
+
+#liveclassroom-root .lc-btn-danger:hover {
+  background: var(--lc-danger);
+  filter: brightness(1.05);
+}
+
+#liveclassroom-root .lc-btn-icon {
+  padding: 0.3rem 0.55rem;
+  font-weight: 700;
+  font-size: 0.9rem;
+  background: var(--lc-surface-2);
+  color: var(--lc-text);
+  border: 1px solid var(--lc-border-strong);
+  border-radius: var(--lc-radius-sm);
+}
+
+/* ---------------------------------------------------------------------------
+ * Forms and inputs
+ * ------------------------------------------------------------------------- */
+#liveclassroom-root .lc-form {
+  margin: 1rem 0;
+}
+
+#liveclassroom-root .lc-form p {
+  display: grid;
+  gap: 0.35rem;
+}
+
+#liveclassroom-root .lc-form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-bottom: 0.75rem;
+}
+
+#liveclassroom-root .lc-form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+#liveclassroom-root .lc-form-group label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--lc-text-2);
+}
+
 #liveclassroom-root .lc-input,
 #liveclassroom-root .lc-textarea,
-#liveclassroom-root .lc-select { padding: .45rem .6rem; border: 1px solid #c9ddd7; border-radius: .35rem; font: inherit; background: #fff; box-sizing: border-box; width: 100%; }
-#liveclassroom-root .lc-textarea { resize: vertical; }
-#liveclassroom-root .lc-form-btn-row { display: flex; gap: .5rem; margin-top: 1rem; }
-#liveclassroom-root .lc-form-error { padding: .5rem .75rem; background: #fde8e8; color: #9b1c1c; border-radius: .35rem; font-size: .85rem; margin-bottom: .75rem; }
+#liveclassroom-root .lc-select {
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--lc-border-strong);
+  border-radius: var(--lc-radius);
+  font: inherit;
+  font-size: 1rem; /* ≥16px prevents iOS zoom on focus. */
+  background: var(--lc-surface);
+  color: var(--lc-text);
+  box-sizing: border-box;
+  width: 100%;
+  transition: border-color var(--lc-transition), box-shadow var(--lc-transition);
+}
 
-/* Modal Overlay */
-#liveclassroom-root .lc-modal-overlay { position: fixed; inset: 0; background: rgba(16, 35, 30, .45); display: flex; justify-content: center; align-items: center; z-index: 1000; padding: 1rem; }
-#liveclassroom-root .lc-modal { background: #fff; border-radius: .75rem; width: min(100%, 36rem); padding: 1.5rem; box-shadow: 0 1rem 3rem rgba(0,0,0,.2); max-height: 90vh; overflow-y: auto; }
-#liveclassroom-root .lc-modal h3 { margin: 0 0 1rem 0; }
-#liveclassroom-root .lc-modal-actions { display: flex; justify-content: flex-end; gap: .5rem; margin-top: 1rem; }
+#liveclassroom-root .lc-input:focus,
+#liveclassroom-root .lc-textarea:focus,
+#liveclassroom-root .lc-select:focus {
+  border-color: var(--lc-accent);
+  box-shadow: 0 0 0 3px var(--lc-accent-soft);
+}
 
-/* AI Assistant Widget */
-#liveclassroom-root .lc-ai-chat { display: flex; flex-direction: column; height: 100%; min-height: 28rem; }
-#liveclassroom-root .lc-ai-header { padding-bottom: .75rem; border-bottom: 1px solid #dce9e5; margin-bottom: .75rem; }
-#liveclassroom-root .lc-ai-title-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: .5rem; }
-#liveclassroom-root .lc-ai-title-row h3 { margin: 0; font-size: 1.15rem; color: var(--lc-primary); }
-#liveclassroom-root .lc-ai-controls { display: grid; gap: .4rem; }
-#liveclassroom-root .lc-ai-control-group label { display: flex; flex-direction: column; font-size: .8rem; font-weight: 600; color: #405952; }
-#liveclassroom-root .lc-ai-select { margin-top: .2rem; padding: .3rem; font-size: .85rem; border: 1px solid #c9ddd7; border-radius: .3rem; background: #fff; }
-#liveclassroom-root .lc-ai-messages { flex: 1 1 auto; max-height: 20rem; overflow-y: auto; display: flex; flex-direction: column; gap: .75rem; padding: .5rem 0; margin-bottom: .75rem; }
-#liveclassroom-root .lc-ai-empty { color: #718882; font-style: italic; font-size: .9rem; text-align: center; padding: 2rem 0; }
-#liveclassroom-root .lc-ai-message { padding: .65rem .85rem; border-radius: .6rem; font-size: .9rem; line-height: 1.4; word-break: break-word; }
-#liveclassroom-root .lc-ai-message-user { background: #eef7f4; border: 1px solid #cfe2db; margin-left: 1.5rem; }
-#liveclassroom-root .lc-ai-message-assistant { background: #fff; border: 1px solid #d4e6e0; margin-right: 1rem; box-shadow: 0 1px 2px rgba(0,0,0,.03); }
-#liveclassroom-root .lc-ai-msg-header { font-size: .8rem; color: #526660; margin-bottom: .35rem; }
-#liveclassroom-root .lc-ai-msg-model { color: #718882; font-size: .75rem; }
-#liveclassroom-root .lc-ai-msg-body { white-space: pre-wrap; }
-#liveclassroom-root .lc-ai-msg-actions { display: flex; gap: .4rem; margin-top: .5rem; padding-top: .4rem; border-top: 1px dashed #e1eee9; }
-#liveclassroom-root .lc-ai-composer { display: flex; flex-direction: column; gap: .4rem; }
-#liveclassroom-root .lc-ai-attachment-bar { display: flex; align-items: center; gap: .5rem; font-size: .8rem; }
-#liveclassroom-root .lc-ai-attachment-badge { font-size: .75rem; padding: .15rem .45rem; border-radius: .25rem; background: #eef5f3; color: #526660; }
-#liveclassroom-root .lc-ai-attachment-active { background: #d7ede4; color: var(--lc-primary); font-weight: 600; }
-#liveclassroom-root .lc-ai-input { width: 100%; box-sizing: border-box; padding: .5rem; font: inherit; font-size: .9rem; border: 1px solid #c9ddd7; border-radius: .4rem; resize: vertical; }
-#liveclassroom-root .lc-ai-footer { display: flex; flex-direction: column; gap: .35rem; }
-#liveclassroom-root .lc-ai-note { color: #718882; font-size: .75rem; line-height: 1.3; }
-#liveclassroom-root .lc-ai-action-group { display: flex; justify-content: space-between; align-items: center; gap: .5rem; }
-#liveclassroom-root .lc-ai-status { font-size: .8rem; color: var(--lc-primary); font-style: italic; }
-#liveclassroom-root .lc-ai-send-btn { background: var(--lc-primary); color: #fff; padding: .4rem .85rem; font-size: .85rem; border-radius: .35rem; border: 0; cursor: pointer; }
-#liveclassroom-root .lc-ai-send-btn:disabled { opacity: .5; cursor: not-allowed; }
+#liveclassroom-root .lc-input[aria-invalid="true"],
+#liveclassroom-root .lc-textarea[aria-invalid="true"],
+#liveclassroom-root .lc-select[aria-invalid="true"] {
+  border-color: var(--lc-danger);
+}
 
-/* Language Switcher */
+#liveclassroom-root .lc-input:disabled,
+#liveclassroom-root .lc-textarea:disabled,
+#liveclassroom-root .lc-select:disabled {
+  background: var(--lc-surface-2);
+  color: var(--lc-text-3);
+}
+
+#liveclassroom-root .lc-textarea {
+  resize: vertical;
+}
+
+#liveclassroom-root .lc-form-btn-row {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+#liveclassroom-root .lc-form-error {
+  padding: 0.5rem 0.75rem;
+  background: var(--lc-danger-soft);
+  color: var(--lc-danger);
+  border-radius: var(--lc-radius);
+  font-size: 0.85rem;
+  margin-bottom: 0.75rem;
+}
+
+/* ---------------------------------------------------------------------------
+ * Tables
+ * ------------------------------------------------------------------------- */
+#liveclassroom-root .lc-analytics {
+  margin-top: 2rem;
+}
+
+#liveclassroom-root .lc-analytics-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+#liveclassroom-root .lc-table-wrap {
+  overflow-x: auto;
+  margin-top: 1rem;
+}
+
+#liveclassroom-root .lc-table {
+  width: 100%;
+  min-width: 34rem;
+  border-collapse: collapse;
+  font-size: 0.95rem;
+  font-variant-numeric: tabular-nums;
+}
+
+#liveclassroom-root .lc-table th,
+#liveclassroom-root .lc-table td {
+  padding: 0.6rem 0.7rem;
+  border-bottom: 1px solid var(--lc-border);
+  text-align: left;
+  vertical-align: top;
+}
+
+#liveclassroom-root .lc-table thead th {
+  background: var(--lc-surface-2);
+  font-weight: 700;
+}
+
+#liveclassroom-root .lc-table caption {
+  padding: 0.5rem 0;
+  text-align: left;
+  font-weight: 700;
+  color: var(--lc-text-2);
+}
+
+/* ---------------------------------------------------------------------------
+ * Status banners and badges
+ * ------------------------------------------------------------------------- */
+#liveclassroom-root .lc-badge {
+  display: inline-block;
+  padding: 0.2rem 0.5rem;
+  background: var(--lc-accent-soft);
+  color: var(--lc-accent);
+  border-radius: var(--lc-radius-sm);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+#liveclassroom-root .lc-builder-status {
+  padding: 0.65rem 1rem;
+  border-radius: var(--lc-radius);
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+#liveclassroom-root .lc-builder-status-success {
+  background: var(--lc-success-soft);
+  color: var(--lc-success);
+  border: 1px solid var(--lc-success-soft);
+}
+
+#liveclassroom-root .lc-builder-status-error {
+  background: var(--lc-danger-soft);
+  color: var(--lc-danger);
+  border: 1px solid var(--lc-danger-soft);
+}
+
+/* ---------------------------------------------------------------------------
+ * Class chat
+ * ------------------------------------------------------------------------- */
+#liveclassroom-root .lc-chat {
+  margin-top: 2rem;
+}
+
+#liveclassroom-root .lc-chat ul {
+  max-height: 16rem;
+  overflow-y: auto;
+  padding-left: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+#liveclassroom-root .lc-chat li {
+  padding: 0.5rem 0.75rem;
+  background: var(--lc-surface-2);
+  border-radius: var(--lc-radius);
+  font-size: 0.95rem;
+}
+
+#liveclassroom-root .lc-chat label {
+  display: grid;
+  gap: 0.35rem;
+}
+
+#liveclassroom-root .lc-chat textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.5rem;
+  font: inherit;
+}
+
+#liveclassroom-root [data-liveclassroom-history] {
+  margin-top: 2rem;
+}
+
+/* ---------------------------------------------------------------------------
+ * Modal
+ * ------------------------------------------------------------------------- */
+#liveclassroom-root .lc-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgb(2 6 23 / 55%);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  padding: 1rem;
+}
+
+#liveclassroom-root .lc-modal {
+  background: var(--lc-surface);
+  border: 1px solid var(--lc-border);
+  border-radius: var(--lc-radius-lg);
+  width: min(100%, 36rem);
+  padding: 1.5rem;
+  box-shadow: var(--lc-shadow-md);
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+#liveclassroom-root .lc-modal h3 {
+  margin: 0 0 1rem 0;
+}
+
+#liveclassroom-root .lc-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+/* ---------------------------------------------------------------------------
+ * Language switcher
+ * ------------------------------------------------------------------------- */
 #liveclassroom-root .lc-lang-switch {
   position: absolute;
   top: 1.25rem;
@@ -179,113 +585,648 @@
   font-size: 0.82rem;
   font-weight: 600;
   border-radius: 2rem;
-  border: 1px solid #bce0d5;
-  background: #fff;
-  color: var(--lc-primary);
+  border: 1px solid var(--lc-border-strong);
+  background: var(--lc-surface);
+  color: var(--lc-accent);
   cursor: pointer;
-  box-shadow: 0 2px 5px rgba(16, 35, 30, 0.06);
-  transition: all 0.2s ease;
+  box-shadow: var(--lc-shadow-sm);
+  transition: border-color var(--lc-transition), background var(--lc-transition);
 }
-#liveclassroom-root .lc-lang-switch:hover {
-  background: #eaf5f1;
-  border-color: var(--lc-primary);
-  transform: translateY(-1px);
-}
-#liveclassroom-root .lc-lang-opt { opacity: 0.65; }
-#liveclassroom-root .lc-lang-curr { opacity: 1; font-weight: 800; text-decoration: underline; text-underline-offset: 2px; }
 
-/* Timer Countdown */
+#liveclassroom-root .lc-lang-switch:hover {
+  background: var(--lc-accent-soft);
+  border-color: var(--lc-accent);
+}
+
+#liveclassroom-root .lc-lang-opt {
+  opacity: 0.65;
+}
+
+#liveclassroom-root .lc-lang-curr {
+  opacity: 1;
+  font-weight: 800;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* ---------------------------------------------------------------------------
+ * Builder
+ * ------------------------------------------------------------------------- */
+#liveclassroom-root .lc-builder-root {
+  width: min(100%, 76rem);
+  padding: 1.5rem;
+}
+
+#liveclassroom-root .lc-builder-layout {
+  display: flex;
+  gap: 1.5rem;
+  align-items: flex-start;
+}
+
+#liveclassroom-root .lc-builder-main {
+  flex: 1 1 65%;
+  min-width: 0;
+}
+
+#liveclassroom-root .lc-builder-sidebar {
+  flex: 1 1 35%;
+  min-width: 20rem;
+  max-width: 28rem;
+  border: 1px solid var(--lc-border);
+  border-radius: var(--lc-radius-lg);
+  background: var(--lc-surface);
+  padding: 1rem;
+  box-sizing: border-box;
+}
+
+@media (max-width: 58rem) {
+  #liveclassroom-root .lc-builder-layout {
+    flex-direction: column;
+  }
+  #liveclassroom-root .lc-builder-sidebar {
+    max-width: 100%;
+    width: 100%;
+  }
+}
+
+#liveclassroom-root .lc-builder-topbar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--lc-border);
+  margin-bottom: 1rem;
+}
+
+#liveclassroom-root .lc-builder-title-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 1rem;
+}
+
+#liveclassroom-root .lc-builder-title-group h2 {
+  margin: 0;
+  font-size: 1.5rem;
+}
+
+#liveclassroom-root .lc-builder-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+#liveclassroom-root .lc-builder-flow-select {
+  padding: 0.4rem 0.6rem;
+  border-radius: var(--lc-radius);
+  border: 1px solid var(--lc-border-strong);
+  font: inherit;
+  background: var(--lc-surface);
+  color: var(--lc-text);
+}
+
+#liveclassroom-root .lc-builder-flow-info h1 {
+  margin: 0 0 0.35rem 0;
+  font-size: 1.6rem;
+}
+
+#liveclassroom-root .lc-builder-flow-desc {
+  color: var(--lc-text-2);
+  margin: 0 0 0.5rem 0;
+}
+
+#liveclassroom-root .lc-builder-steps-section {
+  margin-top: 1.5rem;
+}
+
+#liveclassroom-root .lc-builder-steps-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+#liveclassroom-root .lc-builder-steps-header h3 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+#liveclassroom-root .lc-builder-step-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+#liveclassroom-root .lc-empty-notice {
+  color: var(--lc-text-2);
+  font-style: italic;
+  padding: 1rem 0;
+}
+
+#liveclassroom-root .lc-builder-step-card {
+  border: 1px solid var(--lc-border);
+  border-radius: var(--lc-radius);
+  background: var(--lc-surface);
+  padding: 0.85rem 1rem;
+  box-shadow: var(--lc-shadow-sm);
+}
+
+#liveclassroom-root .lc-builder-step-header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+#liveclassroom-root .lc-builder-step-title-area {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+}
+
+#liveclassroom-root .lc-step-pos {
+  font-weight: 700;
+  color: var(--lc-text-3);
+  font-size: 0.9rem;
+}
+
+#liveclassroom-root .lc-step-type-badge {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  background: var(--lc-accent-soft);
+  color: var(--lc-accent);
+  padding: 0.15rem 0.45rem;
+  border-radius: var(--lc-radius-sm);
+}
+
+#liveclassroom-root .lc-step-name {
+  font-size: 1.05rem;
+}
+
+#liveclassroom-root .lc-builder-step-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+#liveclassroom-root .lc-builder-step-preview {
+  margin-top: 0.85rem;
+  padding: 0.85rem;
+  border-top: 1px dashed var(--lc-border-strong);
+  background: var(--lc-surface-2);
+  border-radius: 0 0 var(--lc-radius) var(--lc-radius);
+}
+
+#liveclassroom-root .lc-preview-header {
+  margin-bottom: 0.5rem;
+  color: var(--lc-accent);
+  font-weight: 600;
+}
+
+#liveclassroom-root .lc-preview-prompt {
+  margin: 0 0 0.65rem 0;
+  font-size: 1rem;
+}
+
+#liveclassroom-root .lc-preview-options-list {
+  display: grid;
+  gap: 0.35rem;
+  margin-bottom: 0.65rem;
+}
+
+#liveclassroom-root .lc-preview-option-item {
+  padding: 0.35rem 0.6rem;
+  background: var(--lc-surface);
+  border: 1px solid var(--lc-border);
+  border-radius: var(--lc-radius-sm);
+  font-size: 0.9rem;
+}
+
+#liveclassroom-root .lc-preview-answer {
+  color: var(--lc-success);
+  font-weight: 600;
+  font-size: 0.9rem;
+  margin: 0.35rem 0;
+}
+
+#liveclassroom-root .lc-preview-explanation {
+  color: var(--lc-text-2);
+  font-size: 0.85rem;
+  font-style: italic;
+  margin: 0.25rem 0;
+}
+
+#liveclassroom-root .lc-preview-tf-row {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+#liveclassroom-root .lc-preview-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.45rem;
+  border: 1px solid var(--lc-border-strong);
+  border-radius: var(--lc-radius-sm);
+  background: var(--lc-surface);
+  color: var(--lc-text);
+}
+
+#liveclassroom-root .lc-preview-rating-row {
+  display: flex;
+  gap: 0.35rem;
+}
+
+#liveclassroom-root .lc-rating-btn {
+  padding: 0.35rem 0.6rem;
+  font-size: 0.85rem;
+  background: var(--lc-surface-2);
+  color: var(--lc-text);
+  border: 1px solid var(--lc-border-strong);
+  border-radius: var(--lc-radius-sm);
+}
+
+#liveclassroom-root .lc-preview-timer-box {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--lc-accent);
+  padding: 0.65rem;
+  background: var(--lc-accent-soft);
+  border-radius: var(--lc-radius);
+  text-align: center;
+}
+
+#liveclassroom-root .lc-preview-markdown {
+  padding: 0.5rem;
+  background: var(--lc-surface);
+  border: 1px solid var(--lc-border);
+  border-radius: var(--lc-radius-sm);
+  font-family: inherit;
+  white-space: pre-wrap;
+  font-size: 0.9rem;
+}
+
+#liveclassroom-root .lc-preview-media {
+  text-align: center;
+  padding: 0.5rem;
+}
+
+#liveclassroom-root .lc-builder-step-form {
+  margin-bottom: 1.5rem;
+  padding: 1.25rem;
+  border: 1px solid var(--lc-accent-border);
+  border-radius: var(--lc-radius-lg);
+  background: var(--lc-surface-2);
+}
+
+#liveclassroom-root .lc-builder-step-form h4 {
+  margin: 0 0 0.85rem 0;
+  font-size: 1.15rem;
+  color: var(--lc-accent);
+}
+
+/* ---------------------------------------------------------------------------
+ * AI authoring assistant
+ * ------------------------------------------------------------------------- */
+#liveclassroom-root .lc-ai-chat {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 28rem;
+}
+
+#liveclassroom-root .lc-ai-header {
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--lc-border);
+  margin-bottom: 0.75rem;
+}
+
+#liveclassroom-root .lc-ai-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+#liveclassroom-root .lc-ai-title-row h3 {
+  margin: 0;
+  font-size: 1.15rem;
+  color: var(--lc-accent);
+}
+
+#liveclassroom-root .lc-ai-controls {
+  display: grid;
+  gap: 0.4rem;
+}
+
+#liveclassroom-root .lc-ai-control-group label {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--lc-text-2);
+}
+
+#liveclassroom-root .lc-ai-select {
+  margin-top: 0.2rem;
+  padding: 0.3rem;
+  font-size: 0.85rem;
+  border: 1px solid var(--lc-border-strong);
+  border-radius: var(--lc-radius-sm);
+  background: var(--lc-surface);
+  color: var(--lc-text);
+}
+
+#liveclassroom-root .lc-ai-messages {
+  flex: 1 1 auto;
+  max-height: 20rem;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.5rem 0;
+  margin-bottom: 0.75rem;
+}
+
+#liveclassroom-root .lc-ai-empty {
+  color: var(--lc-text-2);
+  font-style: italic;
+  font-size: 0.9rem;
+  text-align: center;
+  padding: 2rem 0;
+}
+
+#liveclassroom-root .lc-ai-message {
+  padding: 0.65rem 0.85rem;
+  border-radius: var(--lc-radius);
+  font-size: 0.9rem;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+#liveclassroom-root .lc-ai-message-user {
+  background: var(--lc-accent-soft);
+  border: 1px solid var(--lc-accent-border);
+  margin-left: 1.5rem;
+}
+
+#liveclassroom-root .lc-ai-message-assistant {
+  background: var(--lc-surface);
+  border: 1px solid var(--lc-border);
+  margin-right: 1rem;
+  box-shadow: var(--lc-shadow-sm);
+}
+
+#liveclassroom-root .lc-ai-msg-header {
+  font-size: 0.8rem;
+  color: var(--lc-text-2);
+  margin-bottom: 0.35rem;
+}
+
+#liveclassroom-root .lc-ai-msg-model {
+  color: var(--lc-text-3);
+  font-size: 0.75rem;
+}
+
+#liveclassroom-root .lc-ai-msg-body {
+  white-space: pre-wrap;
+}
+
+#liveclassroom-root .lc-ai-msg-actions {
+  display: flex;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+  padding-top: 0.4rem;
+  border-top: 1px dashed var(--lc-border);
+}
+
+#liveclassroom-root .lc-ai-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+#liveclassroom-root .lc-ai-attachment-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+}
+
+#liveclassroom-root .lc-ai-attachment-badge {
+  font-size: 0.75rem;
+  padding: 0.15rem 0.45rem;
+  border-radius: var(--lc-radius-sm);
+  background: var(--lc-surface-2);
+  color: var(--lc-text-2);
+}
+
+#liveclassroom-root .lc-ai-attachment-active {
+  background: var(--lc-accent-soft);
+  color: var(--lc-accent);
+  font-weight: 600;
+}
+
+#liveclassroom-root .lc-ai-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.5rem;
+  font: inherit;
+  font-size: 0.9rem;
+  border: 1px solid var(--lc-border-strong);
+  border-radius: var(--lc-radius);
+  resize: vertical;
+  background: var(--lc-surface);
+  color: var(--lc-text);
+}
+
+#liveclassroom-root .lc-ai-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+#liveclassroom-root .lc-ai-note {
+  color: var(--lc-text-3);
+  font-size: 0.75rem;
+  line-height: 1.3;
+}
+
+#liveclassroom-root .lc-ai-action-group {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+#liveclassroom-root .lc-ai-status {
+  font-size: 0.8rem;
+  color: var(--lc-accent);
+  font-style: italic;
+}
+
+#liveclassroom-root .lc-ai-send-btn {
+  background: var(--lc-accent);
+  border-color: var(--lc-accent);
+  color: var(--lc-on-accent);
+  padding: 0.4rem 0.85rem;
+  font-size: 0.85rem;
+  border-radius: var(--lc-radius-sm);
+}
+
+#liveclassroom-root .lc-ai-send-btn:hover {
+  background: var(--lc-accent-hover);
+  border-color: var(--lc-accent-hover);
+}
+
+/* ---------------------------------------------------------------------------
+ * Join QR
+ * ------------------------------------------------------------------------- */
+#liveclassroom-root .lc-join-qr {
+  display: inline-grid;
+  justify-items: center;
+  gap: 0.5rem;
+  margin: 1rem 0;
+  padding: 0.75rem;
+  background: #ffffff; /* Always white so the black-on-transparent SVG stays scannable. */
+  border: 1px solid var(--lc-border);
+  border-radius: var(--lc-radius);
+}
+
+#liveclassroom-root .lc-join-qr img {
+  width: 10rem;
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
+#liveclassroom-root .lc-join-qr figcaption {
+  font-size: 0.85rem;
+  color: #0f172a;
+}
+
+/* ---------------------------------------------------------------------------
+ * Activity renderers — timer
+ * ------------------------------------------------------------------------- */
 #liveclassroom-root .lc-timer-display {
   margin: 1.5rem auto;
   padding: 2rem 1.5rem;
-  background: linear-gradient(145deg, #f2faf7 0%, #e6f5ef 100%);
-  border: 2px solid #b7dfd2;
-  border-radius: 1.25rem;
+  background: var(--lc-surface);
+  border: 1px solid var(--lc-border);
+  border-radius: var(--lc-radius-xl);
   text-align: center;
-  box-shadow: 0 4px 12px rgba(13, 102, 88, 0.08);
+  box-shadow: var(--lc-shadow-sm);
   max-width: 28rem;
 }
+
 #liveclassroom-root .lc-timer-label {
   font-size: 1.2rem;
   font-weight: 700;
-  color: var(--lc-primary);
+  color: var(--lc-accent);
   margin-bottom: 0.75rem;
   letter-spacing: 0.02em;
 }
+
 #liveclassroom-root .lc-timer-countdown {
-  font-size: 3.6rem;
+  font-size: clamp(2.5rem, 8vw, 4rem);
   font-weight: 800;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  color: #0b5347;
+  font-family: var(--lc-font-mono);
+  color: var(--lc-accent);
   letter-spacing: 0.08em;
   margin: 0.5rem 0;
-  text-shadow: 0 2px 4px rgba(0,0,0,0.05);
 }
+
 #liveclassroom-root .lc-timer-ended {
-  color: #c0392b;
+  color: var(--lc-danger);
   animation: lc-pulse 1.5s infinite;
 }
+
 #liveclassroom-root .lc-timer-subtext {
   font-size: 0.9rem;
-  color: #526660;
+  color: var(--lc-text-2);
   margin-top: 0.5rem;
 }
+
 #liveclassroom-root .lc-timer-ended-text {
-  color: #c0392b;
+  color: var(--lc-danger);
   font-weight: 700;
   font-size: 1.25rem;
   margin-top: 0.5rem;
 }
+
 @keyframes lc-pulse {
-  0% { transform: scale(1); }
-  50% { transform: scale(1.03); }
-  100% { transform: scale(1); }
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.03);
+  }
+  100% {
+    transform: scale(1);
+  }
 }
 
-/* Media Container */
+/* ---------------------------------------------------------------------------
+ * Activity renderers — media
+ * ------------------------------------------------------------------------- */
 #liveclassroom-root .lc-media-container {
   margin: 1.25rem auto;
   text-align: center;
   width: 100%;
 }
+
 #liveclassroom-root .lc-media-container img,
 #liveclassroom-root .lc-media-container video {
   max-width: 100%;
   height: auto;
-  border-radius: 0.5rem;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  border-radius: var(--lc-radius);
+  box-shadow: var(--lc-shadow-md);
 }
+
 #liveclassroom-root .lc-media-container audio {
   width: 100%;
   max-width: 32rem;
   margin: 0.5rem 0;
 }
+
 #liveclassroom-root .lc-media-container iframe {
   width: 100%;
   min-height: 400px;
   border: none;
-  border-radius: 0.5rem;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  border-radius: var(--lc-radius);
+  box-shadow: var(--lc-shadow-md);
 }
+
 #liveclassroom-root .lc-media-caption {
   margin-top: 0.5rem;
   font-size: 0.9rem;
-  color: #526660;
+  color: var(--lc-text-2);
   font-style: italic;
 }
 
-/* Teacher-provided file content */
+/* ---------------------------------------------------------------------------
+ * Activity renderers — teacher-provided files
+ * ------------------------------------------------------------------------- */
 #liveclassroom-root .lc-file-activity { margin: 1.25rem 0; }
-#liveclassroom-root .lc-file-status { color: #526660; }
+#liveclassroom-root .lc-file-status { color: var(--lc-text-2); }
 #liveclassroom-root .lc-file-pages { width: 100%; }
 #liveclassroom-root .lc-file-pages-scroll { display: grid; gap: 1rem; }
 #liveclassroom-root .lc-file-page {
   display: grid;
   place-items: center;
-  min-height: 5rem;
+  min-height: 8rem;
   overflow: auto;
-  border: 1px solid #d4e6e0;
-  background: #fbfdfc;
+  background: var(--lc-surface-2);
+  border: 1px solid var(--lc-border);
+  border-radius: var(--lc-radius);
 }
 #liveclassroom-root .lc-file-pdf-page { display: block; max-width: 100%; height: auto !important; }
 #liveclassroom-root .lc-file-pptx-page { display: block; width: 100%; aspect-ratio: 16 / 9; border: 0; background: #fff; }
@@ -294,75 +1235,83 @@
 #liveclassroom-root .lc-file-teacher-controls {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
   gap: .5rem;
+  align-items: center;
   margin-top: .75rem;
 }
-#liveclassroom-root .lc-file-teacher-controls { border: 1px solid #c9ddd7; padding: .65rem .8rem; }
+#liveclassroom-root .lc-file-teacher-controls { border: 1px solid var(--lc-border); padding: .65rem .8rem; }
 #liveclassroom-root .lc-file-teacher-controls label { display: inline-flex; align-items: center; gap: .35rem; }
 #liveclassroom-root .lc-file-teacher-controls select { font: inherit; max-width: 13rem; }
 #liveclassroom-root .lc-file-download { display: inline-block; margin-bottom: .75rem; }
-#liveclassroom-root .lc-file-picker { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin: .75rem 0; }
+#liveclassroom-root .lc-file-picker { margin: .75rem 0; }
+#liveclassroom-root .lc-file-picker form { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
 #liveclassroom-root .lc-file-picker input, #liveclassroom-root .lc-file-picker select { min-width: 10rem; max-width: 100%; font: inherit; }
-@media (max-width: 44rem) {
-  #liveclassroom-root .lc-file-pptx-page { min-height: 12rem; }
-  #liveclassroom-root .lc-file-teacher-controls label { width: 100%; justify-content: space-between; }
-}
 
-/* Markdown Content */
+/* ---------------------------------------------------------------------------
+ * Activity renderers — markdown
+ * ------------------------------------------------------------------------- */
 #liveclassroom-root .lc-markdown-body {
   margin: 1rem 0;
   line-height: 1.6;
   color: var(--lc-text);
   text-align: left;
 }
+
 #liveclassroom-root .lc-markdown-body h1,
 #liveclassroom-root .lc-markdown-body h2,
 #liveclassroom-root .lc-markdown-body h3,
 #liveclassroom-root .lc-markdown-body h4 {
-  color: var(--lc-primary);
+  color: var(--lc-accent);
   margin-top: 1.25rem;
   margin-bottom: 0.5rem;
 }
+
 #liveclassroom-root .lc-markdown-body pre {
-  background: #f0f6f4;
+  background: var(--lc-surface-2);
   padding: 0.75rem 1rem;
-  border-radius: 0.5rem;
+  border-radius: var(--lc-radius);
   overflow-x: auto;
-  border: 1px solid #d4e6e0;
+  border: 1px solid var(--lc-border);
 }
+
 #liveclassroom-root .lc-markdown-body code {
-  font-family: monospace;
-  background: #f0f6f4;
+  font-family: var(--lc-font-mono);
+  background: var(--lc-surface-2);
   padding: 0.15rem 0.35rem;
-  border-radius: 0.25rem;
+  border-radius: var(--lc-radius-sm);
 }
+
 #liveclassroom-root .lc-markdown-body pre code {
   background: transparent;
   padding: 0;
 }
+
 #liveclassroom-root .lc-markdown-body blockquote {
-  border-left: 4px solid var(--lc-primary);
+  border-left: 4px solid var(--lc-accent);
   margin: 0.75rem 0;
   padding-left: 1rem;
-  color: #526660;
+  color: var(--lc-text-2);
   font-style: italic;
 }
+
 #liveclassroom-root .lc-markdown-body ul,
 #liveclassroom-root .lc-markdown-body ol {
   padding-left: 1.5rem;
   margin: 0.5rem 0;
 }
 
-/* Word Cloud */
+/* ---------------------------------------------------------------------------
+ * Activity renderers — word cloud
+ * ------------------------------------------------------------------------- */
 #liveclassroom-root .lc-word-cloud {
   margin: 1.25rem 0;
   padding: 1.25rem;
-  background: #fbfdfc;
-  border: 1px solid #d4e6e0;
-  border-radius: 0.75rem;
+  background: var(--lc-surface);
+  border: 1px solid var(--lc-border);
+  border-radius: var(--lc-radius-lg);
   text-align: center;
 }
+
 #liveclassroom-root .lc-word-cloud-tags {
   display: flex;
   flex-wrap: wrap;
@@ -372,32 +1321,37 @@
   min-height: 4.5rem;
   padding: 0.5rem;
 }
+
 #liveclassroom-root .lc-word-tag {
   display: inline-block;
   padding: 0.25rem 0.65rem;
-  background: #e3f0ec;
-  color: var(--lc-primary);
+  background: var(--lc-accent-soft);
+  color: var(--lc-accent);
   border-radius: 2rem;
   font-weight: 600;
   line-height: 1.2;
   transition: transform 0.15s ease, background 0.15s ease;
   user-select: none;
 }
+
 #liveclassroom-root .lc-word-tag:hover {
-  background: #cfebd2;
-  transform: scale(1.08);
+  background: var(--lc-accent-border);
+  transform: scale(1.05);
 }
+
 #liveclassroom-root .lc-word-cloud-moderation {
   margin-top: 1rem;
   padding-top: 0.75rem;
-  border-top: 1px dashed #c9ddd7;
+  border-top: 1px dashed var(--lc-border-strong);
   text-align: left;
 }
+
 #liveclassroom-root .lc-word-cloud-moderation h4 {
   margin: 0 0 0.5rem 0;
   font-size: 0.95rem;
-  color: var(--lc-primary);
+  color: var(--lc-accent);
 }
+
 #liveclassroom-root .lc-moderation-list {
   max-height: 10rem;
   overflow-y: auto;
@@ -406,7 +1360,9 @@
   margin: 0;
 }
 
-/* Analytics Bars */
+/* ---------------------------------------------------------------------------
+ * Activity renderers — aggregate choice bars
+ * ------------------------------------------------------------------------- */
 #liveclassroom-root .lc-choice-bars {
   display: flex;
   flex-direction: column;
@@ -414,50 +1370,81 @@
   margin-top: 0.85rem;
   width: 100%;
 }
+
 #liveclassroom-root .lc-choice-bar-row {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
 }
+
 #liveclassroom-root .lc-choice-bar-header {
   display: flex;
   justify-content: space-between;
   font-size: 0.85rem;
-  color: #2f4941;
+  color: var(--lc-text-2);
 }
+
 #liveclassroom-root .lc-bar-container {
   position: relative;
   width: 100%;
-  height: 1.6rem;
-  background: #eaf1ee;
-  border-radius: 0.8rem;
+  height: 0.875rem;
+  background: var(--lc-surface-3);
+  border-radius: 0.5rem;
   overflow: hidden;
   display: flex;
   align-items: center;
 }
+
 #liveclassroom-root .lc-bar {
   height: 100%;
-  background: linear-gradient(90deg, #107e6c 0%, #0d6658 100%);
-  border-radius: 0.8rem;
-  transition: width 0.4s ease;
+  background: var(--lc-accent);
+  border-radius: 0.5rem;
+  transition: width 0.3s ease;
   min-width: 2px;
 }
+
 #liveclassroom-root .lc-bar-text {
   position: absolute;
   left: 0.75rem;
   font-size: 0.8rem;
   font-weight: 600;
-  color: #10231e;
+  color: var(--lc-text);
   white-space: nowrap;
   z-index: 1;
 }
+
 #liveclassroom-root .lc-rate-badge {
   display: inline-block;
   padding: 0.25rem 0.65rem;
-  background: #e3f0ec;
-  color: var(--lc-primary);
-  border-radius: 0.35rem;
+  background: var(--lc-accent-soft);
+  color: var(--lc-accent);
+  border-radius: var(--lc-radius-sm);
   font-size: 0.85rem;
   font-weight: 600;
   margin-bottom: 0.75rem;
+}
+
+/* ---------------------------------------------------------------------------
+ * Responsive tweaks
+ * ------------------------------------------------------------------------- */
+@media (max-width: 44rem) {
+  #liveclassroom-root .lc-analytics-header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Reduced motion
+ * ------------------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  #liveclassroom-root *,
+  #liveclassroom-root *::before,
+  #liveclassroom-root *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

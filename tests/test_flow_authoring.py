@@ -88,19 +88,18 @@ def test_add_reorder_remove_flow_steps(teacher):
 
     step1 = add_flow_step(flow=flow, actor=teacher, activity_definition=act1)
     step2 = add_flow_step(flow=flow, actor=teacher, activity_definition=act2)
-    step3 = add_flow_step(
-        flow=flow,
-        actor=teacher,
-        kind="markdown",
+    markdown = create_activity_definition(
+        owner=teacher,
         title="Lecture Note",
-        content={"markdown": "# Welcome to class"},
+        type_key="liveclassroom.markdown",
+        definition={"markdown": "# Welcome to class"},
     )
+    step3 = add_flow_step(flow=flow, actor=teacher, activity_definition=markdown)
 
     assert step1.position == 1
     assert step2.position == 2
     assert step3.position == 3
     assert flow.steps.count() == 3
-    assert flow.items.count() == 0
 
     # Reorder steps: [3, 1, 2]
     reordered = reorder_flow_steps(flow=flow, actor=teacher, step_ids=[step3.id, step1.id, step2.id])
@@ -118,7 +117,6 @@ def test_add_reorder_remove_flow_steps(teacher):
     # Remove the middle step (step1)
     remove_flow_step(flow=flow, actor=teacher, step_id=step1.id)
     assert flow.steps.count() == 2
-    assert flow.items.count() == 0
 
     # Remaining steps should be re-indexed to 1 and 2
     step3.refresh_from_db()
@@ -137,17 +135,22 @@ def test_duplicate_flow(teacher):
         definition={"options": [{"id": "A", "text": "Yes"}, {"id": "B", "text": "No"}]},
     )
     add_flow_step(flow=flow, actor=teacher, activity_definition=act)
-    add_flow_step(flow=flow, actor=teacher, kind="markdown", title="Notes", content={"markdown": "# Notes"})
+    markdown = create_activity_definition(
+        owner=teacher,
+        title="Notes",
+        type_key="liveclassroom.markdown",
+        definition={"markdown": "# Notes"},
+    )
+    add_flow_step(flow=flow, actor=teacher, activity_definition=markdown)
 
     duplicated = duplicate_flow(flow=flow, creator=teacher)
     assert duplicated.id != flow.id
     assert duplicated.title == "Original Flow (Copy)"
     assert duplicated.slug != flow.slug
     assert duplicated.steps.count() == 2
-    assert duplicated.items.count() == 0
 
-    orig_step_kinds = list(flow.steps.values_list("kind", flat=True))
-    dup_step_kinds = list(duplicated.steps.values_list("kind", flat=True))
+    orig_step_kinds = list(flow.steps.values_list("activity_definition__type_key", flat=True))
+    dup_step_kinds = list(duplicated.steps.values_list("activity_definition__type_key", flat=True))
     assert orig_step_kinds == dup_step_kinds
 
 
@@ -373,13 +376,9 @@ answer: ["Molecule"]
     # Verify FlowStep was created and linked to ActivityDefinition
     steps = list(flow.steps.all().order_by("position"))
     assert len(steps) == 2
-    assert steps[0].kind == "markdown"
-    assert steps[0].activity_definition is None
-    assert steps[1].kind == "activity"
-    assert steps[1].activity_definition is not None
+    assert steps[0].activity_definition.type_key == "liveclassroom.markdown"
+    assert steps[1].activity_definition.type_key == "liveclassroom.single_choice"
 
     act_def = steps[1].activity_definition
     assert act_def.type_key == "liveclassroom.single_choice"
     assert act_def.title == "What is DNA?"
-
-    assert flow.items.count() == 0

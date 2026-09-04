@@ -6,9 +6,6 @@ from django.utils import timezone
 
 from liveclassroom.models import (
     ActivityRunRevision,
-    Course,
-    Flow,
-    FlowItem,
     LiveActivity,
     LiveSession,
     Participant,
@@ -77,7 +74,7 @@ def test_instant_session_has_independent_channels_and_reusable_activity(teacher)
         actor=teacher,
         allow_review=True,
     )
-    assert session.channel_states.get(channel=SessionChannelState.Channel.DISPLAY).allow_review is True
+    assert activity.reviewable is True
 
 
 @pytest.mark.django_db
@@ -180,17 +177,15 @@ def test_submission_refetches_authoritative_activity_state(teacher):
 
 @pytest.mark.django_db
 def test_activity_and_submission_revisions_preserve_history(teacher):
-    course = Course.objects.create(title="Course", slug="foundation", created_by=teacher)
-    flow = Flow.objects.create(course=course, created_by=teacher, title="Flow", slug="flow")
-    item = FlowItem.objects.create(
-        flow=flow,
-        position=1,
-        kind=FlowItem.Kind.POLL,
-        content={"options": [{"id": "A"}, {"id": "B"}]},
+    session = create_instant_session(owner=teacher, title="Revision test")
+    definition = create_activity_definition(
+        owner=teacher,
+        title="Poll",
+        type_key="liveclassroom.poll",
+        definition={"options": [{"id": "A", "text": "A"}, {"id": "B", "text": "B"}]},
     )
-    session = LiveSession.objects.create(course=course, flow=flow, teacher=teacher, title="Revision test")
     start_session(session=session, actor=teacher)
-    activity = launch_item(session=session, item=item, actor=teacher)
+    activity = launch_item(session=session, item=definition, actor=teacher)
     participant = join_guest(session=session, display_name="Ada")
 
     submission = submit_answer(activity=activity, participant=participant, answer={"choice": "A"})

@@ -1,5 +1,6 @@
 from django import forms
 from django.db.models import Q
+from django.utils.translation import gettext_lazy as _
 
 from .conf import guests_allowed, join_code_length
 from .models import CourseMembership, Flow, LiveSession
@@ -9,10 +10,24 @@ class CreateSessionForm(forms.ModelForm):
     class Meta:
         model = LiveSession
         fields = ["title", "course", "flow", "access_mode", "admission_mode", "chat_enabled"]
+        labels = {
+            "title": _("Title"),
+            "course": _("Course"),
+            "flow": _("Flow"),
+            "access_mode": _("Access mode"),
+            "admission_mode": _("Admission mode"),
+            "chat_enabled": _("Enable class chat"),
+        }
 
     def __init__(self, *args, user, **kwargs):
         super().__init__(*args, **kwargs)
         self.user = user
+        self.fields["access_mode"].choices = [
+            (value, _(label)) for value, label in self.fields["access_mode"].choices
+        ]
+        self.fields["admission_mode"].choices = [
+            (value, _(label)) for value, label in self.fields["admission_mode"].choices
+        ]
         if not guests_allowed():
             self.fields["access_mode"].choices = [
                 choice
@@ -34,7 +49,7 @@ class CreateSessionForm(forms.ModelForm):
         course = cleaned_data.get("course")
         flow = cleaned_data.get("flow")
         if course and flow and flow.course_id != course.id:
-            self.add_error("flow", "Choose a flow belonging to the selected course.")
+            self.add_error("flow", _("Choose a flow belonging to the selected course."))
         return cleaned_data
 
     def save(self, commit=True):
@@ -48,8 +63,8 @@ class CreateSessionForm(forms.ModelForm):
 
 
 class JoinSessionForm(forms.Form):
-    join_code = forms.CharField(label="Join code")
-    display_name = forms.CharField(max_length=100, label="Your name")
+    join_code = forms.CharField(label=_("Join code"))
+    display_name = forms.CharField(max_length=100, label=_("Your name"))
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

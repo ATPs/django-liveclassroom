@@ -39,6 +39,13 @@ def _snapshot_type_key(snapshot: dict[str, Any]) -> str | None:
     type_key = snapshot.get("type_key")
     if isinstance(type_key, str) and type_key.strip():
         return type_key if "." in type_key else f"liveclassroom.{type_key}"
+    kind = snapshot.get("kind")
+    if isinstance(kind, str) and kind.strip():
+        kind = kind.strip()
+        # Legacy iframe rows use the same untrusted URL boundary as media.
+        if kind == "iframe":
+            kind = "media"
+        return kind if "." in kind else f"liveclassroom.{kind}"
     return None
 
 
@@ -1211,9 +1218,15 @@ def submit_answer(*, activity: LiveActivity, participant: Participant, answer: d
     )
     if submission is not None and submission.answer == answer and not submission.is_stale:
         raise ClassroomError("You have already submitted this answer.")
+    performed_by = actor if getattr(actor, "is_authenticated", False) else None
     if submission is None:
         try:
-            submission = Submission.objects.create(activity=activity, participant=participant, answer=answer)
+            submission = Submission.objects.create(
+                activity=activity,
+                participant=participant,
+                answer=answer,
+                performed_by=performed_by,
+            )
         except IntegrityError as exc:
             raise ClassroomError("The submission was updated concurrently; retry the request.") from exc
     revision_number = (submission.revisions.order_by("-revision").values_list("revision", flat=True).first() or 0) + 1
@@ -1225,14 +1238,24 @@ def submit_answer(*, activity: LiveActivity, participant: Participant, answer: d
         score=score_data.get("score"),
         is_correct=score_data.get("is_correct"),
         response_ms=submission.response_ms,
-        performed_by=actor if getattr(actor, "is_authenticated", False) else None,
     )
     submission.answer = answer
     submission.current_revision = submission_revision
     submission.is_stale = False
     submission.score = score_data.get("score")
     submission.is_correct = score_data.get("is_correct")
-    submission.save(update_fields=["answer", "current_revision", "is_stale", "score", "is_correct", "updated_at"])
+    submission.performed_by = performed_by
+    submission.save(
+        update_fields=[
+            "answer",
+            "current_revision",
+            "is_stale",
+            "score",
+            "is_correct",
+            "performed_by",
+            "updated_at",
+        ]
+    )
     version = _advance_version(activity.session)
     event_id = _append_event(
         activity.session,
