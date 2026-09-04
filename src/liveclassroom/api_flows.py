@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from django.db import models
+from django.db import models, transaction
 from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404
 from django.views.decorators.http import require_http_methods, require_POST
@@ -80,6 +80,7 @@ def _serialize_flow_with_steps(flow: Flow) -> dict[str, Any]:
 
 
 @require_http_methods(["GET", "POST"])
+@transaction.atomic
 def flows_collection(request):
     """List accessible flows or create a new flow."""
     if not getattr(request.user, "is_authenticated", False):
@@ -145,6 +146,7 @@ def flows_collection(request):
 
 
 @require_http_methods(["GET", "PATCH", "PUT"])
+@transaction.atomic
 def flow_detail(request, flow_id: int):
     """Retrieve flow details with its steps or update flow metadata."""
     flow = get_object_or_404(Flow, pk=flow_id)
@@ -182,6 +184,7 @@ def flow_detail(request, flow_id: int):
 
 
 @require_POST
+@transaction.atomic
 def duplicate_flow_api(request, flow_id: int):
     """Duplicate an existing flow and its steps."""
     flow = get_object_or_404(Flow, pk=flow_id)
@@ -215,6 +218,7 @@ def duplicate_flow_api(request, flow_id: int):
 
 
 @require_POST
+@transaction.atomic
 def add_step_api(request, flow_id: int):
     """Add a new step to a flow with an existing or inline activity definition."""
     flow = get_object_or_404(Flow, pk=flow_id)
@@ -294,6 +298,7 @@ def add_step_api(request, flow_id: int):
 
 
 @require_http_methods(["PUT", "POST"])
+@transaction.atomic
 def reorder_steps_api(request, flow_id: int):
     """Reorder steps in a flow according to an array of step IDs."""
     flow = get_object_or_404(Flow, pk=flow_id)
@@ -325,6 +330,7 @@ def reorder_steps_api(request, flow_id: int):
 
 
 @require_http_methods(["DELETE", "POST"])
+@transaction.atomic
 def delete_step_api(request, flow_id: int, step_id: int):
     """Remove a step from a flow."""
     flow = get_object_or_404(Flow, pk=flow_id)
@@ -352,6 +358,7 @@ def delete_step_api(request, flow_id: int, step_id: int):
 
 
 @require_POST
+@transaction.atomic
 def import_flow_api(request):
     """Import a flow from a JSON or Markdown/YAML source."""
     if not getattr(request.user, "is_authenticated", False):
@@ -428,6 +435,7 @@ def import_flow_api(request):
 
 
 @require_POST
+@transaction.atomic
 def save_session_flow_api(request, session_id: int):
     """Save an active or ended session's activities as a reusable flow."""
     session = get_object_or_404(LiveSession, pk=session_id)

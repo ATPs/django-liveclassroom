@@ -1,7 +1,7 @@
-{% extends "liveclassroom/base.html" %}
+{% extends liveclassroom_base_template %}
 {% block title %}Flow Builder · LiveClassroom{% endblock %}
 {% block content %}
-  <div class="lc-card lc-wide" data-liveclassroom-builder data-flow-id="{{ flow_id|default:'' }}" data-session-id="{{ session_id|default:'' }}" data-locale="{{ active_lang|default:'en' }}">
+  <div class="lc-card lc-wide" data-liveclassroom-builder data-flow-id="{{ flow_id|default:'' }}" data-session-id="{{ session_id|default:'' }}" data-api-v1-url="{% url 'liveclassroom:api-v1-flows' %}" data-locale="{{ active_lang|default:'en' }}">
     <button type="button" class="lc-lang-switch" aria-label="Switch language / 切换语言">EN / 中文</button>
   </div>
 {% endblock %}

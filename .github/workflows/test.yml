@@ -17,7 +17,61 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
+      - uses: oven-sh/setup-bun@v2
       - run: python -m pip install --upgrade pip
       - run: python -m pip install -e '.[dev]' "${{ matrix.django }}"
-      - run: python standalone/manage.py check
-      - run: pytest
+      - run: PYTHONPATH=.:src python standalone/manage.py check
+      - run: PYTHONPATH=.:src python standalone/manage.py makemigrations --check --dry-run
+      - run: ruff check .
+      - run: python -m compileall -q src tests standalone
+      - run: PYTHONPATH=.:src pytest -q
+      - run: bun install --frozen-lockfile
+        working-directory: frontend
+      - run: bun run check
+        working-directory: frontend
+      - run: bun run bundle
+        working-directory: frontend
+      - run: git diff --exit-code -- src/liveclassroom/static/liveclassroom/app.js
+      - run: python -m pip wheel --no-deps --wheel-dir /tmp/liveclassroom-wheel .
+      - run: |
+          python -m pip install --no-deps --target /tmp/liveclassroom-wheel-site /tmp/liveclassroom-wheel/*.whl
+          cd /tmp
+          PYTHONPATH=/tmp/liveclassroom-wheel-site python - <<'PY'
+          import sys
+          import tempfile
+          import types
+          from pathlib import Path
+
+          from django.conf import settings
+
+          urls = types.ModuleType("liveclassroom_wheel_smoke_urls")
+          sys.modules[urls.__name__] = urls
+          settings.configure(
+              SECRET_KEY="wheel-smoke",
+              INSTALLED_APPS=[
+                  "django.contrib.auth",
+                  "django.contrib.contenttypes",
+                  "django.contrib.sessions",
+                  "django.contrib.staticfiles",
+                  "channels",
+                  "liveclassroom",
+              ],
+              ROOT_URLCONF=urls.__name__,
+              STATIC_URL="/static/",
+              STATIC_ROOT=tempfile.mkdtemp(prefix="liveclassroom-static-"),
+              TEMPLATES=[{"BACKEND": "django.template.backends.django.DjangoTemplates", "APP_DIRS": True}],
+              DATABASES={"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": ":memory:"}},
+              DEFAULT_AUTO_FIELD="django.db.models.BigAutoField",
+          )
+          import django
+          from django.core.management import call_command
+          from django.test import Client
+          from django.urls import include, path
+
+          django.setup()
+          urls.urlpatterns = [path("classroom/", include("liveclassroom.urls"))]
+          assert Client().get("/classroom/").status_code == 200
+          call_command("collectstatic", interactive=False, verbosity=0)
+          assert Path(settings.STATIC_ROOT, "liveclassroom", "app.js").is_file()
+          PY
+      - run: git diff --check

@@ -122,7 +122,7 @@ def add_flow_step(
     title: str = "",
     content: dict[str, Any] | None = None,
 ) -> FlowStep:
-    """Add a new step to a flow, maintaining compatibility with FlowItem."""
+    """Add a canonical step to a flow without creating parallel legacy rows."""
     if not can_edit_flow(actor, flow):
         raise ClassroomError("You do not have permission to edit this flow.")
 
@@ -150,6 +150,7 @@ def add_flow_step(
     if content is None:
         content = {}
 
+    flow = Flow.objects.select_for_update().get(pk=flow.pk)
     current_count = flow.steps.count()
     if position is None or position > current_count + 1:
         target_position = current_count + 1
@@ -164,10 +165,6 @@ def add_flow_step(
         for s in steps_to_shift:
             s.position = s.position + 1
             s.save(update_fields=["position"])
-        items_to_shift = list(flow.items.filter(position__gte=target_position).order_by("-position"))
-        for it in items_to_shift:
-            it.position = it.position + 1
-            it.save(update_fields=["position"])
 
     step = FlowStep.objects.create(
         flow=flow,
@@ -176,27 +173,6 @@ def add_flow_step(
         kind=kind,
         title=title,
         content=content,
-    )
-
-    # Maintain compatible FlowItem row
-    flow_item_kind = kind
-    if flow_item_kind not in FlowItem.Kind.values:
-        if activity_definition and activity_definition.type_key:
-            short_type = activity_definition.type_key.rsplit(".", 1)[-1]
-            if short_type in FlowItem.Kind.values:
-                flow_item_kind = short_type
-            else:
-                flow_item_kind = FlowItem.Kind.QUESTION
-        else:
-            flow_item_kind = FlowItem.Kind.QUESTION
-
-    FlowItem.objects.create(
-        flow=flow,
-        position=target_position,
-        kind=flow_item_kind,
-        title=title,
-        content=content,
-        activity_definition=activity_definition,
     )
 
     flow.save(update_fields=["updated_at"])
@@ -214,15 +190,10 @@ def reorder_flow_steps(
     if not can_edit_flow(actor, flow):
         raise ClassroomError("You do not have permission to edit this flow.")
 
-    existing_steps = {step.id: step for step in flow.steps.all()}
+    flow = Flow.objects.select_for_update().get(pk=flow.pk)
+    existing_steps = {step.id: step for step in flow.steps.select_for_update()}
     if len(step_ids) != len(existing_steps) or set(step_ids) != set(existing_steps.keys()):
         raise ClassroomError("step_ids must contain all step IDs of the flow.")
-
-    # Record old positions to reorder compatible FlowItems
-    old_pos_to_new_pos = {}
-    for new_pos, step_id in enumerate(step_ids, start=1):
-        old_pos = existing_steps[step_id].position
-        old_pos_to_new_pos[old_pos] = new_pos
 
     # Shift steps out of range to prevent unique constraint conflicts
     for step in existing_steps.values():
@@ -235,17 +206,6 @@ def reorder_flow_steps(
         step.position = new_pos
         step.save(update_fields=["position"])
         reordered.append(step)
-
-    # Keep FlowItem positions in sync if same count
-    flow_items = list(flow.items.all())
-    if len(flow_items) == len(step_ids):
-        for item in flow_items:
-            item.position = item.position + 100000
-            item.save(update_fields=["position"])
-        for item in flow_items:
-            old_p = item.position - 100000
-            item.position = old_pos_to_new_pos.get(old_p, old_p)
-            item.save(update_fields=["position"])
 
     flow.save(update_fields=["updated_at"])
     return reordered
@@ -262,15 +222,12 @@ def remove_flow_step(
     if not can_edit_flow(actor, flow):
         raise ClassroomError("You do not have permission to edit this flow.")
 
-    step = flow.steps.filter(pk=step_id).first()
+    flow = Flow.objects.select_for_update().get(pk=flow.pk)
+    step = flow.steps.select_for_update().filter(pk=step_id).first()
     if step is None:
         raise ClassroomError("Flow step not found.")
 
-    deleted_position = step.position
     step.delete()
-
-    # Remove corresponding FlowItem at that position if present
-    flow.items.filter(position=deleted_position).delete()
 
     # Re-index remaining steps
     remaining_steps = list(flow.steps.all().order_by("position"))
@@ -280,15 +237,6 @@ def remove_flow_step(
     for idx, s in enumerate(remaining_steps, start=1):
         s.position = idx
         s.save(update_fields=["position"])
-
-    # Re-index remaining FlowItems
-    remaining_items = list(flow.items.all().order_by("position"))
-    for it in remaining_items:
-        it.position = it.position + 100000
-        it.save(update_fields=["position"])
-    for idx, it in enumerate(remaining_items, start=1):
-        it.position = idx
-        it.save(update_fields=["position"])
 
     flow.save(update_fields=["updated_at"])
 
@@ -301,7 +249,7 @@ def duplicate_flow(
     title: str | None = None,
     slug: str | None = None,
 ) -> Flow:
-    """Duplicate a flow along with all its FlowSteps and FlowItems."""
+    """Duplicate a flow along with its canonical FlowSteps."""
     if not getattr(creator, "is_authenticated", False):
         raise ClassroomError("An authenticated user is required to duplicate a flow.")
     if not can_edit_flow(creator, flow):
@@ -334,17 +282,6 @@ def duplicate_flow(
             kind=step.kind,
             title=step.title,
             content=step.content,
-        )
-
-    for item in flow.items.all().order_by("position"):
-        FlowItem.objects.create(
-            flow=new_flow,
-            position=item.position,
-            kind=item.kind,
-            title=item.title,
-            content=item.content,
-            question=item.question,
-            activity_definition=item.activity_definition,
         )
 
     return new_flow
@@ -389,6 +326,8 @@ def save_session_as_flow(
         activity_def = None
         if activity.current_revision and activity.current_revision.source_revision:
             activity_def = activity.current_revision.source_revision.definition
+        elif activity.source_step and activity.source_step.activity_definition:
+            activity_def = activity.source_step.activity_definition
         elif activity.source_item and activity.source_item.activity_definition:
             activity_def = activity.source_item.activity_definition
         elif activity.definition_snapshot and activity.definition_snapshot.get("activity_definition_id"):
@@ -451,19 +390,6 @@ def save_session_as_flow(
             kind="activity",
             title=activity_def.title,
             content=activity_def.definition,
-        )
-
-        flow_item_kind = activity_def.type_key.rsplit(".", 1)[-1]
-        if flow_item_kind not in FlowItem.Kind.values:
-            flow_item_kind = FlowItem.Kind.QUESTION
-
-        FlowItem.objects.create(
-            flow=flow,
-            position=position,
-            kind=flow_item_kind,
-            title=activity_def.title,
-            content=activity_def.definition,
-            activity_definition=activity_def,
         )
 
     return flow

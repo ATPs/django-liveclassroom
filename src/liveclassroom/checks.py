@@ -3,8 +3,21 @@
 import re
 from typing import Any
 
+from django.contrib.staticfiles import finders
 from django.core.checks import Error, Tags, Warning, register
 
+from .ai import AuthoringAIError, authoring_ai_backends
+from .conf import (
+    ai_job_max_attempts,
+    ai_job_timeout_seconds,
+    base_template,
+    default_session_mode,
+    guests_allowed,
+    join_code_length,
+    setting,
+    websocket_path,
+)
+from .providers import ProviderError, content_providers
 from .registry import activity_registry
 
 REQUIRED_MANIFEST_KEYS: tuple[str, ...] = (
@@ -73,6 +86,14 @@ def check_activity_registry(app_configs: Any = None, **kwargs: Any) -> list[Erro
                             obj=activity_type,
                         )
                     )
+                elif key.startswith("liveclassroom.") and finders.find(val) is None:
+                    messages.append(
+                        Error(
+                            f"Activity type {key!r} frontend manifest target {val!r} does not exist.",
+                            id="liveclassroom.E007",
+                            obj=activity_type,
+                        )
+                    )
 
         # 3. Capabilities validation (liveclassroom.E003 / liveclassroom.W001)
         capabilities = getattr(activity_type, "capabilities", None)
@@ -104,4 +125,73 @@ def check_activity_registry(app_configs: Any = None, **kwargs: Any) -> list[Erro
                         )
                     )
 
+    return messages
+
+
+@register(Tags.compatibility)
+def check_liveclassroom_settings(app_configs: Any = None, **kwargs: Any) -> list[Error]:
+    """Reject malformed host integration settings before a classroom command uses them."""
+    messages: list[Error] = []
+    try:
+        join_code_length()
+        default_session_mode()
+        guests_allowed()
+        base_template()
+        websocket_path(1)
+        ai_job_max_attempts()
+        ai_job_timeout_seconds()
+    except (KeyError, ValueError) as exc:
+        messages.append(Error(str(exc), id="liveclassroom.E004"))
+        return messages
+
+    for name in ("AI_BACKENDS", "CONTENT_PROVIDERS"):
+        try:
+            configured = setting(name)
+        except (KeyError, ValueError) as exc:
+            messages.append(Error(str(exc), id="liveclassroom.E004"))
+            return messages
+        if not isinstance(configured, dict):
+            messages.append(Error(f"LIVECLASSROOM['{name}'] must be a mapping.", id="liveclassroom.E004"))
+            return messages
+
+    try:
+        backends = authoring_ai_backends()
+    except AuthoringAIError as exc:
+        messages.append(Error(str(exc), id="liveclassroom.E005"))
+    else:
+        for key in backends.keys():
+            backend = backends.get(key)
+            missing = [method for method in ("list_models", "complete") if not callable(getattr(backend, method, None))]
+            if missing:
+                messages.append(
+                    Error(
+                        f"Authoring AI backend {key!r} is missing methods: {', '.join(missing)}.",
+                        id="liveclassroom.E005",
+                    )
+                )
+
+    try:
+        providers = content_providers()
+    except ProviderError as exc:
+        messages.append(Error(str(exc), id="liveclassroom.E006"))
+    else:
+        required = (
+            "parse_reference",
+            "describe",
+            "validate_reference",
+            "search",
+            "embed_url",
+            "grant_participant_access",
+            "revoke_participant_access",
+        )
+        for key in providers.keys():
+            provider = providers.get(key)
+            missing = [method for method in required if not callable(getattr(provider, method, None))]
+            if missing:
+                messages.append(
+                    Error(
+                        f"Content provider {key!r} is missing methods: {', '.join(missing)}.",
+                        id="liveclassroom.E006",
+                    )
+                )
     return messages

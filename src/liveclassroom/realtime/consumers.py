@@ -20,24 +20,34 @@ class SessionConsumer(AsyncJsonWebsocketConsumer):
             await self.close(code=4403)
             return
         self.group_name = f"lc.session.{self.session_id}.all"
+        self._last_event_version = -1
         await self.channel_layer.group_add(self.group_name, self.channel_name)
         await self.accept()
         if self.participant_id is not None:
-            await self._mark_connected(self.participant_id)
+            await self._mark_connected(self.participant_id, self.channel_name)
         await self.send_json({"type": "connection.ready", "session_id": self.session_id})
 
     async def disconnect(self, close_code):
         if hasattr(self, "group_name"):
             await self.channel_layer.group_discard(self.group_name, self.channel_name)
         if getattr(self, "participant_id", None) is not None:
-            await self._mark_disconnected(self.participant_id)
+            await self._mark_disconnected(self.participant_id, self.channel_name)
 
     async def receive_json(self, content, **kwargs):
         # Persistence-changing messages are intentionally not accepted here.
         await self.send_json({"type": "error", "detail": "Use the HTTP API for commands."})
 
     async def session_event(self, event):
-        await self.send_json(event["message"])
+        message = event["message"]
+        try:
+            version = int(message.get("version", -1))
+        except (TypeError, ValueError):
+            version = -1
+        if version >= 0:
+            if version <= self._last_event_version:
+                return
+            self._last_event_version = version
+        await self.send_json(message)
 
     @database_sync_to_async
     def _authorized_staff(self) -> bool:
@@ -62,12 +72,12 @@ class SessionConsumer(AsyncJsonWebsocketConsumer):
         return participant.id if participant else None
 
     @database_sync_to_async
-    def _mark_connected(self, participant_id: int) -> None:
+    def _mark_connected(self, participant_id: int, connection_id: str) -> None:
         participant = Participant.objects.get(pk=participant_id)
-        mark_participant_connected(participant=participant)
+        mark_participant_connected(participant=participant, connection_id=connection_id)
 
     @database_sync_to_async
-    def _mark_disconnected(self, participant_id: int) -> None:
+    def _mark_disconnected(self, participant_id: int, connection_id: str) -> None:
         participant = Participant.objects.filter(pk=participant_id).first()
         if participant is not None:
-            mark_participant_disconnected(participant=participant)
+            mark_participant_disconnected(participant=participant, connection_id=connection_id)

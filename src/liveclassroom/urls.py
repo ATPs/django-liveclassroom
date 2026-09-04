@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import api, api_flows, views
+from . import api, api_authoring, api_flows, views
 
 app_name = "liveclassroom"
 
@@ -11,6 +11,7 @@ urlpatterns = [
     path("teacher/flows/<int:flow_id>/builder/", views.FlowBuilderView.as_view(), name="flow-builder-detail"),
     path("teacher/sessions/<int:session_id>/", views.TeacherConsoleView.as_view(), name="teacher-console"),
     path("teacher/sessions/<int:session_id>/display/", views.ClassroomDisplayView.as_view(), name="classroom-display"),
+    path("teacher/sessions/<int:session_id>/join-qr.svg", views.join_qr, name="join-qr"),
 
     path("join/", views.JoinView.as_view(), name="join"),
     path("sessions/<int:session_id>/", views.StudentSessionView.as_view(), name="student-session"),
@@ -27,25 +28,25 @@ urlpatterns = [
     path("api/activities/<int:activity_id>/reveal/", api.transition, {"state": "revealed"}, name="api-reveal"),
     path("api/activities/<int:activity_id>/revise/", api.revise, name="api-revise"),
     path("api/v1/sessions/<int:session_id>/state/", api.state, name="api-v1-state"),
-    path("api/v1/activity-definitions/", api.activity_definitions, name="api-v1-activity-definitions"),
-    path("api/v1/activity-types/", api.activity_types, name="api-v1-activity-types"),
-    path("api/v1/activity-definitions/create/", api.create_activity, name="api-v1-activity-create"),
-    path("api/v1/authoring/models/", api.authoring_models, name="api-v1-authoring-models"),
-    path("api/v1/authoring/threads/", api.authoring_threads, name="api-v1-authoring-threads"),
+    path("api/v1/activity-definitions/", api_authoring.activity_definitions, name="api-v1-activity-definitions"),
+    path("api/v1/activity-types/", api_authoring.activity_types, name="api-v1-activity-types"),
+    path("api/v1/activity-definitions/create/", api_authoring.create_activity, name="api-v1-activity-create"),
+    path("api/v1/authoring/models/", api_authoring.authoring_models, name="api-v1-authoring-models"),
+    path("api/v1/authoring/threads/", api_authoring.authoring_threads, name="api-v1-authoring-threads"),
     path(
         "api/v1/authoring/threads/<int:thread_id>/",
-        api.authoring_thread,
+        api_authoring.authoring_thread,
         name="api-v1-authoring-thread",
     ),
     path(
         "api/v1/authoring/threads/<int:thread_id>/messages/",
-        api.authoring_message,
+        api_authoring.authoring_message,
         name="api-v1-authoring-message",
     ),
-    path("api/v1/authoring/jobs/<int:job_id>/", api.authoring_job, name="api-v1-authoring-job"),
+    path("api/v1/authoring/jobs/<int:job_id>/", api_authoring.authoring_job, name="api-v1-authoring-job"),
     path(
         "api/v1/activity-definitions/<int:activity_id>/revisions/",
-        api.revise_activity_definition_api,
+        api_authoring.revise_activity_definition_api,
         name="api-v1-activity-revise",
     ),
     path("api/v1/sessions/<int:session_id>/start/", api.start, name="api-v1-start"),
@@ -63,6 +64,9 @@ urlpatterns = [
         name="api-v1-admission",
     ),
     path("api/v1/sessions/<int:session_id>/participants/", api.participants, name="api-v1-participants"),
+    path("api/v1/sessions/<int:session_id>/staff/", api.staff, name="api-v1-staff"),
+    path("api/v1/sessions/<int:session_id>/staff/assign/", api.staff_assign, name="api-v1-staff-assign"),
+    path("api/v1/sessions/<int:session_id>/staff/<int:staff_id>/remove/", api.staff_remove, name="api-v1-staff-remove"),
     path("api/v1/sessions/<int:session_id>/history/", api.history, name="api-v1-history"),
     path("api/v1/sessions/<int:session_id>/analytics/", api.analytics, name="api-v1-analytics"),
     path("api/v1/sessions/<int:session_id>/export/", api.export_session, name="api-v1-export"),
@@ -78,6 +82,9 @@ urlpatterns = [
         name="api-admission",
     ),
     path("api/sessions/<int:session_id>/participants/", api.participants, name="api-participants"),
+    path("api/sessions/<int:session_id>/staff/", api.staff, name="api-staff"),
+    path("api/sessions/<int:session_id>/staff/assign/", api.staff_assign, name="api-staff-assign"),
+    path("api/sessions/<int:session_id>/staff/<int:staff_id>/remove/", api.staff_remove, name="api-staff-remove"),
     path("api/sessions/<int:session_id>/state/", api.state, name="api-state"),
     path("api/sessions/<int:session_id>/history/", api.history, name="api-history"),
     path("api/sessions/<int:session_id>/export/", api.export_session, name="api-export"),

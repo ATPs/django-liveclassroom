@@ -1,7 +1,10 @@
 """Tests for LiveClassroom activity plugin registry, built-in types, and system checks."""
 
+from pathlib import Path
+
 import pytest
 from django.contrib.auth import get_user_model
+from django.contrib.staticfiles import finders
 from django.core.checks import Error, Warning
 from django.core.management import call_command
 from django.test import Client, override_settings
@@ -12,6 +15,12 @@ from liveclassroom.registry import (
     ActivityType,
     activity_registry,
     register_activity_type,
+)
+from liveclassroom.services.classroom import (
+    create_activity_definition,
+    create_instant_session,
+    launch_item,
+    start_session,
 )
 
 
@@ -53,6 +62,41 @@ def test_builtin_activity_types_registered_with_complete_manifests():
         assert required_surfaces.issubset(manifest.keys()), f"{key} missing surfaces"
         for surface, path in manifest.items():
             assert isinstance(path, str) and path.strip(), f"{key} surface {surface} is empty"
+            assert finders.find(path), f"{key} surface {surface} must be collectable"
+
+
+def test_frontend_plugin_runtime_uses_react_and_manifest_driven_loading():
+    package = Path("frontend/package.json").read_text(encoding="utf-8")
+    runtime = Path("frontend/src/plugin_runtime.ts").read_text(encoding="utf-8")
+    app = Path("frontend/src/app.ts").read_text(encoding="utf-8")
+
+    assert '"react"' in package and '"react-dom"' in package
+    assert "createRoot" in runtime and "pluginApiVersion" in runtime
+    assert "mountPluginActivity" in app and "frontend_manifest" in app
+
+
+@pytest.mark.django_db
+def test_public_activity_state_includes_its_registered_frontend_manifest():
+    teacher = get_user_model().objects.create_user(username="state-manifest-teacher")
+    session = create_instant_session(owner=teacher, title="Manifest state")
+    definition = create_activity_definition(
+        owner=teacher,
+        title="Manifest poll",
+        type_key="liveclassroom.poll",
+        definition={"options": [{"id": "A", "text": "One"}]},
+    )
+    start_session(session=session, actor=teacher)
+    launch_item(session=session, item=definition, actor=teacher)
+    client = Client()
+    client.force_login(teacher)
+
+    response = client.get(reverse("liveclassroom:api-v1-state", args=[session.id]))
+
+    assert response.status_code == 200
+    assert (
+        response.json()["current_activity"]["frontend_manifest"]
+        == activity_registry.get("liveclassroom.poll").frontend_manifest
+    )
 
 
 def test_word_cloud_definition_validation():
@@ -252,7 +296,12 @@ def test_media_definition_validation_and_capabilities():
         media.validate({"url": "https://example.com/test", "media_type": "image", "caption": 42})
 
     # Executable and credential-bearing URLs are rejected regardless of type.
-    for bad_url in ("javascript:alert(1)", "data:text/html,hi", "file:///etc/passwd", "https://user:pass@example.com/x.png"):
+    for bad_url in (
+        "javascript:alert(1)",
+        "data:text/html,hi",
+        "file:///etc/passwd",
+        "https://user:pass@example.com/x.png",
+    ):
         with pytest.raises(ValueError):
             media.validate({"url": bad_url, "media_type": "image"})
 
@@ -372,8 +421,7 @@ def test_system_check_detects_malformed_plugins(clean_registry):
     activity_registry.register(bad_manifest_type, replace=True)
     messages = check_activity_registry()
     e002_errors = [
-        m for m in messages
-        if m.id == "liveclassroom.E002" and getattr(m.obj, "key", "") == "test.missing_manifest"
+        m for m in messages if m.id == "liveclassroom.E002" and getattr(m.obj, "key", "") == "test.missing_manifest"
     ]
     assert len(e002_errors) == 1
     activity_registry.unregister("test.missing_manifest")
@@ -385,8 +433,7 @@ def test_system_check_detects_malformed_plugins(clean_registry):
     activity_registry.register(bad_surface_type, replace=True)
     messages = check_activity_registry()
     e002_surface_errors = [
-        m for m in messages
-        if m.id == "liveclassroom.E002" and getattr(m.obj, "key", "") == "test.incomplete_manifest"
+        m for m in messages if m.id == "liveclassroom.E002" and getattr(m.obj, "key", "") == "test.incomplete_manifest"
     ]
     assert any("analytics" in m.msg for m in e002_surface_errors)
     activity_registry.unregister("test.incomplete_manifest")
@@ -399,10 +446,7 @@ def test_system_check_detects_malformed_plugins(clean_registry):
     )
     activity_registry.register(bad_cap_type, replace=True)
     messages = check_activity_registry()
-    e003_errors = [
-        m for m in messages
-        if m.id == "liveclassroom.E003" and getattr(m.obj, "key", "") == "test.bad_cap"
-    ]
+    e003_errors = [m for m in messages if m.id == "liveclassroom.E003" and getattr(m.obj, "key", "") == "test.bad_cap"]
     assert len(e003_errors) >= 1
     activity_registry.unregister("test.bad_cap")
 
@@ -415,12 +459,26 @@ def test_system_check_detects_malformed_plugins(clean_registry):
     activity_registry.register(unknown_cap_type, replace=True)
     messages = check_activity_registry()
     w001_warnings = [
-        m for m in messages
-        if m.id == "liveclassroom.W001" and getattr(m.obj, "key", "") == "test.unknown_cap"
+        m for m in messages if m.id == "liveclassroom.W001" and getattr(m.obj, "key", "") == "test.unknown_cap"
     ]
     assert len(w001_warnings) == 1
     assert "future_feature" in w001_warnings[0].msg
     activity_registry.unregister("test.unknown_cap")
+
+
+def test_system_check_rejects_missing_builtin_manifest_asset(clean_registry):
+    original = activity_registry.get("liveclassroom.poll")
+    activity_registry.register(
+        ActivityType(
+            key=original.key,
+            capabilities=original.capabilities,
+            frontend_manifest={surface: "liveclassroom/plugins/missing.js" for surface in original.frontend_manifest},
+        ),
+        replace=True,
+    )
+
+    assert any(message.id == "liveclassroom.E007" for message in check_activity_registry())
+    activity_registry.register(original, replace=True)
 
 
 @pytest.mark.django_db

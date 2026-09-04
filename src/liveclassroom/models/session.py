@@ -5,14 +5,16 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
 
-from .content import Flow, FlowItem
+from .content import Flow, FlowItem, FlowStep
 from .course import Course
 
 
 def make_join_code() -> str:
     """Return a human-enterable code; uniqueness is enforced by the database."""
+    from liveclassroom.conf import join_code_length
+
     alphabet = string.ascii_uppercase + string.digits
-    return "".join(secrets.choice(alphabet) for _ in range(6))
+    return "".join(secrets.choice(alphabet) for _ in range(join_code_length()))
 
 
 class LiveSession(models.Model):
@@ -59,6 +61,13 @@ class LiveSession(models.Model):
         on_delete=models.SET_NULL,
         related_name="current_in_sessions",
     )
+    current_step = models.ForeignKey(
+        FlowStep,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="current_in_sessions",
+    )
     state_version = models.PositiveBigIntegerField(default=0)
     started_at = models.DateTimeField(null=True, blank=True)
     ended_at = models.DateTimeField(null=True, blank=True)
@@ -74,6 +83,8 @@ class LiveSession(models.Model):
             raise ValidationError({"flow": "The selected flow must belong to the selected course."})
         if self.current_item_id and self.flow_id and self.current_item.flow_id != self.flow_id:
             raise ValidationError({"current_item": "The item must belong to the selected flow."})
+        if self.current_step_id and self.flow_id and self.current_step.flow_id != self.flow_id:
+            raise ValidationError({"current_step": "The step must belong to the selected flow."})
 
     def __str__(self) -> str:
         return f"{self.title} ({self.join_code})"
@@ -136,6 +147,24 @@ class Participant(models.Model):
         return self.display_name
 
 
+class ParticipantConnection(models.Model):
+    """One active or historical WebSocket connection for a participant.
+
+    The participant timestamps remain a compact attendance summary.  This
+    table is the authority for whether another tab or device is still online.
+    """
+
+    participant = models.ForeignKey(Participant, on_delete=models.CASCADE, related_name="connections")
+    connection_id = models.CharField(max_length=255, unique=True)
+    connected_at = models.DateTimeField(auto_now_add=True)
+    last_seen_at = models.DateTimeField(auto_now=True)
+    disconnected_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        indexes = [models.Index(fields=["participant", "disconnected_at"], name="liveclassro_partici_19bd82_idx")]
+        ordering = ["participant", "connected_at"]
+
+
 class LiveActivity(models.Model):
     class State(models.TextChoices):
         OPEN = "open", "Open"
@@ -147,6 +176,13 @@ class LiveActivity(models.Model):
     kind = models.CharField(max_length=16)
     source_item = models.ForeignKey(
         FlowItem,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="live_activities",
+    )
+    source_step = models.ForeignKey(
+        FlowStep,
         null=True,
         blank=True,
         on_delete=models.SET_NULL,

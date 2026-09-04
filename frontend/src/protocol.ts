@@ -26,6 +26,7 @@ export type ActivityState = {
   state: string;
   revision: number;
   definition: Record<string, unknown>;
+  frontend_manifest?: Record<string, string>;
 };
 
 export type SubmissionState = {

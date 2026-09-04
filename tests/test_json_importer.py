@@ -124,7 +124,7 @@ def test_import_json_flow_success(teacher):
     assert flow.slug == "networks-flow"
     assert flow.course == course
     assert flow.steps.count() == 2
-    assert flow.items.count() == 2
+    assert flow.items.count() == 0
 
     step1 = flow.steps.first()
     assert step1.position == 1

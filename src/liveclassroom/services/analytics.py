@@ -5,7 +5,7 @@ from typing import Any
 
 from django.db.models import Prefetch
 
-from liveclassroom.models import LiveSession, Participant, Submission
+from liveclassroom.models import LiveSession, Participant, ParticipantConnection, Submission
 
 from .classroom import result_summary
 
@@ -116,6 +116,11 @@ def session_analytics(session: LiveSession) -> dict[str, Any]:
             }
         )
 
+    active_connection_ids = set(
+        ParticipantConnection.objects.filter(participant__session=session, disconnected_at__isnull=True).values_list(
+            "participant_id", flat=True
+        )
+    )
     participant_rows = []
     for participant in participants:
         timeline = participant_timelines[participant.id]
@@ -128,6 +133,7 @@ def session_analytics(session: LiveSession) -> dict[str, Any]:
                 "joined_at": participant.joined_at,
                 "connected_at": participant.connected_at,
                 "disconnected_at": participant.disconnected_at,
+                "active_connection_count": int(participant.id in active_connection_ids),
                 "last_seen_at": participant.last_seen_at,
                 "current_response_count": sum(1 for item in timeline if not item["is_stale"]),
                 "stale_response_count": sum(1 for item in timeline if item["is_stale"]),
@@ -147,7 +153,9 @@ def session_analytics(session: LiveSession) -> dict[str, Any]:
             "rejected": status_counts[Participant.AdmissionState.REJECTED],
             "removed": status_counts[Participant.AdmissionState.REMOVED],
             "ever_connected": sum(1 for participant in participants if participant.connected_at is not None),
-            "currently_connected": sum(
+            "currently_connected": len(active_connection_ids)
+            if active_connection_ids
+            else sum(
                 1
                 for participant in participants
                 if participant.connected_at is not None and participant.disconnected_at is None

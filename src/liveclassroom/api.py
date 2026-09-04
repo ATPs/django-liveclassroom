@@ -1,23 +1,17 @@
-import csv
 import hashlib
-import io
 import json
 from copy import deepcopy
 
-from django.db import IntegrityError
-from django.http import Http404, HttpResponse, JsonResponse
+from django.contrib.auth import get_user_model
+from django.db import IntegrityError, transaction
+from django.http import Http404, JsonResponse, StreamingHttpResponse
 from django.shortcuts import get_object_or_404
-from django.views.decorators.http import require_GET, require_http_methods, require_POST
+from django.views.decorators.http import require_GET, require_POST
 
-from .ai import AuthoringAIError, authoring_ai_backends
 from .models import (
     ActivityDefinition,
     AuthoringCommandReceipt,
-    AuthoringJob,
-    AuthoringMessage,
-    AuthoringThread,
     CommandReceipt,
-    Course,
     FlowItem,
     FlowStep,
     LiveActivity,
@@ -27,18 +21,12 @@ from .models import (
 )
 from .registry import activity_registry
 from .services.analytics import session_analytics
-from .services.authoring import (
-    can_view_authoring_thread,
-    create_authoring_request,
-    create_authoring_thread,
-)
 from .services.classroom import (
     ClassroomError,
     archive_session,
     can_manage_admission,
     can_view_display,
     can_view_session,
-    create_activity_definition,
     delete_session,
     end_session,
     ensure_channel_states,
@@ -49,18 +37,20 @@ from .services.classroom import (
     post_message,
     public_result_summary,
     publish_activity_to_channel,
+    remove_session_staff,
     result_summary,
     revise_activity,
-    revise_activity_definition,
     safe_activity_snapshot,
+    session_capabilities,
     set_activity_state,
     set_chat_enabled,
     set_participant_admission,
+    set_session_staff,
     start_session,
     submit_answer,
     update_channel_visibility,
 )
-from .services.permissions import can_author_course
+from .services.exports import csv_export, json_archive
 
 
 def _body(request) -> dict:
@@ -364,15 +354,24 @@ def _public_activity(
             return value
 
         snapshot = redact(snapshot)
+    type_key = snapshot.get("type_key") if isinstance(snapshot, dict) else None
+    if not isinstance(type_key, str) or not type_key:
+        type_key = f"liveclassroom.{activity.kind}"
+    try:
+        manifest = dict(activity_registry.get(type_key).frontend_manifest)
+    except KeyError:
+        manifest = {}
     return {
         "id": activity.id,
         "state": activity.state,
         "revision": revision.revision if revision is not None else 1,
         "definition": snapshot,
+        "frontend_manifest": manifest,
     }
 
 
 @require_POST
+@transaction.atomic
 def start(request, session_id: int):
     session = get_object_or_404(LiveSession, pk=session_id)
     replay, key = _replay(request, session, "session.start")
@@ -389,6 +388,7 @@ def start(request, session_id: int):
 
 
 @require_POST
+@transaction.atomic
 def pause(request, session_id: int):
     session = get_object_or_404(LiveSession, pk=session_id)
     replay, key = _replay(request, session, "session.pause")
@@ -403,6 +403,7 @@ def pause(request, session_id: int):
 
 
 @require_POST
+@transaction.atomic
 def end(request, session_id: int):
     session = get_object_or_404(LiveSession, pk=session_id)
     replay, key = _replay(request, session, "session.end")
@@ -417,6 +418,7 @@ def end(request, session_id: int):
 
 
 @require_POST
+@transaction.atomic
 def archive(request, session_id: int):
     """Archive or restore an ended session while retaining its records."""
     session = get_object_or_404(LiveSession, pk=session_id)
@@ -440,9 +442,11 @@ def archive(request, session_id: int):
 
 
 @require_POST
+@transaction.atomic
 def delete(request, session_id: int):
     """Permanently delete an archived session only after explicit confirmation."""
     session = get_object_or_404(LiveSession, pk=session_id)
+    deleted_session_id = session.id
     replay, key = _replay(request, session, "session.delete")
     if replay is not None:
         return replay
@@ -452,270 +456,13 @@ def delete(request, session_id: int):
         delete_session(session=session, actor=request.user)
     except ClassroomError as exc:
         return _record(session, key, "session.delete", request, _error(str(exc), 403))
-    response = JsonResponse({"id": session.id, "deleted": True})
-    return _record(session, key, "session.delete", request, response)
-
-
-@require_http_methods(["GET", "POST"])
-def activity_definitions(request):
-    """List or create reusable activities for the authenticated teacher."""
-    if not getattr(request.user, "is_authenticated", False):
-        return _error("An authenticated teacher is required.", 403)
-    if request.method == "POST":
-        return create_activity(request)
-    definitions = ActivityDefinition.objects.filter(owner=request.user).values(
-        "id", "title", "type_key", "schema_version", "status", "definition", "current_revision_id", "updated_at"
-    )
-    return JsonResponse({"activities": list(definitions)})
-
-
-@require_GET
-def activity_types(request):
-    """Expose the installed activity manifest to authenticated authoring clients."""
-    if not getattr(request.user, "is_authenticated", False):
-        return _error("An authenticated teacher is required.", 403)
-    return JsonResponse(
-        {
-            "protocol_version": 1,
-            "activity_types": [
-                {
-                    "key": activity_type.key,
-                    "schema_version": 1,
-                    "capabilities": sorted(activity_type.capabilities),
-                    "frontend_manifest": dict(activity_type.frontend_manifest),
-                }
-                for activity_type in sorted(activity_registry.all(), key=lambda item: item.key)
-            ],
-        }
-    )
-
-
-def _authoring_message_payload(message: AuthoringMessage) -> dict:
-    return {
-        "id": message.id,
-        "role": message.role,
-        "content": message.content,
-        "model_identifier": message.model_identifier,
-        "status": message.status,
-        "attachments": [
-            {
-                "id": attachment.id,
-                "source_type": attachment.source_type,
-                "source_id": attachment.source_id,
-                "provider": attachment.provider,
-                "reference": attachment.reference,
-                "source_fingerprint": attachment.source_fingerprint,
-            }
-            for attachment in message.attachments.all()
-        ],
-        "created_at": message.created_at,
-    }
-
-
-def _authoring_job_payload(job: AuthoringJob) -> dict:
-    return {
-        "id": job.id,
-        "status": job.status,
-        "backend_key": job.backend_key,
-        "model_identifier": job.model_identifier,
-        "error_code": job.error_code,
-        "attempt": job.attempt,
-        "message_id": job.message_id,
-        "assistant_message_id": job.assistant_message_id,
-        "queued_at": job.queued_at,
-        "started_at": job.started_at,
-        "completed_at": job.completed_at,
-    }
-
-
-@require_http_methods(["GET", "POST"])
-def authoring_threads(request):
-    """List or create private teacher authoring conversations."""
-    if not getattr(request.user, "is_authenticated", False):
-        return _error("An authenticated teacher is required.", 403)
-    if request.method == "POST":
-        replay, key = _authoring_replay(request, "authoring.thread.create")
-        if replay is not None:
-            return replay
-        try:
-            body = _body(request)
-            thread = create_authoring_thread(
-                owner=request.user,
-                title=body.get("title", "New authoring conversation"),
-            )
-        except ClassroomError as exc:
-            return _record_authoring(request, key, "authoring.thread.create", _error(str(exc), 400))
-        return _record_authoring(
-            request,
-            key,
-            "authoring.thread.create",
-            JsonResponse({"id": thread.id, "title": thread.title}, status=201),
-        )
-    threads = AuthoringThread.objects.filter(owner=request.user).values(
-        "id", "title", "created_at", "updated_at"
-    )
-    return JsonResponse({"threads": list(threads)})
-
-
-@require_GET
-def authoring_models(request):
-    """Expose only safe model metadata from configured AI backends."""
-    if not getattr(request.user, "is_authenticated", False):
-        return _error("An authenticated teacher is required.", 403)
-    backend_key = request.GET.get("backend")
-    try:
-        registry = authoring_ai_backends()
-        keys = [backend_key] if backend_key else registry.keys()
-        models = []
-        for key in keys:
-            for model in registry.get(key).list_models(request=request):
-                if not hasattr(model, "identifier") or not hasattr(model, "label"):
-                    raise AuthoringAIError("Invalid model metadata")
-                models.append({"backend_key": key, "identifier": str(model.identifier), "label": str(model.label)})
-    except Exception:
-        return _error("AI model discovery is temporarily unavailable.", 503)
-    return JsonResponse({"backends": registry.keys(), "models": models})
-
-
-@require_GET
-def authoring_thread(request, thread_id: int):
-    """Return one private conversation and bounded job status."""
-    thread = get_object_or_404(AuthoringThread, pk=thread_id)
-    if not can_view_authoring_thread(request.user, thread):
-        return _error("You do not have permission to view this authoring thread.", 403)
-    messages = list(thread.messages.prefetch_related("attachments").all())
-    return JsonResponse(
-        {
-            "id": thread.id,
-            "title": thread.title,
-            "messages": [_authoring_message_payload(message) for message in messages],
-            "jobs": [_authoring_job_payload(job) for job in thread.jobs.all()],
-        }
-    )
+    # Session-scoped command receipts are removed by this cascading delete, so
+    # a successful deletion cannot persist a replay record on the deleted row.
+    return JsonResponse({"id": deleted_session_id, "deleted": True})
 
 
 @require_POST
-def authoring_message(request, thread_id: int):
-    """Queue a teacher prompt with explicit, re-authorized attachments."""
-    thread = get_object_or_404(AuthoringThread, pk=thread_id)
-    if not can_view_authoring_thread(request.user, thread):
-        return _error("You do not have permission to use this authoring thread.", 403)
-    replay, key = _authoring_replay(request, f"authoring.message.{thread_id}")
-    if replay is not None:
-        return replay
-    try:
-        body = _body(request)
-        prompt, job = create_authoring_request(
-            thread=thread,
-            author=request.user,
-            content=body["content"],
-            backend_key=body["backend_key"],
-            model_identifier=body["model_identifier"],
-            attachments=body.get("attachments", []),
-            request=request,
-            options=body.get("options"),
-        )
-    except KeyError as exc:
-        return _record_authoring(request, key, f"authoring.message.{thread_id}", _error(f"{exc.args[0]} is required."))
-    except ClassroomError as exc:
-        return _record_authoring(request, key, f"authoring.message.{thread_id}", _error(str(exc), 400))
-    return _record_authoring(
-        request,
-        key,
-        f"authoring.message.{thread_id}",
-        JsonResponse({"message": _authoring_message_payload(prompt), "job": _authoring_job_payload(job)}, status=202),
-    )
-
-
-@require_GET
-def authoring_job(request, job_id: int):
-    """Return a teacher-owned job status without provider diagnostics."""
-    job = get_object_or_404(AuthoringJob.objects.select_related("thread"), pk=job_id)
-    if not can_view_authoring_thread(request.user, job.thread):
-        return _error("You do not have permission to view this authoring job.", 403)
-    return JsonResponse(_authoring_job_payload(job))
-
-
-@require_POST
-def create_activity(request):
-    """Create one validated reusable activity through the registry contract."""
-    if not getattr(request.user, "is_authenticated", False):
-        return _error("An authenticated teacher is required.", 403)
-    replay, key = _authoring_replay(request, "activity.create")
-    if replay is not None:
-        return replay
-    try:
-        body = _body(request)
-        course = None
-        if body.get("course_id") is not None:
-            course = get_object_or_404(Course, pk=body["course_id"])
-            if not can_author_course(request.user, course):
-                return _record_authoring(
-                    request,
-                    key,
-                    "activity.create",
-                    _error("You do not have permission to author content for this course.", 403),
-                )
-        activity = create_activity_definition(
-            owner=request.user,
-            title=body["title"],
-            type_key=body["type_key"],
-            definition=body.get("definition", {}),
-            course=course,
-            change_note=body.get("change_note", ""),
-        )
-    except KeyError as exc:
-        return _record_authoring(request, key, "activity.create", _error(f"{exc.args[0]} is required."))
-    except ClassroomError as exc:
-        return _record_authoring(request, key, "activity.create", _error(str(exc), 400))
-    return _record_authoring(
-        request,
-        key,
-        "activity.create",
-        JsonResponse(
-            {
-                "id": activity.id,
-                "title": activity.title,
-                "type_key": activity.type_key,
-                "revision": activity.current_revision_id,
-            },
-            status=201,
-        ),
-    )
-
-
-@require_POST
-def revise_activity_definition_api(request, activity_id: int):
-    """Create an immutable reusable-activity revision after registry validation."""
-    activity = get_object_or_404(ActivityDefinition, pk=activity_id)
-    command_type = f"activity.revise-definition.{activity_id}"
-    replay, key = _authoring_replay(request, command_type)
-    if replay is not None:
-        return replay
-    try:
-        body = _body(request)
-        revision = revise_activity_definition(
-            activity=activity,
-            definition=body["definition"],
-            actor=request.user,
-            change_note=body.get("change_note", ""),
-        )
-    except KeyError:
-        return _record_authoring(request, key, command_type, _error("definition is required."))
-    except ClassroomError as exc:
-        return _record_authoring(request, key, command_type, _error(str(exc), 403))
-    return _record_authoring(
-        request,
-        key,
-        command_type,
-        JsonResponse(
-            {"activity_id": activity.id, "revision": revision.revision, "revision_id": revision.id},
-            status=201,
-        ),
-    )
-
-
-@require_POST
+@transaction.atomic
 def launch(request, session_id: int):
     session = get_object_or_404(LiveSession, pk=session_id)
     replay, key = _replay(request, session, "activity.launch")
@@ -738,7 +485,13 @@ def launch(request, session_id: int):
             channel=body.get("channel", SessionChannelState.Channel.DISPLAY),
         )
     except KeyError:
-        return _record(session, key, "activity.launch", request, _error("flow_item_id is required."))
+        return _record(
+            session,
+            key,
+            "activity.launch",
+            request,
+            _error("flow_step_id or activity_definition_id is required."),
+        )
     except ClassroomError as exc:
         return _record(session, key, "activity.launch", request, _error(str(exc), 403))
     except Http404:
@@ -750,6 +503,7 @@ def launch(request, session_id: int):
 
 
 @require_POST
+@transaction.atomic
 def transition(request, activity_id: int, state: str):
     activity = get_object_or_404(LiveActivity, pk=activity_id)
     replay, key = _replay(request, activity.session, f"activity.{state}")
@@ -764,6 +518,7 @@ def transition(request, activity_id: int, state: str):
 
 
 @require_POST
+@transaction.atomic
 def publish_channel(request, session_id: int):
     session = get_object_or_404(LiveSession, pk=session_id)
     replay, key = _replay(request, session, "channel.publish")
@@ -796,6 +551,7 @@ def publish_channel(request, session_id: int):
 
 
 @require_POST
+@transaction.atomic
 def channel_settings(request, session_id: int):
     """Set prompt, reveal, aggregate, status, and review policy for one channel."""
     session = get_object_or_404(LiveSession, pk=session_id)
@@ -830,6 +586,7 @@ def channel_settings(request, session_id: int):
 
 
 @require_POST
+@transaction.atomic
 def revise(request, activity_id: int):
     activity = get_object_or_404(LiveActivity.objects.select_related("session"), pk=activity_id)
     replay, key = _replay(request, activity.session, "activity.revise")
@@ -853,6 +610,7 @@ def revise(request, activity_id: int):
 
 
 @require_POST
+@transaction.atomic
 def join(request, join_code: str):
     session = get_object_or_404(LiveSession, join_code__iexact=join_code)
     replay, key = _replay(request, session, "participant.join")
@@ -891,6 +649,7 @@ def join(request, join_code: str):
 
 
 @require_POST
+@transaction.atomic
 def join_account(request, session_id: int):
     session = get_object_or_404(LiveSession, pk=session_id)
     replay, key = _replay(request, session, "participant.join-account")
@@ -922,6 +681,7 @@ def join_account(request, session_id: int):
 
 
 @require_POST
+@transaction.atomic
 def admission(request, session_id: int, participant_id: int):
     session = get_object_or_404(LiveSession, pk=session_id)
     replay, key = _replay(request, session, "participant.admission")
@@ -991,7 +751,88 @@ def participants(request, session_id: int):
     return JsonResponse({"session_id": session.id, "participants": list(roster)})
 
 
+def _staff_payload(assignment, session: LiveSession) -> dict:
+    user = assignment.user
+    return {
+        "id": assignment.id,
+        "user_id": user.id,
+        "username": user.get_username(),
+        "display_name": user.get_full_name() or user.get_username(),
+        "role": assignment.role,
+        "capabilities": list(session_capabilities(user, session)),
+        "created_at": assignment.created_at,
+    }
+
+
+@require_GET
+def staff(request, session_id: int):
+    """Expose the session's explicit staff roles and caller capabilities."""
+    session = get_object_or_404(LiveSession, pk=session_id)
+    if not can_view_session(request.user, session):
+        return _error("You do not have permission to view session staff.", 403)
+    assignments = session.staff.select_related("user").order_by("created_at", "id")
+    return JsonResponse(
+        {
+            "session_id": session.id,
+            "my_capabilities": list(session_capabilities(request.user, session)),
+            "staff": [_staff_payload(assignment, session) for assignment in assignments],
+        }
+    )
+
+
 @require_POST
+@transaction.atomic
+def staff_assign(request, session_id: int):
+    """Create or replace an explicit co-host, assistant, or observer role."""
+    session = get_object_or_404(LiveSession, pk=session_id)
+    replay, key = _replay(request, session, "staff.assign")
+    if replay is not None:
+        return replay
+    try:
+        data = _body(request)
+        user_id = data["user_id"]
+        if isinstance(user_id, bool) or not isinstance(user_id, int) or user_id < 1:
+            raise ClassroomError("user_id must be a positive integer.")
+        role = data["role"]
+        if not isinstance(role, str):
+            raise ClassroomError("role must be text.")
+        user = get_user_model().objects.get(pk=user_id)
+        assignment = set_session_staff(session=session, user=user, role=role, actor=request.user)
+    except KeyError as exc:
+        return _record(session, key, "staff.assign", request, _error(f"{exc.args[0]} is required."))
+    except get_user_model().DoesNotExist:
+        return _record(session, key, "staff.assign", request, _error("The selected user was not found.", 404))
+    except ClassroomError as exc:
+        return _record(session, key, "staff.assign", request, _error(str(exc), 403))
+    return _record(
+        session,
+        key,
+        "staff.assign",
+        request,
+        JsonResponse(_staff_payload(assignment, session), status=201),
+    )
+
+
+@require_POST
+@transaction.atomic
+def staff_remove(request, session_id: int, staff_id: int):
+    """Remove an explicit staff assignment without deleting audit history."""
+    session = get_object_or_404(LiveSession, pk=session_id)
+    replay, key = _replay(request, session, "staff.remove")
+    if replay is not None:
+        return replay
+    assignment = session.staff.filter(pk=staff_id).first()
+    if assignment is None:
+        return _record(session, key, "staff.remove", request, _error("The staff assignment was not found.", 404))
+    try:
+        remove_session_staff(session=session, assignment=assignment, actor=request.user)
+    except ClassroomError as exc:
+        return _record(session, key, "staff.remove", request, _error(str(exc), 403))
+    return _record(session, key, "staff.remove", request, JsonResponse({"id": staff_id, "removed": True}))
+
+
+@require_POST
+@transaction.atomic
 def chat_send(request, session_id: int):
     session = get_object_or_404(LiveSession, pk=session_id)
     replay, key = _replay(request, session, "message.create")
@@ -1025,6 +866,7 @@ def chat_send(request, session_id: int):
 
 
 @require_POST
+@transaction.atomic
 def chat_settings(request, session_id: int):
     """Enable or disable the named public chat for one classroom."""
     session = get_object_or_404(LiveSession, pk=session_id)
@@ -1229,6 +1071,7 @@ def history(request, session_id: int):
 
 
 @require_POST
+@transaction.atomic
 def submit(request, activity_id: int):
     activity = get_object_or_404(LiveActivity.objects.select_related("session"), pk=activity_id)
     replay, key = _replay(request, activity.session, "submission.submit")
@@ -1275,192 +1118,21 @@ def analytics(request, session_id: int):
 
 @require_GET
 def export_session(request, session_id: int):
-    """Export a teacher-readable session archive or one bounded CSV dataset."""
+    """Stream a teacher-readable session archive or one bounded CSV dataset."""
     session = get_object_or_404(LiveSession, pk=session_id)
     if not can_manage_admission(request.user, session):
         return _error("You do not have permission to export this session.", 403)
 
-    activities = list(session.activities.order_by("sequence").prefetch_related("submissions"))
-    participants_rows = list(
-        session.participants.order_by("joined_at", "id").values(
-            "id",
-            "display_name",
-            "user_id",
-            "role",
-            "admission_state",
-            "joined_at",
-            "last_seen_at",
-            "connected_at",
-            "disconnected_at",
-            "removed_at",
-        )
-    )
-    response_rows = []
-    for activity in activities:
-        for submission in (
-            activity.submissions.select_related("participant")
-            .prefetch_related("revisions")
-            .order_by("participant_id", "id")
-        ):
-            response_rows.append(
-                {
-                    "activity_id": activity.id,
-                    "activity_sequence": activity.sequence,
-                    "activity_revision": submission.current_revision.activity_revision_id
-                    if submission.current_revision_id
-                    else None,
-                    "submission_id": submission.id,
-                    "participant_id": submission.participant_id,
-                    "display_name": submission.participant.display_name,
-                    "answer": submission.answer,
-                    "is_stale": submission.is_stale,
-                    "is_correct": submission.is_correct,
-                    "score": submission.score,
-                    "submitted_at": submission.submitted_at,
-                    "revisions": [
-                        {
-                            "id": revision.id,
-                            "revision": revision.revision,
-                            "activity_revision_id": revision.activity_revision_id,
-                            "answer": revision.answer,
-                            "is_correct": revision.is_correct,
-                            "score": revision.score,
-                            "created_at": revision.created_at,
-                        }
-                        for revision in submission.revisions.all()
-                    ],
-                }
-            )
-    chat_rows = list(
-        session.messages.filter(deleted_at__isnull=True)
-        .order_by("created_at", "id")
-        .values("id", "display_name", "body", "created_at")
-    )
-
     dataset = request.GET.get("dataset", "summary")
     output_format = request.GET.get("format", "json").lower()
     if output_format == "json":
-        payload = {
-            "protocol_version": 1,
-            "session": {
-                "id": session.id,
-                "title": session.title,
-                "join_code": session.join_code,
-                "status": session.status,
-                "mode": session.mode,
-                "access_mode": session.access_mode,
-                "admission_mode": session.admission_mode,
-                "created_at": session.created_at,
-                "started_at": session.started_at,
-                "ended_at": session.ended_at,
-            },
-            "participants": participants_rows,
-            "activities": [
-                {
-                    "id": activity.id,
-                    "sequence": activity.sequence,
-                    "kind": activity.kind,
-                    "state": activity.state,
-                    "reviewable": activity.reviewable,
-                    "definition_snapshot": activity.definition_snapshot,
-                    "revisions": [
-                        {
-                            "id": revision.id,
-                            "revision": revision.revision,
-                            "definition_snapshot": revision.definition_snapshot,
-                            "created_at": revision.created_at,
-                        }
-                        for revision in activity.revisions.all()
-                    ],
-                }
-                for activity in activities
-            ],
-            "responses": response_rows,
-            "chat": chat_rows,
-            "events": list(
-                session.events.order_by("sequence").values("sequence", "event_type", "payload", "created_at")
-            ),
-        }
-        response = JsonResponse(payload, json_dumps_params={"ensure_ascii": False})
+        response = StreamingHttpResponse(json_archive(session), content_type="application/json; charset=utf-8")
         response["Content-Disposition"] = f'attachment; filename="liveclassroom-{session.id}.json"'
         return response
-
     if output_format != "csv":
         return _error("format must be json or csv.")
-    rows: list[dict] = []
-    if dataset == "summary":
-        for activity in activities:
-            summary = result_summary(activity)
-            rows.append(
-                {
-                    "activity_id": activity.id,
-                    "sequence": activity.sequence,
-                    "kind": activity.kind,
-                    "state": activity.state,
-                    "submission_count": summary.get("submission_count", 0),
-                    "stale_submission_count": summary.get("stale_submission_count", 0),
-                    "choices": json.dumps(summary.get("choices", {}), ensure_ascii=False, sort_keys=True),
-                }
-            )
-    elif dataset == "responses":
-        rows = response_rows
-    elif dataset == "participants":
-        rows = participants_rows
-    elif dataset == "chat":
-        rows = chat_rows
-    else:
+    if dataset not in {"summary", "responses", "participants", "chat"}:
         return _error("Unsupported CSV dataset.")
-    if dataset == "responses":
-        rows = [
-            {
-                **row,
-                "answer": json.dumps(row["answer"], ensure_ascii=False, sort_keys=True),
-                "revisions": json.dumps(row["revisions"], default=str, ensure_ascii=False, sort_keys=True),
-            }
-            for row in rows
-        ]
-    fieldnames = list(rows[0]) if rows else {
-        "summary": [
-            "activity_id",
-            "sequence",
-            "kind",
-            "state",
-            "submission_count",
-            "stale_submission_count",
-            "choices",
-        ],
-        "responses": [
-            "activity_id",
-            "activity_sequence",
-            "activity_revision",
-            "submission_id",
-            "participant_id",
-            "display_name",
-            "answer",
-            "is_stale",
-            "is_correct",
-            "score",
-            "submitted_at",
-            "revisions",
-        ],
-        "participants": [
-            "id",
-            "display_name",
-            "user_id",
-            "role",
-            "admission_state",
-            "joined_at",
-            "last_seen_at",
-            "connected_at",
-            "disconnected_at",
-            "removed_at",
-        ],
-        "chat": ["id", "display_name", "body", "created_at"],
-    }[dataset]
-    output = io.StringIO()
-    writer = csv.DictWriter(output, fieldnames=fieldnames, extrasaction="ignore")
-    writer.writeheader()
-    writer.writerows(rows)
-    response = HttpResponse(output.getvalue(), content_type="text/csv; charset=utf-8")
+    response = StreamingHttpResponse(csv_export(session, dataset), content_type="text/csv; charset=utf-8")
     response["Content-Disposition"] = f'attachment; filename="liveclassroom-{session.id}-{dataset}.csv"'
     return response

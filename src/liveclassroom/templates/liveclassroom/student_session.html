@@ -1,4 +1,4 @@
-{% extends "liveclassroom/base.html" %}
+{% extends liveclassroom_base_template %}
 {% block title %}{{ session.title }} · LiveClassroom{% endblock %}
 {% block content %}
   <section class="lc-card" data-session-id="{{ session.id }}" data-pending-name="{{ pending_name|default:'' }}" data-access-mode="{{ session.access_mode }}" data-authenticated="{{ request.user.is_authenticated|yesno:'true,false' }}" data-guest-join-url="{% url 'liveclassroom:api-v1-join' session.join_code %}" data-account-join-url="{% url 'liveclassroom:api-v1-join-account' session.id %}" data-liveclassroom-app data-audience="student" data-state-url="{% url 'liveclassroom:api-v1-state' session.id %}" data-websocket-url="{{ websocket_url }}" data-locale="{{ active_lang|default:'en' }}">

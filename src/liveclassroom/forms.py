@@ -1,6 +1,7 @@
 from django import forms
 from django.db.models import Q
 
+from .conf import default_session_mode, guests_allowed, join_code_length
 from .models import CourseMembership, Flow, LiveSession
 
 
@@ -12,6 +13,13 @@ class CreateSessionForm(forms.ModelForm):
     def __init__(self, *args, user, **kwargs):
         super().__init__(*args, **kwargs)
         self.user = user
+        self.fields["mode"].initial = default_session_mode()
+        if not guests_allowed():
+            self.fields["access_mode"].choices = [
+                choice
+                for choice in self.fields["access_mode"].choices
+                if choice[0] == LiveSession.AccessMode.AUTHENTICATED
+            ]
         courses = CourseMembership.objects.filter(
             user=user, role__in=[CourseMembership.Role.TEACHER, CourseMembership.Role.ASSISTANT]
         ).values_list("course_id", flat=True)
@@ -41,5 +49,9 @@ class CreateSessionForm(forms.ModelForm):
 
 
 class JoinSessionForm(forms.Form):
-    join_code = forms.CharField(max_length=12, label="Join code")
+    join_code = forms.CharField(label="Join code")
     display_name = forms.CharField(max_length=100, label="Your name")
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["join_code"].max_length = join_code_length()

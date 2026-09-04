@@ -71,6 +71,9 @@ const ACTIVITY_TYPES: ActivityTypeInfo[] = [
 export function mountBuilder(container: HTMLElement): void {
   const locale: Locale = getLocale(container);
   const rootDataset = container.dataset;
+  const flowsUrl = new URL(rootDataset.apiV1Url ?? "/api/v1/flows/", window.location.href);
+  const apiRoot = new URL("../", flowsUrl);
+  const apiUrl = (path: string): string => new URL(path.replace(/^\/+/, ""), apiRoot).toString();
 
   // Session ID can come from dataset or URL query param
   let sessionId: number | null = null;
@@ -224,6 +227,7 @@ export function mountBuilder(container: HTMLElement): void {
   // Mount AI Chat into sidebar
   const aiChatWidget = mountAiChat(sidebarPane, {
     locale,
+    apiRoot: apiRoot.toString(),
     getAttachment: () => {
       if (currentFlow) {
         return {
@@ -242,7 +246,7 @@ export function mountBuilder(container: HTMLElement): void {
   // Flow Management
   async function loadFlows(): Promise<void> {
     try {
-      const data = await getJson<{ flows: FlowSummary[] }>("/api/v1/flows/");
+      const data = await getJson<{ flows: FlowSummary[] }>(apiUrl("flows/"));
       flows = data.flows ?? [];
       flowSelect.replaceChildren();
 
@@ -275,7 +279,7 @@ export function mountBuilder(container: HTMLElement): void {
     try {
       activeFlowId = flowId;
       flowSelect.value = String(flowId);
-      const data = await getJson<FlowDetail>(`/api/v1/flows/${flowId}/`);
+      const data = await getJson<FlowDetail>(apiUrl(`flows/${flowId}/`));
       currentFlow = data;
       renderFlowDetails();
       renderSteps();
@@ -288,7 +292,7 @@ export function mountBuilder(container: HTMLElement): void {
     const title = window.prompt(t("newFlowPrompt", locale), "New Lesson Flow");
     if (!title || !title.trim()) return;
     try {
-      const created = await postJson<FlowSummary>("/api/v1/flows/", {
+      const created = await postJson<FlowSummary>(apiUrl("flows/"), {
         title: title.trim(),
       });
       showStatus(t("flowUpdated", locale));
@@ -310,7 +314,7 @@ export function mountBuilder(container: HTMLElement): void {
       const payload: Record<string, unknown> = {};
       if (title.trim()) payload.title = title.trim();
       const duplicated = await postJson<FlowDetail>(
-        `/api/v1/flows/${currentFlow.id}/duplicate/`,
+        apiUrl(`flows/${currentFlow.id}/duplicate/`),
         payload,
       );
       showStatus(t("flowUpdated", locale));
@@ -326,7 +330,7 @@ export function mountBuilder(container: HTMLElement): void {
     const title = window.prompt(t("saveAsFlowPrompt", locale), "Classroom Flow");
     if (!title || !title.trim()) return;
     try {
-      const flow = await postJson<FlowDetail>(`/api/v1/sessions/${sessionId}/save-flow/`, {
+      const flow = await postJson<FlowDetail>(apiUrl(`sessions/${sessionId}/save-flow/`), {
         title: title.trim(),
       });
       showStatus(t("flowUpdated", locale));
@@ -707,7 +711,7 @@ export function mountBuilder(container: HTMLElement): void {
     const stepIds = newSteps.map((s) => s.id);
     try {
       const res = await putJson<{ steps: FlowStep[] }>(
-        `/api/v1/flows/${currentFlow.id}/steps/reorder/`,
+        apiUrl(`flows/${currentFlow.id}/steps/reorder/`),
         { step_ids: stepIds },
       );
       currentFlow.steps = res.steps;
@@ -725,7 +729,7 @@ export function mountBuilder(container: HTMLElement): void {
 
     try {
       await deleteJson<{ deleted: boolean }>(
-        `/api/v1/flows/${currentFlow.id}/steps/${step.id}/`,
+        apiUrl(`flows/${currentFlow.id}/steps/${step.id}/`),
       );
       currentFlow.steps = currentFlow.steps.filter((s) => s.id !== step.id);
       previewOpenSteps.delete(step.id);
@@ -740,7 +744,7 @@ export function mountBuilder(container: HTMLElement): void {
   async function handleLaunchStep(step: FlowStep): Promise<void> {
     if (!sessionId) return;
     try {
-      await postJson(`/api/v1/sessions/${sessionId}/activities/`, {
+      await postJson(apiUrl(`sessions/${sessionId}/activities/`), {
         flow_step_id: step.id,
       });
       showStatus(t("launchedSuccess", locale));
@@ -1271,7 +1275,7 @@ export function mountBuilder(container: HTMLElement): void {
   async function submitStepPayload(payload: Record<string, unknown>): Promise<void> {
     if (!currentFlow) return;
     try {
-      await postJson<FlowStep>(`/api/v1/flows/${currentFlow.id}/steps/`, payload);
+      await postJson<FlowStep>(apiUrl(`flows/${currentFlow.id}/steps/`), payload);
       isAddStepOpen = false;
       showStatus(t("stepAdded", locale));
       await loadFlow(currentFlow.id);
@@ -1360,7 +1364,7 @@ export function mountBuilder(container: HTMLElement): void {
         doImportBtn.disabled = true;
         const body: Record<string, unknown> = { source };
         if (fmtSelect.value) body.format = fmtSelect.value;
-        const imported = await postJson<FlowDetail>("/api/v1/flows/import/", body);
+        const imported = await postJson<FlowDetail>(apiUrl("flows/import/"), body);
         overlay.remove();
         showStatus(t("importSuccess", locale));
         await loadFlows();

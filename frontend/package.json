@@ -6,9 +6,15 @@
   "scripts": {
     "build": "tsc --noEmit",
     "check": "tsc --noEmit",
-    "bundle": "bun build src/app.ts --outfile ../src/liveclassroom/static/liveclassroom/app.js --target browser --format esm"
+    "bundle": "bun build src/app.ts --outfile ../src/liveclassroom/static/liveclassroom/app.js --target browser --format esm --define process.env.NODE_ENV='\"production\"' --minify"
   },
   "devDependencies": {
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
     "typescript": "^5.7.0"
+  },
+  "dependencies": {
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
   }
 }

@@ -182,13 +182,13 @@ def test_staff_can_export_archive_and_csv_datasets_but_students_cannot(client, c
     archive = client.get(reverse("liveclassroom:api-v1-export", args=[session.id]))
     assert archive.status_code == 200
     assert archive["Content-Disposition"].endswith(f'"liveclassroom-{session.id}.json"')
-    assert archive.json()["responses"][0]["display_name"] == "Ada"
+    assert json.loads(b"".join(archive.streaming_content))["responses"][0]["display_name"] == "Ada"
 
     csv_response = client.get(
         reverse("liveclassroom:api-v1-export", args=[session.id]), {"format": "csv", "dataset": "responses"}
     )
     assert csv_response.status_code == 200
-    assert "Ada" in csv_response.content.decode()
+    assert "Ada" in b"".join(csv_response.streaming_content).decode()
     assert student.get(reverse("liveclassroom:api-v1-export", args=[session.id])).status_code == 403
 
 

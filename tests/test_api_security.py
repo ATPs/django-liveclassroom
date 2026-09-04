@@ -1,11 +1,13 @@
 import json
+from unittest.mock import patch
 
 import pytest
 from django.contrib.auth import get_user_model
 from django.test import Client
 from django.urls import reverse
+from django.utils import timezone
 
-from liveclassroom.models import SessionStaff
+from liveclassroom.models import CommandReceipt, LiveSession, SessionStaff
 from liveclassroom.services.classroom import (
     ClassroomError,
     create_activity_definition,
@@ -205,3 +207,45 @@ def test_idempotency_key_rejects_different_input_and_releases_failed_reservation
     )
 
     assert changed_input.status_code == 409
+
+
+@pytest.mark.django_db
+def test_delete_with_idempotency_key_returns_deleted_session_id():
+    teacher = get_user_model().objects.create_user(username="delete-idempotency-teacher")
+    session = create_instant_session(owner=teacher, title="Delete boundary")
+    session.status = LiveSession.Status.ENDED
+    session.archived_at = timezone.now()
+    session.save(update_fields=["status", "archived_at"])
+    session_id = session.id
+    teacher_client = Client()
+    teacher_client.force_login(teacher)
+
+    response = teacher_client.post(
+        reverse("liveclassroom:api-v1-delete", args=[session_id]),
+        data=json.dumps({"confirm": True}),
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="delete-once",
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"id": session_id, "deleted": True}
+    assert not LiveSession.objects.filter(pk=session_id).exists()
+
+
+@pytest.mark.django_db
+def test_unhandled_command_failure_rolls_back_its_idempotency_reservation():
+    teacher = get_user_model().objects.create_user(username="atomic-idempotency-teacher")
+    session = create_instant_session(owner=teacher, title="Atomic idempotency")
+    client = Client()
+    client.force_login(teacher)
+
+    with patch("liveclassroom.api.start_session", side_effect=RuntimeError("unexpected failure")):
+        with pytest.raises(RuntimeError, match="unexpected failure"):
+            client.post(
+                reverse("liveclassroom:api-v1-start", args=[session.id]),
+                data="{}",
+                content_type="application/json",
+                HTTP_IDEMPOTENCY_KEY="roll-back-reservation",
+            )
+
+    assert not CommandReceipt.objects.filter(session=session, idempotency_key="roll-back-reservation").exists()

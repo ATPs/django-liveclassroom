@@ -110,10 +110,12 @@ class AuthoringJob(models.Model):
     queued_at = models.DateTimeField(auto_now_add=True)
     started_at = models.DateTimeField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
+    lease_token = models.CharField(max_length=64, blank=True)
+    lease_expires_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["-queued_at", "-id"]
-        indexes = [models.Index(fields=["thread", "status"])]
+        indexes = [models.Index(fields=["thread", "status"]), models.Index(fields=["status", "lease_expires_at"])]
 
     def clean(self) -> None:
         from django.core.exceptions import ValidationError

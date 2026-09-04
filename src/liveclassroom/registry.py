@@ -461,11 +461,17 @@ DEFAULT_STOP_WORDS: frozenset[str] = frozenset(
 
 
 def _manifest(name: str) -> dict[str, str]:
+    """Return collectable versioned frontend modules for built-in activities.
+
+    One module per surface keeps the public browser contract stable while the
+    module receives the activity type key at runtime.  Third-party plugins may
+    use their own collectable module paths.
+    """
     return {
-        "editor": f"liveclassroom/editors/{name}.js",
-        "student_renderer": f"liveclassroom/renderers/{name}.js",
-        "display_renderer": f"liveclassroom/renderers/{name}.js",
-        "analytics": f"liveclassroom/analytics/{name}.js",
+        "editor": "liveclassroom/plugins/editor.v1.js",
+        "student_renderer": "liveclassroom/plugins/renderer.v1.js",
+        "display_renderer": "liveclassroom/plugins/renderer.v1.js",
+        "analytics": "liveclassroom/plugins/analytics.v1.js",
     }
 
 

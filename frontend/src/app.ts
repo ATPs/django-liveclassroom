@@ -13,6 +13,7 @@ import {
 } from "./protocol.js";
 import { mountAiChat } from "./ai_chat.js";
 import { mountBuilder } from "./builder.js";
+import { mountPluginActivity } from "./plugin_runtime.js";
 import {
   getLocale,
   mountLanguageSwitcher,
@@ -808,7 +809,7 @@ function renderAggregate(parent: HTMLElement, aggregate: AggregateState | null, 
   }
 }
 
-function renderActivity(
+function renderBuiltinActivity(
   parent: HTMLElement,
   activity: ActivityState | null,
   audience: Audience,
@@ -817,7 +818,7 @@ function renderActivity(
   aggregate?: AggregateState | null,
   rootLocale?: Locale,
 ): void {
-  const locale = rootLocale ?? getLocale(parent.closest("[data-liveclassroom-app]"));
+  const locale = rootLocale ?? getLocale(parent.closest<HTMLElement>("[data-liveclassroom-app]"));
   parent.replaceChildren();
   if (!activity) {
     parent.append(text("p", audience === "student" ? t("waiting", locale) : t("noActivityPublished", locale)));
@@ -907,6 +908,35 @@ function renderActivity(
   }
 }
 
+const activityUnmounts = new WeakMap<HTMLElement, () => void>();
+
+function renderActivity(
+  parent: HTMLElement,
+  activity: ActivityState | null,
+  audience: Audience,
+  state?: SessionState,
+  stateUrl?: string,
+  aggregate?: AggregateState | null,
+  rootLocale?: Locale,
+): void {
+  activityUnmounts.get(parent)?.();
+  const locale = rootLocale ?? getLocale(parent.closest<HTMLElement>("[data-liveclassroom-app]"));
+  const unmount = mountPluginActivity({
+    parent,
+    activity,
+    audience,
+    state,
+    stateUrl,
+    aggregate,
+    locale,
+    manifest: activity?.frontend_manifest,
+    fallback: (container) => {
+      renderBuiltinActivity(container, activity, audience, state, stateUrl, aggregate, locale);
+    },
+  });
+  activityUnmounts.set(parent, unmount);
+}
+
 function setStatus(root: Root, message: string): void {
   const status = root.querySelector<HTMLElement>("[data-liveclassroom-status]");
   if (status) status.textContent = message;
@@ -973,6 +1003,7 @@ async function ensureStudentJoin(root: Root): Promise<boolean> {
       input.required = true;
       input.maxLength = 100;
       const submit = button(t("joinClassroom", locale));
+      submit.type = "submit";
       label.append(input);
       prompt.append(label, submit);
       prompt.addEventListener("submit", (event) => {
@@ -1310,12 +1341,12 @@ function renderTeacherControls(root: Root, state: SessionState, stateUrl: string
       }
     });
   }
-  for (const item of root.querySelectorAll<HTMLButtonElement>(".lc-item[data-item-id]")) {
+  for (const item of root.querySelectorAll<HTMLButtonElement>(".lc-item[data-step-id]")) {
     if (item.dataset.liveclassroomBound === "true") continue;
     item.dataset.liveclassroomBound = "true";
     item.addEventListener("click", () => {
-      const itemId = numberValue(item.dataset.itemId);
-      if (itemId !== null) void execute(root, actionUrl(stateUrl, "sessions/activities"), { flow_item_id: itemId });
+      const stepId = numberValue(item.dataset.stepId);
+      if (stepId !== null) void execute(root, actionUrl(stateUrl, "sessions/activities"), { flow_step_id: stepId });
     });
   }
   if (!activity) return;
@@ -1469,8 +1500,10 @@ async function refreshMountedState(root: Root | null, explicitStateUrl?: string)
         renderActivity(content, state.current_activity, audience, state, stateUrl, null, locale);
       }
       const heading = root.querySelector<HTMLElement>(audience === "display" ? "#display-title" : "#student-title");
-      if (heading && state.current_activity) {
-        heading.textContent = stringValue(state.current_activity.definition.title, state.session.title);
+      if (heading) {
+        heading.textContent = state.current_activity
+          ? stringValue(state.current_activity.definition.title, state.session.title)
+          : state.session.title;
       }
     } else if (audience === "teacher") {
       await refreshTeacher(root, state, stateUrl);
@@ -1485,33 +1518,59 @@ async function refreshMountedState(root: Root | null, explicitStateUrl?: string)
       renderStudentHistory(root, stateUrl);
     }
     setStatus(root, `${state.session.status} · ${t("state", locale)} ${state.state_version}`);
+    root.dataset.stateVersion = String(state.state_version);
   } catch (error) {
     setStatus(root, error instanceof Error ? error.message : t("unavailable", locale));
   }
 }
 
-function connect(root: Root, refresh: () => Promise<void>): void {
+function connect(root: Root, refresh: () => Promise<void>): () => void {
   const path = root.dataset.websocketUrl;
-  if (!path) return;
+  if (!path) return () => undefined;
   let retry = 1000;
+  let retryTimer: number | undefined;
+  let socket: WebSocket | undefined;
+  let stopped = false;
+  let lastVersion = numberValue(root.dataset.stateVersion) ?? -1;
   const open = (): void => {
-    const socket = new WebSocket(websocketUrl(path));
-    socket.onopen = () => { retry = 1000; };
-    socket.onmessage = () => void refresh();
-    socket.onerror = () => socket.close();
-    socket.onclose = () => {
+    if (stopped) return;
+    const connectedSocket = new WebSocket(websocketUrl(path));
+    socket = connectedSocket;
+    connectedSocket.onopen = () => { retry = 1000; };
+    connectedSocket.onmessage = (event) => {
+      try {
+        const message = JSON.parse(event.data) as { version?: unknown };
+        const version = numberValue(message.version);
+        if (version !== null) {
+          lastVersion = Math.max(lastVersion, numberValue(root.dataset.stateVersion) ?? -1);
+          if (version <= lastVersion) return;
+          lastVersion = version;
+        }
+      } catch {
+        // A malformed notification cannot change authoritative state.
+      }
+      void refresh();
+    };
+    connectedSocket.onerror = () => connectedSocket.close();
+    connectedSocket.onclose = () => {
+      if (stopped) return;
       const locale = getLocale(root);
       setStatus(root, locale === "zh-Hans" ? "正在重新连接…" : "Reconnecting…");
-      window.setTimeout(open, retry);
+      retryTimer = window.setTimeout(open, retry);
       retry = Math.min(retry * 2, 30000);
     };
   };
   open();
+  return () => {
+    stopped = true;
+    if (retryTimer !== undefined) window.clearTimeout(retryTimer);
+    socket?.close();
+  };
 }
 
-async function mount(root: Root): Promise<void> {
+async function mount(root: Root): Promise<() => void> {
   const stateUrl = root.dataset.stateUrl;
-  if (!stateUrl) return;
+  if (!stateUrl) return () => undefined;
   mountLanguageSwitcher(root, () => {
     void refreshMountedState(root, stateUrl);
   });
@@ -1525,9 +1584,15 @@ async function mount(root: Root): Promise<void> {
       refreshing = false;
     }
   };
-  connect(root, refresh);
+  const disconnect = connect(root, refresh);
   await refresh();
-  window.setInterval(() => void refresh(), 3000);
+  const pollTimer = window.setInterval(() => void refresh(), 3000);
+  const unmount = (): void => {
+    disconnect();
+    window.clearInterval(pollTimer);
+  };
+  root.addEventListener("liveclassroom:unmount", unmount, { once: true });
+  return unmount;
 }
 
 if (typeof document !== "undefined") {

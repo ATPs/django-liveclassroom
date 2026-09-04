@@ -48,12 +48,15 @@ export type AiChatOptions = {
   onInsertDraft?: (text: string) => void;
   getAttachment?: () => AuthoringAttachment | null;
   locale?: Locale;
+  apiRoot?: string;
 };
 
 export function mountAiChat(
   container: HTMLElement,
   options: AiChatOptions = {},
 ): { unmount: () => void; refreshThreads: () => Promise<void> } {
+  const apiRoot = new URL(options.apiRoot ?? "/api/v1/", window.location.href);
+  const apiUrl = (path: string): string => new URL(path.replace(/^\/+/, ""), apiRoot).toString();
   let isMounted = true;
   let activeThreadId: number | null = null;
   let activeJobId: number | null = null;
@@ -289,7 +292,7 @@ export function mountAiChat(
   // Load models from server
   async function loadModels(): Promise<void> {
     try {
-      const data = await getJson<{ backends?: string[]; models?: AIModel[] }>("/api/v1/authoring/models/");
+      const data = await getJson<{ backends?: string[]; models?: AIModel[] }>(apiUrl("authoring/models/"));
       models = data.models ?? [];
       modelSelect.replaceChildren();
       if (models.length === 0) {
@@ -320,13 +323,13 @@ export function mountAiChat(
   // Load threads
   async function loadThreads(): Promise<void> {
     try {
-      const data = await getJson<{ threads: AuthoringThread[] }>("/api/v1/authoring/threads/");
+      const data = await getJson<{ threads: AuthoringThread[] }>(apiUrl("authoring/threads/"));
       threads = data.threads ?? [];
       threadSelect.replaceChildren();
 
       if (threads.length === 0) {
         // Auto-create initial thread
-        const created = await postJson<AuthoringThread>("/api/v1/authoring/threads/", {
+        const created = await postJson<AuthoringThread>(apiUrl("authoring/threads/"), {
           title: "Authoring Assistant",
         });
         threads = [created];
@@ -360,7 +363,7 @@ export function mountAiChat(
         title: string;
         messages: AuthoringMessage[];
         jobs: AuthoringJob[];
-      }>(`/api/v1/authoring/threads/${threadId}/`);
+      }>(apiUrl(`authoring/threads/${threadId}/`));
       messages = data.messages ?? [];
       renderMessages();
       statusText.textContent = "";
@@ -383,7 +386,7 @@ export function mountAiChat(
     if (!title || !title.trim()) return;
     try {
       statusText.textContent = t("loading", options.locale);
-      const created = await postJson<AuthoringThread>("/api/v1/authoring/threads/", {
+      const created = await postJson<AuthoringThread>(apiUrl("authoring/threads/"), {
         title: title.trim(),
       });
       threads.unshift(created);
@@ -414,7 +417,7 @@ export function mountAiChat(
 
     pollTimeout = window.setTimeout(async () => {
       try {
-        const job = await getJson<AuthoringJob>(`/api/v1/authoring/jobs/${jobId}/`);
+        const job = await getJson<AuthoringJob>(apiUrl(`authoring/jobs/${jobId}/`));
         if (job.status === "succeeded") {
           isGenerating = false;
           sendButton.disabled = false;
@@ -471,7 +474,7 @@ export function mountAiChat(
       const res = await postJson<{
         message: AuthoringMessage;
         job: AuthoringJob;
-      }>(`/api/v1/authoring/threads/${activeThreadId}/messages/`, {
+      }>(apiUrl(`authoring/threads/${activeThreadId}/messages/`), {
         content: text,
         backend_key,
         model_identifier,

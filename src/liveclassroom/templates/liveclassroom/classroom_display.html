@@ -1,4 +1,4 @@
-{% extends "liveclassroom/base.html" %}
+{% extends liveclassroom_base_template %}
 {% block title %}{{ session.title }} - Display{% endblock %}
 {% block content %}
   <section class="lc-card lc-wide" data-session-id="{{ session.id }}" data-display="true" data-liveclassroom-app data-audience="display" data-state-url="{% url 'liveclassroom:api-v1-state' session.id %}" data-websocket-url="{{ websocket_url }}" data-locale="{{ active_lang|default:'en' }}">

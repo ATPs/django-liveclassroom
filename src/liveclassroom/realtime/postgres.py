@@ -88,6 +88,7 @@ class PostgresNotificationRelay:
         self.retry_seconds = retry_seconds
         self._task: asyncio.Task[None] | None = None
         self._stopping = asyncio.Event()
+        self._connection: Any | None = None
 
     def start(self) -> asyncio.Task[None]:
         """Start one listener task for the current ASGI worker."""
@@ -99,6 +100,8 @@ class PostgresNotificationRelay:
     async def stop(self) -> None:
         """Stop the listener task and release its database connection."""
         self._stopping.set()
+        if self._connection is not None:
+            await self._connection.close()
         if self._task is not None:
             self._task.cancel()
             try:
@@ -117,25 +120,29 @@ class PostgresNotificationRelay:
         while not self._stopping.is_set():
             try:
                 async with await AsyncConnection.connect(**_connection_kwargs(), autocommit=True) as database:
-                    await database.execute(f"LISTEN {NOTIFY_CHANNEL}")
-                    async for notification in database.notifies():
-                        if self._stopping.is_set():
-                            return
-                        payload = json.loads(notification.payload)
-                        session_id = int(payload["session_id"])
-                        await self.channel_layer.group_send(
-                            f"lc.session.{session_id}.all",
-                            {
-                                "type": "session.event",
-                                "message": {
-                                    "protocol": 1,
-                                    "session_id": session_id,
-                                    "version": int(payload["version"]),
-                                    "type": "state.changed",
-                                    "payload": {"event_id": payload.get("event_id")},
+                    self._connection = database
+                    try:
+                        await database.execute(f"LISTEN {NOTIFY_CHANNEL}")
+                        async for notification in database.notifies():
+                            if self._stopping.is_set():
+                                return
+                            payload = json.loads(notification.payload)
+                            session_id = int(payload["session_id"])
+                            await self.channel_layer.group_send(
+                                f"lc.session.{session_id}.all",
+                                {
+                                    "type": "session.event",
+                                    "message": {
+                                        "protocol": 1,
+                                        "session_id": session_id,
+                                        "version": int(payload["version"]),
+                                        "type": "state.changed",
+                                        "payload": {"event_id": payload.get("event_id")},
+                                    },
                                 },
-                            },
-                        )
+                            )
+                    finally:
+                        self._connection = None
             except asyncio.CancelledError:
                 raise
             except (OSError, RuntimeError, KeyError, TypeError, ValueError):

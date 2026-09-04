@@ -79,7 +79,7 @@ class FlowItem(models.Model):
 
 
 class FlowStep(models.Model):
-    """Modern flow ordering record; FlowItem remains for compatibility."""
+    """Canonical flow ordering record; FlowItem remains read-only compatibility data."""
 
     flow = models.ForeignKey(Flow, on_delete=models.CASCADE, related_name="steps")
     position = models.PositiveIntegerField()
@@ -93,6 +93,13 @@ class FlowStep(models.Model):
     kind = models.CharField(max_length=32, default="activity")
     title = models.CharField(max_length=200, blank=True)
     content = models.JSONField(default=dict, blank=True)
+    legacy_item = models.OneToOneField(
+        FlowItem,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="canonical_step",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

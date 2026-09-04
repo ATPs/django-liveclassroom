@@ -100,7 +100,7 @@ def test_add_reorder_remove_flow_steps(teacher):
     assert step2.position == 2
     assert step3.position == 3
     assert flow.steps.count() == 3
-    assert flow.items.count() == 3
+    assert flow.items.count() == 0
 
     # Reorder steps: [3, 1, 2]
     reordered = reorder_flow_steps(flow=flow, actor=teacher, step_ids=[step3.id, step1.id, step2.id])
@@ -118,7 +118,7 @@ def test_add_reorder_remove_flow_steps(teacher):
     # Remove the middle step (step1)
     remove_flow_step(flow=flow, actor=teacher, step_id=step1.id)
     assert flow.steps.count() == 2
-    assert flow.items.count() == 2
+    assert flow.items.count() == 0
 
     # Remaining steps should be re-indexed to 1 and 2
     step3.refresh_from_db()
@@ -144,7 +144,7 @@ def test_duplicate_flow(teacher):
     assert duplicated.title == "Original Flow (Copy)"
     assert duplicated.slug != flow.slug
     assert duplicated.steps.count() == 2
-    assert duplicated.items.count() == 2
+    assert duplicated.items.count() == 0
 
     orig_step_kinds = list(flow.steps.values_list("kind", flat=True))
     dup_step_kinds = list(duplicated.steps.values_list("kind", flat=True))
@@ -382,7 +382,4 @@ answer: ["Molecule"]
     assert act_def.type_key == "liveclassroom.single_choice"
     assert act_def.title == "What is DNA?"
 
-    # Verify FlowItem is also linked to the ActivityDefinition
-    items = list(flow.items.all().order_by("position"))
-    assert items[1].activity_definition_id == act_def.id
-    assert items[1].question is not None
+    assert flow.items.count() == 0

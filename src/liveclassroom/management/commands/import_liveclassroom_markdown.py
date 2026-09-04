@@ -22,4 +22,4 @@ class Command(BaseCommand):
             flow = import_markdown_file(course=course, path=options["path"], fallback_slug=options["slug"])
         except (OSError, ImportError) as exc:
             raise CommandError(str(exc)) from exc
-        self.stdout.write(self.style.SUCCESS(f"Imported {flow.items.count()} items into {flow}."))
+        self.stdout.write(self.style.SUCCESS(f"Imported {flow.steps.count()} steps into {flow}."))

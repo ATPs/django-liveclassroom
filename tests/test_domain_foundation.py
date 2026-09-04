@@ -9,6 +9,7 @@ from liveclassroom.models import (
     Course,
     Flow,
     FlowItem,
+    LiveActivity,
     LiveSession,
     Participant,
     SessionChannelState,
@@ -26,6 +27,7 @@ from liveclassroom.services.classroom import (
     create_instant_session,
     delete_session,
     end_session,
+    join_authenticated,
     join_guest,
     launch_item,
     pause_session,
@@ -136,6 +138,44 @@ def test_guest_retry_preserves_waiting_room_admission(teacher):
 
     assert retried.pk == participant.pk
     assert retried.admission_state == Participant.AdmissionState.ADMITTED
+
+
+@pytest.mark.django_db
+def test_authenticated_retry_preserves_waiting_room_admission(teacher):
+    student = get_user_model().objects.create_user(username="authenticated-retry-student")
+    session = create_instant_session(
+        owner=teacher,
+        title="Authenticated retry admission",
+        access_mode=LiveSession.AccessMode.AUTHENTICATED,
+        admission_mode=LiveSession.AdmissionMode.WAITING_ROOM,
+    )
+    start_session(session=session, actor=teacher)
+    participant = join_authenticated(session=session, user=student)
+    participant.admission_state = Participant.AdmissionState.ADMITTED
+    participant.save(update_fields=["admission_state"])
+
+    retried = join_authenticated(session=session, user=student)
+
+    assert retried.pk == participant.pk
+    assert retried.admission_state == Participant.AdmissionState.ADMITTED
+
+
+@pytest.mark.django_db
+def test_submission_refetches_authoritative_activity_state(teacher):
+    session = create_instant_session(owner=teacher, title="Authoritative submission state")
+    definition = create_activity_definition(
+        owner=teacher,
+        title="Poll",
+        type_key="liveclassroom.poll",
+        definition={"options": [{"id": "A", "text": "One"}]},
+    )
+    start_session(session=session, actor=teacher)
+    activity = launch_item(session=session, item=definition, actor=teacher)
+    participant = join_guest(session=session, display_name="Ada")
+    LiveActivity.objects.filter(pk=activity.pk).update(state=LiveActivity.State.CLOSED)
+
+    with pytest.raises(ClassroomError, match="no longer accepting answers"):
+        submit_answer(activity=activity, participant=participant, answer={"choice": "A"})
 
 
 @pytest.mark.django_db

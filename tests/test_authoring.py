@@ -1,10 +1,14 @@
 import json
 from dataclasses import dataclass
+from datetime import timedelta
+from io import StringIO
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.core.management import call_command
 from django.test import Client, override_settings
 from django.urls import reverse
+from django.utils import timezone
 
 from liveclassroom.ai import AIMessage, AIModel
 from liveclassroom.integrations.vaultpub import VaultPubProvider
@@ -16,7 +20,9 @@ from liveclassroom.models import (
 )
 from liveclassroom.providers import ContentReference
 from liveclassroom.services.authoring import (
+    claim_next_authoring_job,
     create_authoring_request,
+    recover_expired_authoring_jobs,
     run_authoring_job,
 )
 from liveclassroom.services.classroom import ClassroomError
@@ -198,3 +204,48 @@ def test_provider_attachment_is_reauthorized_when_job_runs():
     assert result.status == AuthoringJob.Status.SUCCEEDED
     assert backend.calls[0][2][0]["reference"]["value"]["note_path"] == "Deck.md"
     assert len(prompt.attachments.get().source_fingerprint) == 64
+
+
+@pytest.mark.django_db
+def test_package_worker_claims_queued_job_and_keeps_secrets_out_of_storage():
+    owner = get_user_model().objects.create_user(username="package-worker-owner")
+    thread = AuthoringThread.objects.create(owner=owner)
+    backend = DummyAI()
+    with override_settings(LIVECLASSROOM={"AI_BACKENDS": {"dummy": backend}}):
+        _, job = create_authoring_request(
+            thread=thread,
+            author=owner,
+            content="Draft a poll",
+            backend_key="dummy",
+            model_identifier="test-model",
+        )
+        output = StringIO()
+        call_command("process_liveclassroom_ai_jobs", "--once", stdout=output)
+
+    job.refresh_from_db()
+    assert job.status == AuthoringJob.Status.SUCCEEDED
+    assert job.lease_token == ""
+    assert job.lease_expires_at is None
+    assert "processed=1" in output.getvalue()
+
+
+@pytest.mark.django_db
+def test_expired_package_worker_lease_is_requeued_with_a_bounded_attempt():
+    owner = get_user_model().objects.create_user(username="expired-worker-owner")
+    thread = AuthoringThread.objects.create(owner=owner)
+    job = AuthoringJob.objects.create(
+        thread=thread,
+        message=thread.messages.create(role="teacher", author=owner, content="Retry me"),
+        backend_key="dummy",
+        model_identifier="test-model",
+        status=AuthoringJob.Status.RUNNING,
+        lease_token="dead-worker",
+        lease_expires_at=timezone.now() - timedelta(seconds=1),
+    )
+
+    assert recover_expired_authoring_jobs() == 1
+    job.refresh_from_db()
+    assert (job.status, job.attempt, job.error_code) == (AuthoringJob.Status.QUEUED, 2, "worker_timeout")
+    claimed = claim_next_authoring_job(worker_token="replacement-worker")
+    assert claimed is not None and claimed.id == job.id
+    assert claimed.lease_token == "replacement-worker"

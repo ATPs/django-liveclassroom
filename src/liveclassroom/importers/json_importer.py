@@ -10,7 +10,7 @@ from django.db import transaction
 from django.utils.text import slugify
 
 from liveclassroom.importers.markdown import ImportError
-from liveclassroom.models import ActivityDefinition, Course, Flow, FlowItem, FlowStep
+from liveclassroom.models import ActivityDefinition, Course, Flow, FlowStep
 from liveclassroom.registry import activity_registry
 
 
@@ -114,7 +114,7 @@ def import_json_flow(
     creator=None,
     fallback_slug: str | None = None,
 ) -> Flow:
-    """Validate all activities then atomically create Flow, FlowStep, and FlowItem rows."""
+    """Validate all activities then atomically create canonical FlowStep rows."""
     parsed = parse_json_flow(source)
 
     candidate_slug = parsed["slug"] or fallback_slug or parsed["title"]
@@ -157,19 +157,6 @@ def import_json_flow(
             kind=step_data["kind"],
             title=step_data["title"],
             content=step_data["definition"],
-        )
-
-        flow_item_kind = step_data["type_key"].rsplit(".", 1)[-1]
-        if flow_item_kind not in FlowItem.Kind.values:
-            flow_item_kind = FlowItem.Kind.QUESTION
-
-        FlowItem.objects.create(
-            flow=flow,
-            position=position,
-            kind=flow_item_kind,
-            title=step_data["title"],
-            content=step_data["definition"],
-            activity_definition=activity_def,
         )
 
     return flow

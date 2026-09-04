@@ -1,11 +1,15 @@
-{% extends "liveclassroom/base.html" %}
+{% extends liveclassroom_base_template %}
 {% block title %}Teacher console · LiveClassroom{% endblock %}
 {% block content %}
   <section class="lc-card lc-wide" data-session-id="{{ session.id }}" data-liveclassroom-app data-audience="teacher" data-state-url="{% url 'liveclassroom:api-v1-state' session.id %}" data-websocket-url="{{ websocket_url }}" data-locale="{{ active_lang|default:'en' }}">
     <button type="button" class="lc-lang-switch" aria-label="Switch language / 切换语言">EN / 中文</button>
     <p class="lc-kicker">Teacher · {{ session.title }}</p>
     <h1>{{ session.flow|default:'Instant session' }}</h1>
-    <p>Join code: <strong class="lc-code">{{ session.join_code }}</strong> · <a href="{% url 'liveclassroom:join' %}">student join page</a> · <a href="{% url 'liveclassroom:classroom-display' session.id %}">open display</a></p>
+    <p>Join code: <strong class="lc-code">{{ session.join_code }}</strong> · <a href="{% url 'liveclassroom:join' %}?code={{ session.join_code|urlencode }}">student join page</a> · <a href="{% url 'liveclassroom:classroom-display' session.id %}">open display</a></p>
+    <figure class="lc-join-qr">
+      <img src="{% url 'liveclassroom:join-qr' session.id %}" alt="QR code for joining {{ session.title }}">
+      <figcaption>Student join code: {{ session.join_code }}</figcaption>
+    </figure>
     <p>Status: <strong id="session-status">{{ session.get_status_display }}</strong></p>
     <div class="lc-actions" aria-label="Classroom controls">
       <button id="start-session">Start classroom</button>
@@ -15,9 +19,9 @@
     <div class="lc-grid">
       <section>
         <h2>Flow</h2>
-        {% for item in items %}
-          <button class="lc-item" data-item-id="{{ item.id }}" {% if not item.question_id and item.kind != 'markdown' %}disabled{% endif %}>
-            Push {{ item.position }}. {{ item.title|default:item.get_kind_display }}
+        {% for step in steps %}
+          <button class="lc-item" data-step-id="{{ step.id }}" {% if not step.activity_definition_id and step.kind != 'markdown' %}disabled{% endif %}>
+            Push {{ step.position }}. {{ step.title|default:step.kind }}
           </button>
         {% empty %}
           <p>Add reusable activities in the <a href="{% url 'liveclassroom:flow-builder' %}?session_id={{ session.id }}">Flow Builder</a> or Django admin.</p>

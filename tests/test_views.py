@@ -1,8 +1,10 @@
 import pytest
 from django.contrib.auth import get_user_model
+from django.test import override_settings
 from django.urls import reverse
 
-from liveclassroom.models import Flow, LiveSession
+from liveclassroom.models import Flow, FlowStep, LiveSession
+from liveclassroom.services.classroom import create_activity_definition
 
 
 @pytest.mark.django_db
@@ -37,6 +39,7 @@ def test_flow_builder_view_authenticated(client):
     response = client.get(reverse("liveclassroom:flow-builder"))
     assert response.status_code == 200
     assert b"data-liveclassroom-builder" in response.content
+    assert f'data-api-v1-url="{reverse("liveclassroom:api-v1-flows")}"'.encode() in response.content
 
     # 2. Builder view with flow_id in kwargs
     flow = Flow.objects.create(title="Sample Flow", created_by=user)
@@ -61,3 +64,58 @@ def test_teacher_dashboard_has_flow_builder_link(client):
     response = client.get(reverse("liveclassroom:teacher-dashboard"))
     assert response.status_code == 200
     assert reverse("liveclassroom:flow-builder").encode() in response.content
+
+
+@pytest.mark.django_db
+def test_teacher_console_enables_reusable_activity_steps(client):
+    user = get_user_model().objects.create_user(username="prepared-flow-teacher")
+    flow = Flow.objects.create(title="Prepared flow", slug="prepared-flow", created_by=user)
+    definition = create_activity_definition(
+        owner=user,
+        title="Prepared poll",
+        type_key="liveclassroom.poll",
+        definition={"options": [{"id": "A", "text": "One"}]},
+    )
+    step = FlowStep.objects.create(
+        flow=flow,
+        position=1,
+        kind="activity",
+        title=definition.title,
+        content=definition.definition,
+        activity_definition=definition,
+    )
+    session = LiveSession.objects.create(teacher=user, title="Prepared class", flow=flow)
+    client.force_login(user)
+
+    response = client.get(reverse("liveclassroom:teacher-console", args=[session.id]))
+
+    assert response.status_code == 200
+    button = f'<button class="lc-item" data-step-id="{step.id}" >'.encode()
+    assert button in response.content
+
+
+@pytest.mark.django_db
+def test_teacher_qr_join_code_contains_the_prefilled_join_url(client):
+    user = get_user_model().objects.create_user(username="qr-teacher")
+    session = LiveSession.objects.create(teacher=user, title="QR class", join_code="QR1234")
+    client.force_login(user)
+
+    response = client.get(reverse("liveclassroom:join-qr", args=[session.id]))
+
+    assert response.status_code == 200
+    assert response["Content-Type"].startswith("image/svg+xml")
+    assert "QR1234" not in response.content.decode()  # QR modules encode data rather than render it as text.
+    assert response["Cache-Control"] == "private, no-store"
+    assert client.get(f"{reverse('liveclassroom:join')}?code=QR1234").context["form"].initial["join_code"] == "QR1234"
+
+
+@pytest.mark.django_db
+@override_settings(ROOT_URLCONF="tests.mounted_urls")
+def test_builder_uses_mounted_api_prefix(client):
+    user = get_user_model().objects.create_user(username="mounted-builder-teacher")
+    client.force_login(user)
+
+    response = client.get(reverse("liveclassroom:flow-builder"))
+
+    assert response.status_code == 200
+    assert b'data-api-v1-url="/classroom/api/v1/flows/"' in response.content

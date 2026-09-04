@@ -146,7 +146,6 @@ def import_markdown_flow(
         description=parsed.description,
     )
     for position, item in enumerate(parsed.items, start=1):
-        question = Question.objects.create(**item.question) if item.question else None
         activity_def = None
         if item.question and owner is not None:
             q_type = item.question.get("question_type", "single_choice")
@@ -179,16 +178,6 @@ def import_markdown_flow(
                 definition=activity_payload,
                 status=ActivityDefinition.Status.READY,
             )
-
-        FlowItem.objects.create(
-            flow=flow,
-            position=position,
-            kind=item.kind,
-            title=item.title,
-            content=item.content,
-            question=question,
-            activity_definition=activity_def,
-        )
 
         step_kind = "activity" if activity_def is not None else item.kind
         step_content = activity_def.definition if activity_def is not None else item.content

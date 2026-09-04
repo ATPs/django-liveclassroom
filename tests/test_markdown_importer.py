@@ -2,7 +2,7 @@ import pytest
 from django.contrib.auth import get_user_model
 
 from liveclassroom.importers import ImportError, import_markdown_flow, parse_markdown
-from liveclassroom.models import Course, FlowItem
+from liveclassroom.models import Course
 
 SOURCE = """---
 title: Demo
@@ -26,15 +26,17 @@ def test_parse_markdown_normalizes_answer_text_to_option_id():
 
 
 @pytest.mark.django_db
-def test_import_markdown_creates_reusable_question_and_flow_items():
+def test_import_markdown_creates_reusable_activity_definitions_and_flow_steps():
     user = get_user_model().objects.create_user(username="teacher")
     course = Course.objects.create(title="Course", slug="course", created_by=user)
     flow = import_markdown_flow(course=course, source=SOURCE)
 
     assert flow.slug == "demo"
-    items = list(flow.items.select_related("question"))
-    assert [item.kind for item in items] == [FlowItem.Kind.MARKDOWN, FlowItem.Kind.QUESTION]
-    assert items[1].question.answer == ["B"]
+    steps = list(flow.steps.select_related("activity_definition"))
+    assert [step.kind for step in steps] == ["markdown", "activity"]
+    assert steps[1].activity_definition.type_key == "liveclassroom.single_choice"
+    assert steps[1].activity_definition.definition["answer"] == ["B"]
+    assert flow.items.count() == 0
 
 
 def test_rejects_invalid_quiz():

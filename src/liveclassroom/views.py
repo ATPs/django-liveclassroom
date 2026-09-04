@@ -1,9 +1,12 @@
+import qrcode
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.http import Http404, JsonResponse
+from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect
+from django.urls import reverse
 from django.views.generic import FormView, TemplateView
+from qrcode.image.svg import SvgPathImage
 
-from .conf import websocket_path
+from .conf import base_template, websocket_path
 from .forms import CreateSessionForm, JoinSessionForm
 from .models import LiveSession
 from .services.classroom import can_manage_session, can_view_display
@@ -18,6 +21,7 @@ class LocaleContextMixin:
         if not lang and hasattr(self.request, "LANGUAGE_CODE"):
             lang = self.request.LANGUAGE_CODE
         context["active_lang"] = lang or "en"
+        context["liveclassroom_base_template"] = base_template()
         return context
 
 
@@ -57,10 +61,8 @@ class TeacherConsoleView(LoginRequiredMixin, LocaleContextMixin, TemplateView):
         context = super().get_context_data(**kwargs)
         context["session"] = self.session
         context["websocket_url"] = websocket_path(self.session.id)
-        context["items"] = (
-            self.session.flow.items.select_related("question", "activity_definition").all()
-            if self.session.flow_id
-            else []
+        context["steps"] = (
+            self.session.flow.steps.select_related("activity_definition").all() if self.session.flow_id else []
         )
         return context
 
@@ -87,6 +89,13 @@ class JoinView(LocaleContextMixin, FormView):
     template_name = "liveclassroom/join.html"
     form_class = JoinSessionForm
 
+    def get_initial(self):
+        initial = super().get_initial()
+        code = self.request.GET.get("code", "").strip()
+        if code:
+            initial["join_code"] = code
+        return initial
+
     def form_valid(self, form):
         session = LiveSession.objects.filter(join_code__iexact=form.cleaned_data["join_code"]).first()
         if not session:
@@ -106,6 +115,21 @@ class StudentSessionView(LocaleContextMixin, TemplateView):
         context["pending_name"] = self.request.session.get(f"liveclassroom.pending_name.{session.id}")
         context["websocket_url"] = websocket_path(session.id)
         return context
+
+
+def join_qr(request, session_id: int):
+    """Render an authenticated teacher's join URL as a self-contained SVG QR code."""
+    session = get_object_or_404(LiveSession, pk=session_id)
+    if not can_manage_session(request.user, session):
+        raise Http404
+    join_url = request.build_absolute_uri(f"{reverse('liveclassroom:join')}?code={session.join_code}")
+    code = qrcode.QRCode(border=2, box_size=8)
+    code.add_data(join_url)
+    code.make(fit=True)
+    svg = code.make_image(image_factory=SvgPathImage).to_string(encoding="unicode")
+    response = HttpResponse(svg, content_type="image/svg+xml; charset=utf-8")
+    response["Cache-Control"] = "private, no-store"
+    return response
 
 
 class FlowBuilderView(LoginRequiredMixin, LocaleContextMixin, TemplateView):

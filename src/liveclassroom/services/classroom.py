@@ -17,6 +17,7 @@ from liveclassroom.models import (
     LiveActivity,
     LiveSession,
     Participant,
+    ParticipantConnection,
     SessionChannelState,
     SessionEvent,
     SessionMessage,
@@ -145,6 +146,22 @@ def can_view_session(user, session: LiveSession) -> bool:
 def can_view_display(user, session: LiveSession) -> bool:
     """Return whether a user may open the restricted classroom display."""
     return can_manage_session(user, session)
+
+
+def session_capabilities(user, session: LiveSession) -> tuple[str, ...]:
+    """Return the explicit capabilities available to one staff member.
+
+    The result is intended for API/UI display as well as tests.  Commands
+    still enforce their own authorization so a stale capability response never
+    grants access.
+    """
+    if not getattr(user, "is_authenticated", False) or not can_view_session(user, session):
+        return ()
+    if can_manage_session(user, session):
+        return ("manage_session", "manage_staff", "manage_admission", "view_display", "view_analytics")
+    if can_manage_admission(user, session):
+        return ("manage_admission", "moderate_chat", "view_analytics")
+    return ("view_analytics",)
 
 
 def _append_event(
@@ -293,9 +310,9 @@ def create_instant_session(
     *,
     owner,
     title: str,
-    access_mode: str = LiveSession.AccessMode.GUEST,
+    access_mode: str | None = None,
     admission_mode: str = LiveSession.AdmissionMode.OPEN,
-    mode: str = LiveSession.Mode.TEACHER_PACED,
+    mode: str | None = None,
 ) -> LiveSession:
     """Create a session without requiring a course or prepared flow."""
     if not getattr(owner, "is_authenticated", False):
@@ -305,6 +322,14 @@ def create_instant_session(
     title = title.strip()
     if not title:
         raise ClassroomError("A session title is required.")
+    from liveclassroom.conf import default_session_mode, guests_allowed
+
+    if access_mode is None:
+        access_mode = LiveSession.AccessMode.GUEST if guests_allowed() else LiveSession.AccessMode.AUTHENTICATED
+    if mode is None:
+        mode = default_session_mode()
+    if not guests_allowed() and access_mode in {LiveSession.AccessMode.GUEST, LiveSession.AccessMode.BOTH}:
+        raise ClassroomError("Guest classroom entry is disabled by this host.")
     if access_mode not in LiveSession.AccessMode.values:
         raise ClassroomError("Unsupported student access mode.")
     if admission_mode not in LiveSession.AdmissionMode.values:
@@ -611,6 +636,7 @@ def launch_item(
         sequence=sequence,
         kind=(definition.type_key.rsplit(".", 1)[-1] if definition is not None else item.kind),
         source_item=item if isinstance(item, FlowItem) else None,
+        source_step=item if isinstance(item, FlowStep) else None,
         definition_snapshot=snapshot,
     )
     run_revision = _ensure_run_revision(
@@ -622,6 +648,9 @@ def launch_item(
     if isinstance(item, FlowItem):
         session.current_item = item
         update_fields.append("current_item")
+    elif isinstance(item, FlowStep):
+        session.current_step = item
+        update_fields.append("current_step")
     session.save(update_fields=update_fields)
     channel_state, _ = SessionChannelState.objects.get_or_create(session=session, channel=channel)
     channel_state.current_activity = activity
@@ -841,6 +870,10 @@ def set_activity_state(*, activity: LiveActivity, state: str, actor) -> LiveActi
 
 @transaction.atomic
 def join_guest(*, session: LiveSession, display_name: str, guest_id: str | None = None) -> Participant:
+    from liveclassroom.conf import guests_allowed
+
+    if not guests_allowed():
+        raise ClassroomError("Guest classroom entry is disabled by this host.")
     if session.status not in {LiveSession.Status.WAITING, LiveSession.Status.LIVE, LiveSession.Status.PAUSED}:
         raise ClassroomError("This classroom is not accepting participants yet.")
     if session.access_mode == LiveSession.AccessMode.AUTHENTICATED:
@@ -915,7 +948,11 @@ def join_authenticated(*, session: LiveSession, user, display_name: str | None =
             raise ClassroomError("This classroom has no authenticated roster.")
         if not CourseMembership.objects.filter(course_id=session.course_id, user=user).exists():
             raise ClassroomError("You are not on this classroom's roster.")
-    admitted = session.admission_mode != LiveSession.AdmissionMode.WAITING_ROOM
+    requested_admission_state = (
+        Participant.AdmissionState.PENDING
+        if session.admission_mode == LiveSession.AdmissionMode.WAITING_ROOM
+        else Participant.AdmissionState.ADMITTED
+    )
     if display_name is not None and not isinstance(display_name, str):
         raise ClassroomError("A display name must be text.")
     resolved_name = (display_name or getattr(user, "get_full_name", lambda: "")() or user.get_username()).strip()
@@ -928,19 +965,27 @@ def join_authenticated(*, session: LiveSession, user, display_name: str | None =
         raise ClassroomError("This participant was removed from the classroom.")
     if existing and existing.admission_state == Participant.AdmissionState.REJECTED:
         raise ClassroomError("This participant was not admitted to the classroom.")
+    admission_state = (
+        existing.admission_state
+        if existing and existing.admission_state == Participant.AdmissionState.ADMITTED
+        else requested_admission_state
+    )
     participant, created = Participant.objects.update_or_create(
         session=session,
         user=user,
         defaults={
             "display_name": resolved_name,
             "role": Participant.Role.STUDENT,
-            "admission_state": Participant.AdmissionState.ADMITTED if admitted else Participant.AdmissionState.PENDING,
+            "admission_state": admission_state,
         },
     )
-    expected_state = Participant.AdmissionState.ADMITTED if admitted else Participant.AdmissionState.PENDING
-    if not created and participant.admission_state == expected_state:
+    if not created and participant.admission_state == admission_state:
         return participant
-    event_type = "participant.joined" if admitted else "participant.requested"
+    event_type = (
+        "participant.joined"
+        if admission_state == Participant.AdmissionState.ADMITTED
+        else "participant.requested"
+    )
     event_id = _append_event(session, event_type, participant=participant)
     version = _advance_version(session)
     notify_session_after_commit(
@@ -999,7 +1044,73 @@ def set_participant_admission(
 
 
 @transaction.atomic
+def set_session_staff(*, session: LiveSession, user, role: str, actor) -> SessionStaff:
+    """Assign a non-owner staff role and record its authoritative change."""
+    if not can_manage_session(actor, session):
+        raise ClassroomError("You do not have permission to manage session staff.")
+    if not getattr(user, "is_authenticated", False):
+        raise ClassroomError("A staff assignment needs an authenticated user.")
+    if user.pk == session.teacher_id:
+        raise ClassroomError("The session owner cannot be added as staff.")
+    if role not in SessionStaff.Role.values:
+        raise ClassroomError("Unsupported staff role.")
+    locked = LiveSession.objects.select_for_update().get(pk=session.pk)
+    assignment, created = SessionStaff.objects.update_or_create(
+        session=locked,
+        user=user,
+        defaults={"role": role},
+    )
+    version = _advance_version(locked)
+    event_id = _append_event(
+        locked,
+        "staff.assigned" if created else "staff.role_updated",
+        actor,
+        {"staff_id": assignment.id, "user_id": user.pk, "role": assignment.role},
+    )
+    notify_session_after_commit(
+        locked.id,
+        {
+            "protocol": 1,
+            "session_id": locked.id,
+            "version": version,
+            "event_id": event_id,
+            "type": "staff.assigned" if created else "staff.role_updated",
+            "payload": {"staff_id": assignment.id, "role": assignment.role},
+        },
+    )
+    return assignment
+
+
+@transaction.atomic
+def remove_session_staff(*, session: LiveSession, assignment: SessionStaff, actor) -> None:
+    """Remove a staff assignment while retaining the session audit event."""
+    if not can_manage_session(actor, session):
+        raise ClassroomError("You do not have permission to manage session staff.")
+    if assignment.session_id != session.id:
+        raise ClassroomError("The staff assignment does not belong to this session.")
+    locked = LiveSession.objects.select_for_update().get(pk=session.pk)
+    assignment = SessionStaff.objects.select_for_update().get(pk=assignment.pk, session=locked)
+    staff_id, user_id = assignment.id, assignment.user_id
+    assignment.delete()
+    version = _advance_version(locked)
+    event_id = _append_event(locked, "staff.removed", actor, {"staff_id": staff_id, "user_id": user_id})
+    notify_session_after_commit(
+        locked.id,
+        {
+            "protocol": 1,
+            "session_id": locked.id,
+            "version": version,
+            "event_id": event_id,
+            "type": "staff.removed",
+            "payload": {"staff_id": staff_id},
+        },
+    )
+
+
+@transaction.atomic
 def submit_answer(*, activity: LiveActivity, participant: Participant, answer: dict) -> Submission:
+    activity = LiveActivity.objects.select_for_update().select_related("session").get(pk=activity.pk)
+    participant = Participant.objects.select_for_update().get(pk=participant.pk)
     if participant.session_id != activity.session_id:
         raise ClassroomError("You are not a participant in this classroom.")
     if participant.admission_state != Participant.AdmissionState.ADMITTED:
@@ -1207,9 +1318,15 @@ def set_chat_enabled(*, session: LiveSession, enabled: bool, actor) -> LiveSessi
 
 
 @transaction.atomic
-def mark_participant_connected(*, participant: Participant) -> Participant:
+def mark_participant_connected(*, participant: Participant, connection_id: str | None = None) -> Participant:
     """Record a participant connection without creating a chat or classroom event."""
     now = timezone.now()
+    participant = Participant.objects.select_for_update().get(pk=participant.pk)
+    if connection_id:
+        ParticipantConnection.objects.update_or_create(
+            connection_id=connection_id,
+            defaults={"participant": participant, "disconnected_at": None},
+        )
     participant.connected_at = now
     participant.last_seen_at = now
     participant.disconnected_at = None
@@ -1218,10 +1335,21 @@ def mark_participant_connected(*, participant: Participant) -> Participant:
 
 
 @transaction.atomic
-def mark_participant_disconnected(*, participant: Participant) -> Participant:
+def mark_participant_disconnected(*, participant: Participant, connection_id: str | None = None) -> Participant:
     """Record a participant disconnect while retaining their durable identity."""
+    participant = Participant.objects.select_for_update().get(pk=participant.pk)
     now = timezone.now()
-    participant.disconnected_at = now
+    if connection_id:
+        ParticipantConnection.objects.filter(
+            participant=participant,
+            connection_id=connection_id,
+            disconnected_at__isnull=True,
+        ).update(disconnected_at=now)
+    has_active_connection = ParticipantConnection.objects.filter(
+        participant=participant,
+        disconnected_at__isnull=True,
+    ).exists()
+    participant.disconnected_at = None if has_active_connection else now
     participant.last_seen_at = now
     participant.save(update_fields=["disconnected_at", "last_seen_at"])
     return participant
