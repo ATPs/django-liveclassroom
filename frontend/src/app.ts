@@ -14,6 +14,7 @@ import {
 import { mountAiChat } from "./ai_chat.js";
 import { mountBuilder } from "./builder.js";
 import { mountPluginActivity } from "./plugin_runtime.js";
+import { mountStudentSession } from "./surfaces/student/StudentSession.js";
 import {
   getLocale,
   mountLanguageSwitcher,
@@ -1645,7 +1646,13 @@ async function mountStudentView(root: StudentViewRoot): Promise<void> {
 }
 
 if (typeof document !== "undefined") {
-  for (const element of document.querySelectorAll<Root>("[data-liveclassroom-app]")) void mount(element);
+  for (const element of document.querySelectorAll<Root>("[data-liveclassroom-app]")) {
+    if (element.dataset.audience === "student" && element.dataset.stateUrl) {
+      mountStudentSession(element);
+    } else {
+      void mount(element);
+    }
+  }
   for (const element of document.querySelectorAll<HTMLElement>("[data-liveclassroom-builder]")) void mountBuilder(element);
   for (const element of document.querySelectorAll<HTMLElement>("[data-liveclassroom-ai-chat]")) void mountAiChat(element);
   for (const element of document.querySelectorAll<StudentViewRoot>("[data-student-view]")) void mountStudentView(element);
@@ -1658,4 +1665,5 @@ export {
   mountBuilder,
   mountAiChat,
   mountLanguageSwitcher,
+  mountStudentSession,
 };

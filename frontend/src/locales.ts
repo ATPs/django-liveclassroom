@@ -68,6 +68,7 @@ export const translations = {
     send: "Send",
     enableChat: "Enable chat",
     noMessages: "No messages yet.",
+    message: "Message",
 
     // Analytics
     analyticsSummary: "Analytics summary",
@@ -252,6 +253,7 @@ export const translations = {
     send: "发送",
     enableChat: "开启讨论区",
     noMessages: "暂无发言。",
+    message: "发言",
 
     // 统计与分析
     analyticsSummary: "课堂数据概览",
