@@ -1,15 +1,11 @@
 from django.core.management.base import BaseCommand
 
-from liveclassroom.models import ActivityDefinition, FlowItem, FlowStep, LiveActivity
+from liveclassroom.models import ActivityDefinition, LiveActivity
 from liveclassroom.services.classroom import validate_activity_snapshot
-
-_LEGACY_MEDIA_KINDS = frozenset({"image", "video", "url", "iframe"})
 
 
 def _snapshot_for_row(row) -> dict:
-    if isinstance(row, ActivityDefinition):
-        return {"type_key": row.type_key, "content": row.definition}
-    return {"kind": row.kind, "title": row.title, "content": row.content}
+    return {"type_key": row.type_key, "content": row.definition}
 
 
 class Command(BaseCommand):
@@ -34,19 +30,9 @@ class Command(BaseCommand):
             except (KeyError, TypeError, ValueError) as exc:
                 findings.append(("ActivityDefinition", row.id, str(exc), row))
 
-        for model in (FlowItem, FlowStep):
-            queryset = model.objects.filter(kind__in=_LEGACY_MEDIA_KINDS).only("id", "kind", "title", "content")
-            for row in queryset:
-                try:
-                    validate_activity_snapshot(_snapshot_for_row(row))
-                except (KeyError, TypeError, ValueError) as exc:
-                    findings.append((model.__name__, row.id, str(exc), row))
-
         for row in LiveActivity.objects.only("id", "kind", "definition_snapshot"):
             snapshot = row.definition_snapshot
-            if row.kind not in _LEGACY_MEDIA_KINDS and not (
-                isinstance(snapshot, dict) and snapshot.get("type_key") == "liveclassroom.media"
-            ):
+            if not (isinstance(snapshot, dict) and snapshot.get("type_key") == "liveclassroom.media"):
                 continue
             try:
                 validate_activity_snapshot(snapshot)
@@ -69,10 +55,6 @@ class Command(BaseCommand):
             if model_name == "ActivityDefinition":
                 repaired += ActivityDefinition.objects.filter(pk=row.pk).update(
                     status=ActivityDefinition.Status.ARCHIVED
-                )
-            elif model_name in {"FlowItem", "FlowStep"}:
-                repaired += type(row).objects.filter(pk=row.pk).update(
-                    content={"media_disabled": True, "disabled_reason": "unsafe_media"}
                 )
             else:
                 snapshot = row.definition_snapshot if isinstance(row.definition_snapshot, dict) else {}

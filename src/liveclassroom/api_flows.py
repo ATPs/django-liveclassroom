@@ -47,22 +47,17 @@ def _serialize_flow_summary(flow: Flow) -> dict[str, Any]:
 
 
 def _serialize_step(step: FlowStep) -> dict[str, Any]:
-    activity_data = None
-    if step.activity_definition:
-        activity_data = {
-            "id": step.activity_definition.id,
-            "title": step.activity_definition.title,
-            "type_key": step.activity_definition.type_key,
-            "schema_version": step.activity_definition.schema_version,
-            "status": step.activity_definition.status,
-            "definition": step.activity_definition.definition,
-        }
+    activity_data = {
+        "id": step.activity_definition.id,
+        "title": step.activity_definition.title,
+        "type_key": step.activity_definition.type_key,
+        "schema_version": step.activity_definition.schema_version,
+        "status": step.activity_definition.status,
+        "definition": step.activity_definition.definition,
+    }
     return {
         "id": step.id,
         "position": step.position,
-        "kind": step.kind,
-        "title": step.title,
-        "content": step.content,
         "activity_definition_id": step.activity_definition_id,
         "activity_definition": activity_data,
         "created_at": step.created_at.isoformat() if step.created_at else None,
@@ -279,10 +274,7 @@ def add_step_api(request, flow_id: int):
             flow=flow,
             actor=request.user,
             activity_definition=activity_def,
-            kind=body.get("kind", "activity"),
             position=body.get("position"),
-            title=body.get("title", ""),
-            content=body.get("content"),
         )
     except ClassroomError as exc:
         return _record_authoring(request, key, command_type, _error(str(exc), 400))

@@ -38,6 +38,10 @@ type Root = HTMLElement & {
   };
 };
 
+type StudentViewRoot = HTMLElement & {
+  dataset: DOMStringMap & { participantsUrl?: string; activateUrl?: string; stateUrl?: string };
+};
+
 type ActivityContent = Record<string, unknown>;
 type Choice = { id: string; text: string };
 
@@ -872,7 +876,13 @@ function renderBuiltinActivity(
     "rating",
     "ranking",
   ];
-  if (audience === "student" && state && stateUrl && state.participant?.admission_state === "admitted") {
+  if (
+    audience === "student"
+    && state
+    && stateUrl
+    && state.act_as_active !== false
+    && state.participant?.admission_state === "admitted"
+  ) {
     const content = activityContent(activity);
     const hasVisibleContent = questionPrompt(activity) !== ""
       || choicesFor(activity).length > 0
@@ -1595,10 +1605,50 @@ async function mount(root: Root): Promise<() => void> {
   return unmount;
 }
 
+async function mountStudentView(root: StudentViewRoot): Promise<void> {
+  const app = document.querySelector<Root>("[data-liveclassroom-app][data-audience='student']");
+  const select = root.querySelector<HTMLSelectElement>("[data-student-view-participant]");
+  const inspect = root.querySelector<HTMLButtonElement>("[data-student-view-inspect]");
+  const activate = root.querySelector<HTMLButtonElement>("[data-student-view-activate]");
+  const status = root.querySelector<HTMLElement>("[data-student-view-status]");
+  if (!app || !select || !inspect || !activate || !root.dataset.participantsUrl || !root.dataset.activateUrl || !root.dataset.stateUrl) return;
+  const show = (message: string) => { if (status) status.textContent = message; };
+  try {
+    const payload = await getJson<{ participants: Array<{ id: number; display_name: string; admission_state: string; inspection_token: string }> }>(root.dataset.participantsUrl);
+    for (const participant of payload.participants) {
+      const option = document.createElement("option");
+      option.value = String(participant.id);
+      option.dataset.token = participant.inspection_token;
+      option.textContent = `${participant.display_name} (${participant.admission_state})`;
+      select.append(option);
+    }
+    const inspectSelection = async (token: string, active = false) => {
+      app.dispatchEvent(new Event("liveclassroom:unmount"));
+      app.dataset.stateUrl = `${root.dataset.stateUrl}?act_as_token=${encodeURIComponent(token)}`;
+      await mount(app);
+      show(active ? "Acting as selected participant." : "Inspecting selected participant.");
+    };
+    inspect.addEventListener("click", () => {
+      const token = select.selectedOptions[0]?.dataset.token;
+      if (token) void inspectSelection(token);
+    });
+    activate.addEventListener("click", () => {
+      const participantId = Number(select.value);
+      if (!Number.isInteger(participantId)) return;
+      void postJson<{ act_as_token: string }>(root.dataset.activateUrl!, { participant_id: participantId, confirm: true })
+        .then(({ act_as_token }) => inspectSelection(act_as_token, true))
+        .catch((error: unknown) => show(error instanceof Error ? error.message : "Unable to activate act-as."));
+    });
+  } catch (error) {
+    show(error instanceof Error ? error.message : "Unable to load participants.");
+  }
+}
+
 if (typeof document !== "undefined") {
   for (const element of document.querySelectorAll<Root>("[data-liveclassroom-app]")) void mount(element);
   for (const element of document.querySelectorAll<HTMLElement>("[data-liveclassroom-builder]")) void mountBuilder(element);
   for (const element of document.querySelectorAll<HTMLElement>("[data-liveclassroom-ai-chat]")) void mountAiChat(element);
+  for (const element of document.querySelectorAll<StudentViewRoot>("[data-student-view]")) void mountStudentView(element);
 }
 
 export {
@@ -1608,10 +1658,4 @@ export {
   mountBuilder,
   mountAiChat,
   mountLanguageSwitcher,
-  renderTimer,
-  renderMedia,
-  renderMarkdownText,
-  renderWordCloud,
-  renderAggregate,
-  renderTeacherAnalytics,
 };

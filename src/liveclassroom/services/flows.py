@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from django.db import transaction
 from django.utils.text import slugify
 
@@ -11,7 +9,6 @@ from liveclassroom.models import (
     ActivityDefinition,
     Course,
     Flow,
-    FlowItem,
     FlowStep,
     LiveSession,
 )
@@ -25,11 +22,6 @@ from liveclassroom.services.permissions import (
     can_edit_flow,
     can_use_activity_definition,
 )
-
-
-def can_view_flow(actor, flow: Flow) -> bool:
-    """Access to view flow authoring details matches edit permissions."""
-    return can_edit_flow(actor, flow)
 
 
 def _generate_unique_flow_slug(course: Course | None, base_text: str, *, exclude_id: int | None = None) -> str:
@@ -115,40 +107,19 @@ def add_flow_step(
     *,
     flow: Flow,
     actor,
-    item: FlowItem | ActivityDefinition | None = None,
-    activity_definition: ActivityDefinition | None = None,
-    kind: str = "activity",
+    activity_definition: ActivityDefinition,
     position: int | None = None,
-    title: str = "",
-    content: dict[str, Any] | None = None,
 ) -> FlowStep:
-    """Add a canonical step to a flow without creating parallel legacy rows."""
+    """Add one authorized reusable activity definition to a flow."""
     if not can_edit_flow(actor, flow):
         raise ClassroomError("You do not have permission to edit this flow.")
 
-    if activity_definition is None:
-        if isinstance(item, ActivityDefinition):
-            activity_definition = item
-        elif isinstance(item, FlowItem):
-            activity_definition = item.activity_definition
-            if not title:
-                title = item.title
-            if content is None:
-                content = item.content
-            kind = item.kind
-
-    if activity_definition is not None:
-        if activity_definition.course_id and flow.course_id and activity_definition.course_id != flow.course_id:
-            raise ClassroomError("The activity must belong to the flow's course.")
-        if not can_use_activity_definition(actor, activity_definition):
-            raise ClassroomError("You do not have permission to use this activity.")
-        if not title:
-            title = activity_definition.title
-        if content is None:
-            content = activity_definition.definition
-
-    if content is None:
-        content = {}
+    if activity_definition.course_id and flow.course_id and activity_definition.course_id != flow.course_id:
+        raise ClassroomError("The activity must belong to the flow's course.")
+    if activity_definition.status == ActivityDefinition.Status.ARCHIVED:
+        raise ClassroomError("Archived activities cannot be added to a flow.")
+    if not can_use_activity_definition(actor, activity_definition):
+        raise ClassroomError("You do not have permission to use this activity.")
 
     flow = Flow.objects.select_for_update().get(pk=flow.pk)
     current_count = flow.steps.count()
@@ -170,9 +141,6 @@ def add_flow_step(
         flow=flow,
         position=target_position,
         activity_definition=activity_definition,
-        kind=kind,
-        title=title,
-        content=content,
     )
 
     flow.save(update_fields=["updated_at"])
@@ -279,9 +247,6 @@ def duplicate_flow(
             flow=new_flow,
             position=step.position,
             activity_definition=step.activity_definition,
-            kind=step.kind,
-            title=step.title,
-            content=step.content,
         )
 
     return new_flow
@@ -326,10 +291,8 @@ def save_session_as_flow(
         activity_def = None
         if activity.current_revision and activity.current_revision.source_revision:
             activity_def = activity.current_revision.source_revision.definition
-        elif activity.source_step and activity.source_step.activity_definition:
+        elif activity.source_step_id and activity.source_step.activity_definition:
             activity_def = activity.source_step.activity_definition
-        elif activity.source_item and activity.source_item.activity_definition:
-            activity_def = activity.source_item.activity_definition
         elif activity.definition_snapshot and activity.definition_snapshot.get("activity_definition_id"):
             activity_def = ActivityDefinition.objects.filter(
                 pk=activity.definition_snapshot["activity_definition_id"]
@@ -340,40 +303,21 @@ def save_session_as_flow(
             snapshot = activity.definition_snapshot or {}
             type_key = snapshot.get("type_key")
             if not type_key:
-                if "question" in snapshot:
-                    q_type = snapshot["question"].get("type", "single_choice")
-                    type_key = f"liveclassroom.{q_type}"
-                elif snapshot.get("kind"):
-                    type_key = f"liveclassroom.{snapshot['kind']}"
-                else:
-                    type_key = "liveclassroom.single_choice"
+                type_key = f"liveclassroom.{snapshot.get('kind', 'single_choice')}"
             if "." not in type_key:
                 type_key = f"liveclassroom.{type_key}"
 
             act_title = snapshot.get("title")
-            if not act_title and "question" in snapshot:
-                act_title = snapshot["question"].get("stem_markdown", "")[:80]
             if not act_title:
                 act_title = f"Activity {activity.sequence}"
 
-            if "question" in snapshot:
-                q = snapshot["question"]
-                def_payload = {
-                    "prompt": q.get("stem_markdown", ""),
-                    "stem_markdown": q.get("stem_markdown", ""),
-                    "options": q.get("data", {}).get("options", []),
-                    "answer": q.get("answer", []),
-                    "explanation": q.get("explanation_markdown", ""),
-                }
-            else:
-                def_payload = dict(snapshot.get("content") or {})
-                if type_key in (
-                    "liveclassroom.single_choice",
-                    "liveclassroom.multiple_choice",
-                    "liveclassroom.poll",
-                ):
-                    if "options" not in def_payload and "choices" not in def_payload:
-                        def_payload["options"] = [{"id": "A", "text": "Option A"}]
+            def_payload = dict(snapshot.get("content") or {})
+            if type_key in (
+                "liveclassroom.single_choice",
+                "liveclassroom.multiple_choice",
+                "liveclassroom.poll",
+            ) and "options" not in def_payload and "choices" not in def_payload:
+                def_payload["options"] = [{"id": "A", "text": "Option A"}]
 
             activity_def = create_activity_definition(
                 owner=creator,
@@ -387,9 +331,6 @@ def save_session_as_flow(
             flow=flow,
             position=position,
             activity_definition=activity_def,
-            kind="activity",
-            title=activity_def.title,
-            content=activity_def.definition,
         )
 
     return flow

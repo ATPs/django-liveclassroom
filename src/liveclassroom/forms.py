@@ -1,19 +1,18 @@
 from django import forms
 from django.db.models import Q
 
-from .conf import default_session_mode, guests_allowed, join_code_length
+from .conf import guests_allowed, join_code_length
 from .models import CourseMembership, Flow, LiveSession
 
 
 class CreateSessionForm(forms.ModelForm):
     class Meta:
         model = LiveSession
-        fields = ["title", "course", "flow", "mode", "access_mode", "admission_mode", "chat_enabled"]
+        fields = ["title", "course", "flow", "access_mode", "admission_mode", "chat_enabled"]
 
     def __init__(self, *args, user, **kwargs):
         super().__init__(*args, **kwargs)
         self.user = user
-        self.fields["mode"].initial = default_session_mode()
         if not guests_allowed():
             self.fields["access_mode"].choices = [
                 choice

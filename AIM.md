@@ -15,11 +15,18 @@ The same Django models, services, APIs, migrations, WebSocket protocol, template
 
 LiveClassroom has three coordinated but distinct surfaces:
 
-1. **Teacher console** - prepares content, controls the live session, previews both audience channels, admits participants, monitors responses, and changes reveal settings.
+1. **Teacher console** - prepares content, controls the live session, admits participants, monitors responses, changes reveal settings, and opens the staff-only Student view.
 2. **Classroom display** - a clean presentation page for a projector or shared screen, opened by an authenticated teacher or co-host.
 3. **Student experience** - a mobile-first page that shows only the content and controls currently published to participants.
 
 The classroom display and student experience are independently controllable. For example, the display may remain on a VaultPub slide while students answer a poll, and the teacher may later reveal aggregate results on the display without exposing individual answers.
+
+An authorized session manager may use the staff-only Student view to select an
+existing participant and inspect exactly that participant's experience. It is
+inspect-only until the manager explicitly begins acting as an admitted
+participant. Delegated responses and chat affect the selected participant's
+real session record and retain the staff actor for audit; opening or inspecting
+the view must not create attendance, presence, connections, or participants.
 
 ## Users, roles, and entry
 
@@ -72,7 +79,8 @@ Include a freeform teacher-facing AI chat assistant in the authoring workspace.
 
 - Use a host-provided backend so the reusable package does not own provider credentials or depend on one AI vendor.
 - Support host-managed models and explicitly selected custom OpenAI-compatible providers.
-- The teacher must explicitly attach each flow item or protected VaultPub note used as context.
+- The teacher must explicitly attach each activity definition, flow step, or
+  protected VaultPub note used as context.
 - AI output remains a suggestion. It never modifies or publishes classroom content automatically.
 - Persist teacher-visible prompts, assistant drafts, model identity, source references, author, and status, but do not persist copied protected source text, provider reasoning, credentials, or raw retry diagnostics.
 - Custom credentials may exist only in the active request and worker memory. They must not enter browser storage, logs, files, caches, or the database.
@@ -107,6 +115,8 @@ Use the neighboring projects as design references, not runtime dependencies:
 
 - Package the application as an installable Python distribution with namespaced static assets that do not reset host-site CSS.
 - Keep Django responsible for authentication, permissions, URLs, initial page rendering, and server-side validation.
+- Expose public HTTP endpoints only through the versioned `/api/v1/` contract;
+  do not retain unversioned compatibility aliases.
 - Use packaged React and TypeScript islands for the builder, teacher console, display, student interactions, analytics, and AI chat; do not require a separate frontend deployment.
 - Support Django 5.2 and 6.0, SQLite for standalone development, and PostgreSQL for multi-worker production.
 - Provide host settings for base templates, content providers, activity plugins, AI backends, retention, and realtime configuration.
@@ -121,7 +131,9 @@ Formal exams, anti-cheat controls, question randomization, a course gradebook, c
 The first strong release is complete when:
 
 - a teacher can start an instant or prepared session and operate it without Django admin;
-- the teacher can independently control a projector display and student devices;
+- the teacher can independently control a projector display and student devices,
+  and an authorized session manager can inspect or explicitly act as an
+  admitted participant through the audited Student view;
 - guest, authenticated, waiting-room, and roster entry policies work and reconnect safely;
 - all built-in activity types support validation, live response collection, revision, reveal controls, analytics, and export;
 - a protected VaultPub note can be selected, embedded, controlled, restored, and shared only within the selected classroom scope;
@@ -131,4 +143,17 @@ The first strong release is complete when:
 
 ## Current status
 
-The repository currently provides the reusable app and standalone project, legacy course/flow/question compatibility, instant and prepared sessions, guest/authenticated entry, admission controls, pause/end lifecycle controls, revisioned activities and submissions, independent audience channels, named chat, idempotent HTTP commands, reusable activity authoring APIs, built-in activity validation and manifests, Markdown/YAML import, private AI authoring threads with explicit attachments and durable queued jobs, staff-only session analytics, a restricted display route, authenticated Channels routing, archive/CSV export, and host-neutral plus `xcWebServer` VaultPub Slide View adapters. The UI is still primarily server-rendered and the visual builder, richer browser-oriented analytics, provider-specific AI adapters, host-specific VaultPub participant grants, and production `xcWebServer` installation remain planned work.
+The repository provides the reusable app and standalone project, canonical
+course/flow/activity-definition/flow-step authoring, instant and prepared
+sessions, guest/authenticated entry, admission controls, pause/end lifecycle
+controls, revisioned activities and submissions, independent audience channels,
+named chat, idempotent versioned HTTP commands, reusable activity authoring
+APIs, built-in activity validation and manifests, Markdown/YAML import, private
+AI authoring threads with explicit attachments and durable queued jobs,
+staff-only session analytics, an audited staff Student view for inspecting and
+explicitly acting as admitted participants, a restricted display route,
+authenticated Channels routing, archive/CSV export, and host-neutral plus
+`xcWebServer` VaultPub Slide View adapters. The UI is still primarily
+server-rendered and the visual builder, richer browser-oriented analytics,
+provider-specific AI adapters, host-specific VaultPub participant grants, and
+production `xcWebServer` installation remain planned work.

@@ -5,7 +5,7 @@
     <button type="button" class="lc-lang-switch" aria-label="Switch language / 切换语言">EN / 中文</button>
     <p class="lc-kicker">Teacher · {{ session.title }}</p>
     <h1>{{ session.flow|default:'Instant session' }}</h1>
-    <p>Join code: <strong class="lc-code">{{ session.join_code }}</strong> · <a href="{% url 'liveclassroom:join' %}?code={{ session.join_code|urlencode }}">student join page</a> · <a href="{% url 'liveclassroom:classroom-display' session.id %}">open display</a></p>
+    <p>Join code: <strong class="lc-code">{{ session.join_code }}</strong> · <a href="{% url 'liveclassroom:join' %}?code={{ session.join_code|urlencode }}">student join page</a> · <a href="{% url 'liveclassroom:classroom-display' session.id %}">open display</a> · <a href="{% url 'liveclassroom:student-view' session.id %}">Student view</a></p>
     <figure class="lc-join-qr">
       <img src="{% url 'liveclassroom:join-qr' session.id %}" alt="QR code for joining {{ session.title }}">
       <figcaption>Student join code: {{ session.join_code }}</figcaption>
@@ -20,8 +20,8 @@
       <section>
         <h2>Flow</h2>
         {% for step in steps %}
-          <button class="lc-item" data-step-id="{{ step.id }}" {% if not step.activity_definition_id and step.kind != 'markdown' %}disabled{% endif %}>
-            Push {{ step.position }}. {{ step.title|default:step.kind }}
+          <button class="lc-item" data-step-id="{{ step.id }}">
+            Push {{ step.position }}. {{ step.activity_definition.title }}
           </button>
         {% empty %}
           <p>Add reusable activities in the <a href="{% url 'liveclassroom:flow-builder' %}?session_id={{ session.id }}">Flow Builder</a> or Django admin.</p>
@@ -31,10 +31,6 @@
         <h2>Display preview</h2>
         <div data-liveclassroom-content></div>
         <p data-liveclassroom-status>{{ session.get_status_display }}</p>
-      </section>
-      <section aria-live="polite">
-        <h2>Student preview</h2>
-        <div data-liveclassroom-participant-preview><p>Publish an activity to preview the student view.</p></div>
       </section>
       <section>
         <h2>Live results</h2>

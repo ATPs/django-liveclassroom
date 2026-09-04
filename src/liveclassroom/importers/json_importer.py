@@ -90,10 +90,8 @@ def parse_json_flow(source: str | dict[str, Any]) -> dict[str, Any]:
         except (ValueError, KeyError, TypeError) as exc:
             raise ImportError(f"Invalid activity definition in step {index} ({type_key}): {exc}") from exc
 
-        kind = step.get("kind") or "activity"
         parsed_steps.append({
             "type_key": type_key,
-            "kind": kind,
             "title": step_title,
             "definition": validated_def,
         })
@@ -154,9 +152,6 @@ def import_json_flow(
             flow=flow,
             position=position,
             activity_definition=activity_def,
-            kind=step_data["kind"],
-            title=step_data["title"],
-            content=step_data["definition"],
         )
 
     return flow

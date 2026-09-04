@@ -9,7 +9,7 @@ from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.utils.text import slugify
 
-from liveclassroom.models import ActivityDefinition, Flow, FlowItem, FlowStep, Question
+from liveclassroom.models import ActivityDefinition, Flow, FlowStep
 from liveclassroom.registry import activity_registry
 
 
@@ -19,10 +19,9 @@ class ImportError(ValueError):
 
 @dataclass(frozen=True)
 class ParsedItem:
-    kind: str
+    type_key: str
     title: str
     content: dict
-    question: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -36,7 +35,9 @@ class ParsedFlow:
 _FRONT_MATTER = re.compile(r"\A---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 _QUIZ = re.compile(r"^:::quiz\s*\n(.*?)^:::\s*$", re.MULTILINE | re.DOTALL)
 _SEPARATOR = re.compile(r"^---\s*$", re.MULTILINE)
-_QUESTION_TYPES = {choice for choice, _ in Question.Type.choices}
+_QUESTION_TYPES = {
+    "single_choice", "multiple_choice", "true_false", "poll", "short_text", "numeric", "rating", "ranking",
+}
 
 
 def _yaml(value: str, context: str) -> dict:
@@ -50,14 +51,14 @@ def _yaml(value: str, context: str) -> dict:
 
 
 def _question(payload: dict) -> dict:
-    question_type = payload.get("type", Question.Type.SINGLE_CHOICE)
+    question_type = payload.get("type", "single_choice")
     if question_type not in _QUESTION_TYPES:
         raise ImportError(f"Unsupported question type: {question_type!r}.")
     stem = payload.get("question", "").strip()
     if not stem:
         raise ImportError("A quiz requires question text.")
     choices = payload.get("choices", [])
-    if question_type in {Question.Type.SINGLE_CHOICE, Question.Type.MULTIPLE_CHOICE, Question.Type.POLL}:
+    if question_type in {"single_choice", "multiple_choice", "poll"}:
         if not isinstance(choices, list) or len(choices) < 2:
             raise ImportError("Choice questions require at least two choices.")
     options, text_to_id = [], {}
@@ -77,15 +78,18 @@ def _question(payload: dict) -> dict:
         raise ImportError("answer must be a list or string.")
     normalized_answer = [text_to_id.get(value, value) for value in answer]
     option_ids = {option["id"] for option in options}
-    if question_type != Question.Type.POLL and any(value not in option_ids for value in normalized_answer):
+    if question_type != "poll" and any(value not in option_ids for value in normalized_answer):
         raise ImportError("Every answer must name an option id or option text.")
     return {
-        "question_type": question_type,
-        "stem_markdown": stem,
-        "data": {"options": options},
-        "answer": normalized_answer,
-        "explanation_markdown": payload.get("explanation", "").strip(),
-        "source": payload.get("id", ""),
+        "type_key": f"liveclassroom.{question_type}",
+        "title": stem[:80],
+        "definition": {
+            "prompt": stem,
+            "stem_markdown": stem,
+            "options": options,
+            "answer": normalized_answer,
+            "explanation": payload.get("explanation", "").strip(),
+        },
     }
 
 
@@ -108,13 +112,13 @@ def parse_markdown(source: str, *, fallback_slug: str | None = None) -> ParsedFl
         for quiz in _QUIZ.finditer(section):
             markdown = section[cursor : quiz.start()].strip()
             if markdown:
-                items.append(ParsedItem(FlowItem.Kind.MARKDOWN, "", {"markdown": markdown}))
+                items.append(ParsedItem("liveclassroom.markdown", "", {"markdown": markdown}))
             payload = _question(_yaml(quiz.group(1), "quiz directive"))
-            items.append(ParsedItem(FlowItem.Kind.QUESTION, payload["stem_markdown"][:80], {}, payload))
+            items.append(ParsedItem(payload["type_key"], payload["title"], payload["definition"]))
             cursor = quiz.end()
         markdown = section[cursor:].strip()
         if markdown:
-            items.append(ParsedItem(FlowItem.Kind.MARKDOWN, "", {"markdown": markdown}))
+            items.append(ParsedItem("liveclassroom.markdown", "", {"markdown": markdown}))
     if not items:
         raise ImportError("The course file contains no importable content.")
     return ParsedFlow(title, slug, str(metadata.get("description", "")).strip(), tuple(items))
@@ -128,7 +132,7 @@ def import_markdown_flow(
     creator=None,
     fallback_slug: str | None = None,
 ) -> Flow:
-    """Validate all source before creating a new flow, question snapshots, activity definitions, and flow steps."""
+    """Validate all source before creating canonical activity definitions and flow steps."""
     parsed = parse_markdown(source, fallback_slug=fallback_slug)
     if Flow.objects.filter(course=course, slug=parsed.slug).exists():
         raise ImportError(f"Course already has a flow with slug {parsed.slug!r}.")
@@ -145,49 +149,25 @@ def import_markdown_flow(
         slug=parsed.slug,
         description=parsed.description,
     )
+    if owner is None:
+        raise ImportError("A creator or course owner is required to import a flow.")
     for position, item in enumerate(parsed.items, start=1):
-        activity_def = None
-        if item.question and owner is not None:
-            q_type = item.question.get("question_type", "single_choice")
-            type_key = f"liveclassroom.{q_type}"
-            stem = item.question.get("stem_markdown", "")
-            title = item.title or stem[:80] or "Question"
-            answer = item.question.get("answer", [])
-            if q_type == "true_false":
-                option_map = {
-                    option["id"]: option["text"].strip().lower()
-                    for option in item.question.get("data", {}).get("options", [])
-                }
-                answer = [option_map.get(str(value), str(value)) for value in answer]
-            activity_payload = {
-                "prompt": stem,
-                "stem_markdown": stem,
-                "options": item.question.get("data", {}).get("options", []),
-                "answer": answer,
-                "explanation": item.question.get("explanation_markdown", ""),
-            }
-            try:
-                activity_payload = activity_registry.get(type_key).validate(activity_payload)
-            except (KeyError, ValueError) as exc:
-                raise ImportError(f"Invalid activity definition for {type_key}: {exc}") from exc
-            activity_def = ActivityDefinition.objects.create(
-                owner=owner,
-                course=course,
-                type_key=type_key,
-                title=title,
-                definition=activity_payload,
-                status=ActivityDefinition.Status.READY,
-            )
-
-        step_kind = "activity" if activity_def is not None else item.kind
-        step_content = activity_def.definition if activity_def is not None else item.content
+        try:
+            definition = activity_registry.get(item.type_key).validate(item.content)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ImportError(f"Invalid activity definition for {item.type_key}: {exc}") from exc
+        activity_def = ActivityDefinition.objects.create(
+            owner=owner,
+            course=course,
+            type_key=item.type_key,
+            title=item.title or "Markdown",
+            definition=definition,
+            status=ActivityDefinition.Status.READY,
+        )
         FlowStep.objects.create(
             flow=flow,
             position=position,
             activity_definition=activity_def,
-            kind=step_kind,
-            title=item.title or (activity_def.title if activity_def else ""),
-            content=step_content,
         )
 
     return flow

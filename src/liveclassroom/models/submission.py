@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import models
 
 from .session import LiveActivity, Participant
@@ -11,6 +12,13 @@ class Submission(models.Model):
     score = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True)
     is_correct = models.BooleanField(null=True, blank=True)
     response_ms = models.PositiveIntegerField(null=True, blank=True)
+    performed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="liveclassroom_submission_revisions_performed",
+    )
     submitted_at = models.DateTimeField(auto_now_add=True)
     current_revision = models.ForeignKey(
         "liveclassroom.SubmissionRevision",
