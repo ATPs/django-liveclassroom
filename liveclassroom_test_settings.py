@@ -1,5 +1,6 @@
 SECRET_KEY = "test-key"
 DEBUG = True
+MEDIA_ROOT = "/tmp/liveclassroom-test-media"
 ROOT_URLCONF = "liveclassroom_test_urls"
 INSTALLED_APPS = [
     "django.contrib.auth",

@@ -1,4 +1,5 @@
 from .activity import ActivityDefinition, ActivityDefinitionRevision, AuthoringCommandReceipt
+from .assets import ClassroomAsset
 from .authoring import AuthoringAttachment, AuthoringJob, AuthoringMessage, AuthoringThread
 from .content import Flow, FlowStep
 from .course import Course, CourseMembership
@@ -23,6 +24,7 @@ __all__ = [
     "CourseMembership",
     "ActivityDefinition",
     "ActivityDefinitionRevision",
+    "ClassroomAsset",
     "AuthoringCommandReceipt",
     "AuthoringAttachment",
     "AuthoringJob",

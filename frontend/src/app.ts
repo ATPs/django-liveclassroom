@@ -13,6 +13,8 @@ import {
 } from "./protocol.js";
 import { mountAiChat } from "./ai_chat.js";
 import { mountBuilder } from "./builder.js";
+import { mountFilePicker } from "./file_picker.js";
+import { mountFileActivity } from "./file_renderer.js";
 import { mountPluginActivity } from "./plugin_runtime.js";
 import {
   getLocale,
@@ -32,6 +34,7 @@ type Root = HTMLElement & {
     pendingName?: string;
     accessMode?: string;
     authenticated?: string;
+    isSuperuser?: string;
     guestJoinUrl?: string;
     accountJoinUrl?: string;
     locale?: Locale;
@@ -821,7 +824,7 @@ function renderBuiltinActivity(
   stateUrl?: string,
   aggregate?: AggregateState | null,
   rootLocale?: Locale,
-): void {
+): void | (() => void) {
   const locale = rootLocale ?? getLocale(parent.closest<HTMLElement>("[data-liveclassroom-app]"));
   parent.replaceChildren();
   if (!activity) {
@@ -832,6 +835,19 @@ function renderBuiltinActivity(
   parent.append(text("h2", stringValue(definition.title, stringValue(definition.kind, t("activity", locale)))));
 
   const kind = activityKind(activity);
+
+  if (kind === "file") {
+    return mountFileActivity({
+      parent,
+      activity,
+      audience,
+      state,
+      stateUrl,
+      locale,
+      renderMarkdown: renderMarkdownText,
+      presentationEndpoint: stateUrl ? actionUrl(stateUrl, "sessions/presentation") : undefined,
+    });
+  }
 
   if (kind === "timer") {
     renderTimer(parent, activity, audience, locale);
@@ -940,9 +956,7 @@ function renderActivity(
     aggregate,
     locale,
     manifest: activity?.frontend_manifest,
-    fallback: (container) => {
-      renderBuiltinActivity(container, activity, audience, state, stateUrl, aggregate, locale);
-    },
+    fallback: (container) => renderBuiltinActivity(container, activity, audience, state, stateUrl, aggregate, locale),
   });
   activityUnmounts.set(parent, unmount);
 }
@@ -1309,6 +1323,15 @@ function renderTeacherControls(root: Root, state: SessionState, stateUrl: string
     return host;
   })();
   actionHost.replaceChildren();
+  const fileHost = document.createElement("div");
+  mountFilePicker(fileHost, {
+    locale,
+    endpoint: actionUrl(stateUrl, "sessions/files"),
+    allowServerPath: root.dataset.isSuperuser === "true",
+    includeChannels: true,
+    onSuccess: () => void refreshMountedState(root, stateUrl),
+  });
+  actionHost.append(fileHost);
   const lifecycle = document.createElement("div");
   lifecycle.className = "lc-actions";
   const status = state.session.status;

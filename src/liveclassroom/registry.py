@@ -3,6 +3,7 @@
 import math
 import re
 import string
+import uuid
 from collections import Counter
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
@@ -593,6 +594,31 @@ def _markdown_definition(definition: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+_FILE_KINDS = frozenset({"markdown", "pdf", "pptx", "video"})
+
+
+def _file_definition(definition: dict[str, Any]) -> dict[str, Any]:
+    """Validate the portable reference to a privately served classroom asset."""
+    result = _copy_definition(definition)
+    asset_id = result.get("asset_id")
+    if not isinstance(asset_id, str):
+        raise ValueError("asset_id is required.")
+    try:
+        result["asset_id"] = str(uuid.UUID(asset_id))
+    except (TypeError, ValueError, AttributeError) as exc:
+        raise ValueError("asset_id must be a UUID.") from exc
+    file_kind = result.get("file_kind")
+    if not isinstance(file_kind, str) or file_kind.strip().lower() not in _FILE_KINDS:
+        raise ValueError(f"file_kind must be one of {sorted(_FILE_KINDS)}.")
+    result["file_kind"] = file_kind.strip().lower()
+    caption = result.get("caption")
+    if caption is not None:
+        if not isinstance(caption, str):
+            raise ValueError("caption must be text.")
+        result["caption"] = caption.strip()
+    return result
+
+
 _MEDIA_URL_SCHEMES = frozenset({"http", "https"})
 _MEDIA_EXTENSIONS = {
     "image": (".png", ".jpg", ".jpeg", ".svg", ".webp", ".gif"),
@@ -834,6 +860,13 @@ for _activity_type in (
         export_submission=_plain_export,
         capabilities=frozenset({"content"}),
         frontend_manifest=_manifest("media"),
+    ),
+    ActivityType(
+        "liveclassroom.file",
+        validate_definition=_file_definition,
+        export_submission=_plain_export,
+        capabilities=frozenset({"content"}),
+        frontend_manifest=_manifest("file"),
     ),
     ActivityType(
         "liveclassroom.timer",

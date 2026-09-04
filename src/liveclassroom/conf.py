@@ -14,6 +14,8 @@ DEFAULTS = {
     "AI_JOB_DISPATCHER": None,
     "AI_JOB_MAX_ATTEMPTS": 3,
     "AI_JOB_TIMEOUT_SECONDS": 300,
+    "ASSET_MAX_BYTES": 50 * 1024 * 1024,
+    "ALLOW_SERVER_FILE_PATHS": False,
 }
 
 
@@ -73,3 +75,17 @@ def ai_job_timeout_seconds() -> int:
     if isinstance(timeout, bool) or not isinstance(timeout, int) or not 10 <= timeout <= 3600:
         raise ValueError("LIVECLASSROOM['AI_JOB_TIMEOUT_SECONDS'] must be an integer from 10 to 3600.")
     return timeout
+
+
+def asset_max_bytes() -> int:
+    value = setting("ASSET_MAX_BYTES")
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ValueError("LIVECLASSROOM['ASSET_MAX_BYTES'] must be a positive integer.")
+    return value
+
+
+def server_file_paths_allowed() -> bool:
+    value = setting("ALLOW_SERVER_FILE_PATHS")
+    if not isinstance(value, bool):
+        raise ValueError("LIVECLASSROOM['ALLOW_SERVER_FILE_PATHS'] must be a boolean.")
+    return value

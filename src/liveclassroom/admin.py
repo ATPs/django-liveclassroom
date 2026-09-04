@@ -7,6 +7,7 @@ from .models import (
     AuthoringJob,
     AuthoringMessage,
     AuthoringThread,
+    ClassroomAsset,
     CommandReceipt,
     Course,
     CourseMembership,
@@ -81,3 +82,4 @@ admin.site.register(AuthoringThread)
 admin.site.register(AuthoringMessage)
 admin.site.register(AuthoringAttachment)
 admin.site.register(AuthoringJob)
+admin.site.register(ClassroomAsset)

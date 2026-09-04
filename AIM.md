@@ -149,7 +149,9 @@ sessions, guest/authenticated entry, admission controls, pause/end lifecycle
 controls, revisioned activities and submissions, independent audience channels,
 named chat, idempotent versioned HTTP commands, reusable activity authoring
 APIs, built-in activity validation and manifests, Markdown/YAML import, private
-AI authoring threads with explicit attachments and durable queued jobs,
+teacher-uploaded Markdown/PDF/PowerPoint/MP4/WebM presentation files with
+session-scoped delivery and optional superuser live server-path references,
+private AI authoring threads with explicit attachments and durable queued jobs,
 staff-only session analytics, an audited staff Student view for inspecting and
 explicitly acting as admitted participants, a restricted display route,
 authenticated Channels routing, archive/CSV export, and host-neutral plus

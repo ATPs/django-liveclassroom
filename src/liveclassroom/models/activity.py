@@ -29,6 +29,13 @@ class ActivityDefinition(models.Model):
     schema_version = models.PositiveSmallIntegerField(default=1)
     title = models.CharField(max_length=200)
     definition = models.JSONField(default=dict)
+    asset = models.ForeignKey(
+        "liveclassroom.ClassroomAsset",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="activity_definitions",
+    )
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.DRAFT)
     current_revision = models.ForeignKey(
         "liveclassroom.ActivityDefinitionRevision",
@@ -55,6 +62,13 @@ class ActivityDefinitionRevision(models.Model):
     revision = models.PositiveIntegerField()
     schema_version = models.PositiveSmallIntegerField(default=1)
     payload = models.JSONField(default=dict)
+    asset = models.ForeignKey(
+        "liveclassroom.ClassroomAsset",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="activity_definition_revisions",
+    )
     changed_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         null=True,
@@ -125,6 +139,7 @@ def create_initial_activity_revision(sender, instance, created, **kwargs):
             revision=1,
             schema_version=instance.schema_version,
             payload=instance.definition,
+            asset=instance.asset,
             changed_by=instance.owner,
         )
         sender.objects.filter(pk=instance.pk, current_revision__isnull=True).update(current_revision=revision)

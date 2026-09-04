@@ -10,9 +10,11 @@ from .ai import AuthoringAIError, authoring_ai_backends
 from .conf import (
     ai_job_max_attempts,
     ai_job_timeout_seconds,
+    asset_max_bytes,
     base_template,
     guests_allowed,
     join_code_length,
+    server_file_paths_allowed,
     setting,
     websocket_path,
 )
@@ -138,6 +140,8 @@ def check_liveclassroom_settings(app_configs: Any = None, **kwargs: Any) -> list
         websocket_path(1)
         ai_job_max_attempts()
         ai_job_timeout_seconds()
+        asset_max_bytes()
+        server_file_paths_allowed()
     except (KeyError, ValueError) as exc:
         messages.append(Error(str(exc), id="liveclassroom.E004"))
         return messages

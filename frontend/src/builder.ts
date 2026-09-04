@@ -1,6 +1,7 @@
 import { deleteJson, getJson, postJson, putJson } from "./protocol.js";
 import { getLocale, mountLanguageSwitcher, t, type Locale } from "./locales.js";
 import { mountAiChat } from "./ai_chat.js";
+import { mountFilePicker } from "./file_picker.js";
 
 export type FlowSummary = {
   id: number;
@@ -100,6 +101,7 @@ export function mountBuilder(container: HTMLElement): void {
   const previewOpenSteps = new Set<number>();
   let isAiSidebarOpen = true;
   let isAddStepOpen = false;
+  const allowServerPath = rootDataset.isSuperuser === "true";
 
   container.replaceChildren();
   const root = document.createElement("div");
@@ -174,6 +176,27 @@ export function mountBuilder(container: HTMLElement): void {
   importBtn.textContent = t("importContent", locale);
   importBtn.addEventListener("click", () => showImportModal());
   actionsGroup.append(importBtn);
+
+  const fileBtn = document.createElement("button");
+  fileBtn.type = "button";
+  fileBtn.className = "lc-btn-sm lc-btn-outline";
+  fileBtn.textContent = t("fileAdd", locale);
+  fileBtn.addEventListener("click", () => {
+    if (!currentFlow) return;
+    const picker = document.createElement("div");
+    picker.className = "lc-builder-step-form";
+    const pickerHeading = document.createElement("h4");
+    pickerHeading.textContent = t("fileAdd", locale);
+    picker.append(pickerHeading);
+    mountFilePicker(picker, {
+      locale,
+      endpoint: apiUrl(`flows/${currentFlow.id}/files/`),
+      allowServerPath,
+      onSuccess: () => void loadFlow(currentFlow!.id),
+    });
+    document.getElementById("lc-add-step-form-container")?.replaceChildren(picker);
+  });
+  actionsGroup.append(fileBtn);
 
   if (sessionId) {
     const saveSessionBtn = document.createElement("button");
