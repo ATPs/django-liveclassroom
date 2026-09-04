@@ -1,5 +1,5 @@
 import { mountAiChat } from "./ai_chat.js";
-import { mountBuilder } from "./builder.js";
+import { mountBuilder } from "./surfaces/builder/FlowBuilder.js";
 import { mountLanguageSwitcher } from "./locales.js";
 import { mountStudentSession } from "./surfaces/student/StudentSession.js";
 import { mountClassroomDisplay } from "./surfaces/display/ClassroomDisplay.js";
