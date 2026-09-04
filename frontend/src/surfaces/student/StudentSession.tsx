@@ -154,6 +154,14 @@ function StudentSession({ bootstrap }: { bootstrap: Bootstrap }) {
   useEffect(() => {
     let cancelled = false;
     const join = async (): Promise<void> => {
+      if (!bootstrap.guestJoinUrl && !bootstrap.accountJoinUrl) {
+        // Act-as / inspection surface: no join is needed; fetch state directly.
+        if (!cancelled) {
+          joinedRef.current = true;
+          setJoined(true);
+        }
+        return;
+      }
       if (bootstrap.authenticated && bootstrap.accessMode !== "guest" && bootstrap.accountJoinUrl) {
         try {
           await postJson(bootstrap.accountJoinUrl, {}, `join-account-${bootstrap.sessionId ?? "session"}`);

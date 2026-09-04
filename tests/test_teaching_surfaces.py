@@ -72,13 +72,11 @@ def test_teacher_console_bilingual_and_lang_switch(client, teacher_user, session
     resp_en = client.get(reverse("liveclassroom:teacher-console", args=[session_with_flow.id]))
     assert resp_en.status_code == 200
     content_en = resp_en.content.decode()
-    assert 'class="lc-lang-switch"' in content_en
     assert 'data-locale="en"' in content_en
     assert 'data-audience="teacher"' in content_en
-    assert 'id="start-session"' in content_en
-    assert 'id="analytics-summary"' in content_en
-    assert 'id="result-summary"' in content_en
-    assert 'data-liveclassroom-content' in content_en
+    assert 'data-flow-steps=' in content_en
+    assert 'data-qr-url=' in content_en
+    assert 'data-session-title=' in content_en
 
     # 2. Simplified Chinese
     resp_zh = client.get(f"{reverse('liveclassroom:teacher-console', args=[session_with_flow.id])}?lang=zh-Hans")
@@ -86,7 +84,6 @@ def test_teacher_console_bilingual_and_lang_switch(client, teacher_user, session
     content_zh = resp_zh.content.decode()
     assert '<html lang="zh-Hans">' in content_zh
     assert 'data-locale="zh-Hans"' in content_zh
-    assert 'class="lc-lang-switch"' in content_zh
 
 
 @pytest.mark.django_db
@@ -139,7 +136,18 @@ def test_frontend_bundle_contains_all_renderers_and_locales():
     assert "mountLanguageSwitcher" in content
     assert "mountStudentSession" in content
     assert "mountClassroomDisplay" in content
+    assert "mountTeacherConsole" in content
+    assert "mountStudentView" in content
     assert "lc-lang-switch" in content
+    assert "start-session" in content
+    assert "analytics-summary" in content
+    assert "result-summary" in content
+    assert "student-content" in content
+    assert "display-content" in content
+    assert "lc-join-qr" in content
+    assert "lc-item" in content
+    assert "data-liveclassroom-chat" in content
+    assert "data-liveclassroom-history" in content
 
     # Verify Timer Renderer
     assert "lc-timer-display" in content

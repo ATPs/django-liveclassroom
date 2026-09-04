@@ -1,3 +1,5 @@
+import json
+
 import qrcode
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import Http404, HttpResponse, JsonResponse
@@ -82,8 +84,21 @@ class TeacherConsoleView(LoginRequiredMixin, LocaleContextMixin, TemplateView):
         context = super().get_context_data(**kwargs)
         context["session"] = self.session
         context["websocket_url"] = websocket_path(self.session.id)
-        context["steps"] = (
+        steps = (
             self.session.flow.steps.select_related("activity_definition").all() if self.session.flow_id else []
+        )
+        context["steps"] = steps
+        context["flow_title"] = self.session.flow.title if self.session.flow_id else ""
+        context["flow_steps_json"] = json.dumps(
+            [
+                {
+                    "id": step.id,
+                    "position": step.position,
+                    "title": step.activity_definition.title,
+                }
+                for step in steps
+            ],
+            ensure_ascii=False,
         )
         return context
 

@@ -1,5 +1,8 @@
 import * as React from "react";
+import { useEffect, useRef } from "react";
+import { createRoot } from "react-dom/client";
 import { useLocale, useT } from "../i18n.js";
+import { mountPluginActivity } from "../plugin_runtime.js";
 import type { ActivityState, SessionState } from "../protocol.js";
 import {
   activityContent,
@@ -86,7 +89,7 @@ function ResponseForm({
   return <p>{t("noAnswer")}</p>;
 }
 
-export function ActivityView({
+function BuiltinActivityView({
   activity,
   state,
   stateUrl,
@@ -143,4 +146,51 @@ export function ActivityView({
       {admitted ? <RevealedFeedback activity={activity} /> : null}
     </>
   );
+}
+
+/**
+ * Delegate to a third-party renderer declared in the activity's
+ * frontend_manifest, falling back to the built-in renderers.
+ */
+export function ActivityView({
+  activity,
+  state,
+  stateUrl,
+  refresh,
+}: {
+  activity: ActivityState | null;
+  state: SessionState | null;
+  stateUrl: string | null;
+  refresh: () => void;
+}) {
+  const locale = useLocale();
+  const host = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const container = host.current;
+    if (!container) return undefined;
+    let innerRoot: ReturnType<typeof createRoot> | undefined;
+    const unmount = mountPluginActivity({
+      parent: container,
+      activity,
+      audience: "student",
+      state: state ?? undefined,
+      stateUrl: stateUrl ?? undefined,
+      aggregate: state?.aggregate ?? null,
+      locale,
+      manifest: activity?.frontend_manifest,
+      fallback: (el) => {
+        innerRoot = createRoot(el);
+        innerRoot.render(
+          <BuiltinActivityView activity={activity} state={state} stateUrl={stateUrl} refresh={refresh} />,
+        );
+      },
+    });
+    return () => {
+      unmount();
+      innerRoot?.unmount();
+    };
+  }, [activity, state, stateUrl, locale, refresh]);
+
+  return <div ref={host} />;
 }

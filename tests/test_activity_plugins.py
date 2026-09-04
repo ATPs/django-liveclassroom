@@ -68,11 +68,11 @@ def test_builtin_activity_types_registered_with_complete_manifests():
 def test_frontend_plugin_runtime_uses_react_and_manifest_driven_loading():
     package = Path("frontend/package.json").read_text(encoding="utf-8")
     runtime = Path("frontend/src/plugin_runtime.ts").read_text(encoding="utf-8")
-    app = Path("frontend/src/app.ts").read_text(encoding="utf-8")
+    activity_view = Path("frontend/src/activities/ActivityView.tsx").read_text(encoding="utf-8")
 
     assert '"react"' in package and '"react-dom"' in package
     assert "createRoot" in runtime and "pluginApiVersion" in runtime
-    assert "mountPluginActivity" in app and "frontend_manifest" in app
+    assert "mountPluginActivity" in activity_view and "frontend_manifest" in activity_view
 
 
 @pytest.mark.django_db
