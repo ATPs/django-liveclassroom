@@ -66,7 +66,7 @@ class AuthoringAttachment(models.Model):
     class SourceType(models.TextChoices):
         ACTIVITY = "activity", "Activity"
         FLOW = "flow", "Flow"
-        FLOW_ITEM = "flow_item", "Flow item"
+        FLOW_STEP = "flow_step", "Flow step"
         PROVIDER = "provider", "Content provider"
 
     message = models.ForeignKey(AuthoringMessage, on_delete=models.CASCADE, related_name="attachments")

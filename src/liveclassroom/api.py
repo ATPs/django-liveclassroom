@@ -3,6 +3,7 @@ import json
 from copy import deepcopy
 
 from django.contrib.auth import get_user_model
+from django.core import signing
 from django.db import IntegrityError, transaction
 from django.http import Http404, JsonResponse, StreamingHttpResponse
 from django.shortcuts import get_object_or_404
@@ -12,7 +13,6 @@ from .models import (
     ActivityDefinition,
     AuthoringCommandReceipt,
     CommandReceipt,
-    FlowItem,
     FlowStep,
     LiveActivity,
     LiveSession,
@@ -25,11 +25,11 @@ from .services.classroom import (
     ClassroomError,
     archive_session,
     can_manage_admission,
+    can_manage_session,
     can_view_display,
     can_view_session,
     delete_session,
     end_session,
-    ensure_channel_states,
     join_authenticated,
     join_guest,
     launch_item,
@@ -37,6 +37,7 @@ from .services.classroom import (
     post_message,
     public_result_summary,
     publish_activity_to_channel,
+    record_act_as_activation,
     remove_session_staff,
     result_summary,
     revise_activity,
@@ -296,6 +297,37 @@ def _participant_for_request(request, session: LiveSession) -> Participant | Non
     return None
 
 
+def _act_as_context(request, session: LiveSession) -> tuple[Participant | None, bool]:
+    """Resolve a short-lived teacher-selected participant without touching presence data."""
+    token = request.GET.get("act_as_token")
+    if not token and request.method != "GET":
+        token = _body(request).get("act_as_token")
+    if not token:
+        return None, False
+    try:
+        payload = signing.loads(token, salt="liveclassroom.act-as", max_age=900)
+        participant_id = payload["participant_id"]
+        active = bool(payload.get("active"))
+    except (signing.BadSignature, KeyError, TypeError, ValueError) as exc:
+        raise ClassroomError("The student-view token is invalid or has expired.") from exc
+    if payload.get("session_id") != session.id or payload.get("actor_id") != request.user.pk:
+        raise ClassroomError("The student-view token is not valid for this request.")
+    if not can_manage_session(request.user, session):
+        raise ClassroomError("You do not have permission to act as a participant.")
+    participant = Participant.objects.filter(pk=participant_id, session=session).first()
+    if participant is None:
+        raise ClassroomError("The selected participant is no longer in this classroom.")
+    return participant, active
+
+
+def _student_view_token(*, session: LiveSession, participant: Participant, actor, active: bool) -> str:
+    return signing.dumps(
+        {"session_id": session.id, "participant_id": participant.id, "actor_id": actor.pk, "active": active},
+        salt="liveclassroom.act-as",
+        compress=True,
+    )
+
+
 def _public_activity(
     activity: LiveActivity | None,
     *,
@@ -470,9 +502,7 @@ def launch(request, session_id: int):
         return replay
     try:
         body = _body(request)
-        if body.get("flow_item_id"):
-            item = get_object_or_404(FlowItem, pk=body["flow_item_id"])
-        elif body.get("flow_step_id"):
+        if body.get("flow_step_id"):
             item = get_object_or_404(FlowStep, pk=body["flow_step_id"])
         elif body.get("activity_definition_id"):
             item = get_object_or_404(ActivityDefinition, pk=body["activity_definition_id"])
@@ -571,7 +601,11 @@ def channel_settings(request, session_id: int):
         "channel": state.channel,
         "version": state.version,
         "visibility": {
-            field: getattr(state, field)
+            field: (
+                bool(state.current_activity_id and state.current_activity.reviewable)
+                if field == "allow_review"
+                else getattr(state, field)
+            )
             for field in (
                 "show_prompt",
                 "show_aggregate",
@@ -717,14 +751,18 @@ def admission(request, session_id: int, participant_id: int):
 def chat_messages(request, session_id: int):
     """Return only named public messages for an admitted viewer or staff member."""
     session = get_object_or_404(LiveSession, pk=session_id)
-    participant = _participant_for_request(request, session)
+    try:
+        participant, acting_as = _act_as_context(request, session)
+    except ClassroomError as exc:
+        return _error(str(exc), 403)
+    participant = participant or _participant_for_request(request, session)
     if participant and participant.admission_state != Participant.AdmissionState.ADMITTED:
         return _error("You are not admitted to this classroom.", 403)
     if not participant and not can_view_session(request.user, session):
         return _error("Join the classroom before viewing chat.", 403)
     messages = (
         session.messages.filter(deleted_at__isnull=True).values("id", "display_name", "body", "created_at")
-        if session.chat_enabled or can_view_session(request.user, session)
+        if session.chat_enabled or (not acting_as and can_view_session(request.user, session))
         else []
     )
     return JsonResponse({"enabled": session.chat_enabled, "messages": list(messages)})
@@ -736,19 +774,46 @@ def participants(request, session_id: int):
     session = get_object_or_404(LiveSession, pk=session_id)
     if not can_manage_admission(request.user, session):
         return _error("You do not have permission to view participants.", 403)
-    roster = session.participants.order_by("joined_at", "id").values(
+    roster = list(session.participants.order_by("joined_at", "id").values(
         "id",
         "display_name",
         "user_id",
-        "role",
         "admission_state",
         "joined_at",
         "last_seen_at",
         "connected_at",
         "disconnected_at",
         "removed_at",
-    )
-    return JsonResponse({"session_id": session.id, "participants": list(roster)})
+    ))
+    for participant in roster:
+        participant["inspection_token"] = _student_view_token(
+            session=session,
+            participant=Participant(id=participant["id"], session_id=session.id),
+            actor=request.user,
+            active=False,
+        )
+    return JsonResponse({"session_id": session.id, "participants": roster})
+
+
+@require_POST
+@transaction.atomic
+def activate_student_view(request, session_id: int):
+    """Issue an audited action token after a manager explicitly confirms act-as."""
+    session = get_object_or_404(LiveSession, pk=session_id)
+    try:
+        body = _body(request)
+        participant_id = body["participant_id"]
+        if body.get("confirm") is not True:
+            raise ClassroomError("Explicit confirmation is required to act as a participant.")
+        participant = get_object_or_404(Participant, pk=participant_id, session=session)
+        record_act_as_activation(session=session, participant=participant, actor=request.user)
+    except KeyError as exc:
+        return _error(f"{exc.args[0]} is required.")
+    except ClassroomError as exc:
+        return _error(str(exc), 403)
+    return JsonResponse({
+        "act_as_token": _student_view_token(session=session, participant=participant, actor=request.user, active=True)
+    })
 
 
 def _staff_payload(assignment, session: LiveSession) -> dict:
@@ -838,7 +903,19 @@ def chat_send(request, session_id: int):
     replay, key = _replay(request, session, "message.create")
     if replay is not None:
         return replay
-    participant = _participant_for_request(request, session)
+    try:
+        participant, active = _act_as_context(request, session)
+    except ClassroomError as exc:
+        return _record(session, key, "message.create", request, _error(str(exc), 403))
+    if participant is not None and not active:
+        return _record(
+            session,
+            key,
+            "message.create",
+            request,
+            _error("Activate act-as before sending as this participant.", 403),
+        )
+    participant = participant or _participant_for_request(request, session)
     try:
         message = post_message(
             session=session,
@@ -907,8 +984,13 @@ def chat_settings(request, session_id: int):
 @require_GET
 def state(request, session_id: int):
     session = get_object_or_404(LiveSession, pk=session_id)
-    participant = _participant_for_request(request, session)
-    staff_view = can_view_session(request.user, session)
+    try:
+        participant, active = _act_as_context(request, session)
+    except ClassroomError as exc:
+        return _error(str(exc), 403)
+    acting_as = participant is not None
+    participant = participant or _participant_for_request(request, session)
+    staff_view = not acting_as and can_view_session(request.user, session)
     requested_channel = request.GET.get("channel")
     if requested_channel not in {None, *SessionChannelState.Channel.values}:
         return _error("Unsupported session channel.")
@@ -951,16 +1033,15 @@ def state(request, session_id: int):
                     }
                 )
             return _error("You are not admitted to this classroom.", 403)
-    states = ensure_channel_states(session)
+    states = list(
+        session.channel_states.select_related("current_activity", "current_revision").order_by("channel")
+    )
     channel_state = (
         session.channel_states.filter(channel=channel)
         .select_related("current_activity", "current_revision")
         .first()
     )
     activity = channel_state.current_activity if channel_state and channel_state.current_activity_id else None
-    # Sessions created before channel state existed need a compatibility fallback.
-    if activity is None and not any(item.current_activity_id for item in states):
-        activity = session.activities.order_by("-sequence").first()
     submission = None
     if participant and activity:
         submission = activity.submissions.filter(participant=participant).values("id", "answer", "is_stale").first()
@@ -989,7 +1070,7 @@ def state(request, session_id: int):
                 "show_answer": other_state.show_answer,
                 "show_explanation": other_state.show_explanation,
                 "show_own_status": other_state.show_own_status,
-                "allow_review": other_state.allow_review,
+                "allow_review": bool(other_state.current_activity_id and other_state.current_activity.reviewable),
             },
             "aggregate": aggregate,
         }
@@ -1026,6 +1107,7 @@ def state(request, session_id: int):
             ),
             "my_submission": submission if (staff_view or not channel_state or channel_state.show_own_status) else None,
             "aggregate": current_aggregate,
+            "act_as_active": active if acting_as else True,
         }
     )
 
@@ -1034,8 +1116,13 @@ def state(request, session_id: int):
 def history(request, session_id: int):
     """Return reviewable prior activities without exposing hidden answer data."""
     session = get_object_or_404(LiveSession, pk=session_id)
-    participant = _participant_for_request(request, session)
-    staff_view = can_view_session(request.user, session)
+    try:
+        participant, _active = _act_as_context(request, session)
+    except ClassroomError as exc:
+        return _error(str(exc), 403)
+    acting_as = participant is not None
+    participant = participant or _participant_for_request(request, session)
+    staff_view = not acting_as and can_view_session(request.user, session)
     if not participant and not staff_view:
         return _error("Join the classroom before viewing activity history.", 403)
     if participant and not staff_view and participant.admission_state != Participant.AdmissionState.ADMITTED:
@@ -1077,7 +1164,19 @@ def submit(request, activity_id: int):
     replay, key = _replay(request, activity.session, "submission.submit")
     if replay is not None:
         return replay
-    participant = _participant_for_request(request, activity.session)
+    try:
+        participant, active = _act_as_context(request, activity.session)
+    except ClassroomError as exc:
+        return _record(activity.session, key, "submission.submit", request, _error(str(exc), 403))
+    if participant is not None and not active:
+        return _record(
+            activity.session,
+            key,
+            "submission.submit",
+            request,
+            _error("Activate act-as before submitting.", 403),
+        )
+    participant = participant or _participant_for_request(request, activity.session)
     if not participant:
         return _record(
             activity.session,
@@ -1087,7 +1186,12 @@ def submit(request, activity_id: int):
             _error("Join the classroom before submitting.", 403),
         )
     try:
-        submission = submit_answer(activity=activity, participant=participant, answer=_body(request).get("answer", {}))
+        submission = submit_answer(
+            activity=activity,
+            participant=participant,
+            answer=_body(request).get("answer", {}),
+            actor=request.user,
+        )
     except ClassroomError as exc:
         return _record(activity.session, key, "submission.submit", request, _error(str(exc), 409))
     return _record(

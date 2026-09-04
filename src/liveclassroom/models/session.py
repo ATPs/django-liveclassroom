@@ -4,8 +4,10 @@ import string
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.db.models.signals import post_save
+from django.dispatch import receiver
 
-from .content import Flow, FlowItem, FlowStep
+from .content import Flow, FlowStep
 from .course import Course
 
 
@@ -20,15 +22,9 @@ def make_join_code() -> str:
 class LiveSession(models.Model):
     class Status(models.TextChoices):
         DRAFT = "draft", "Draft"
-        WAITING = "waiting", "Waiting"
         LIVE = "live", "Live"
         PAUSED = "paused", "Paused"
         ENDED = "ended", "Ended"
-
-    class Mode(models.TextChoices):
-        TEACHER_PACED = "teacher_paced", "Teacher paced"
-        STUDENT_PACED = "student_paced", "Student paced"
-        EXAM = "exam", "Exam"
 
     class AccessMode(models.TextChoices):
         GUEST = "guest", "Guest link"
@@ -50,24 +46,9 @@ class LiveSession(models.Model):
     )
     join_code = models.CharField(max_length=12, unique=True, default=make_join_code)
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.DRAFT)
-    mode = models.CharField(max_length=20, choices=Mode.choices, default=Mode.TEACHER_PACED)
     access_mode = models.CharField(max_length=20, choices=AccessMode.choices, default=AccessMode.GUEST)
     admission_mode = models.CharField(max_length=20, choices=AdmissionMode.choices, default=AdmissionMode.OPEN)
     chat_enabled = models.BooleanField(default=False)
-    current_item = models.ForeignKey(
-        FlowItem,
-        null=True,
-        blank=True,
-        on_delete=models.SET_NULL,
-        related_name="current_in_sessions",
-    )
-    current_step = models.ForeignKey(
-        FlowStep,
-        null=True,
-        blank=True,
-        on_delete=models.SET_NULL,
-        related_name="current_in_sessions",
-    )
     state_version = models.PositiveBigIntegerField(default=0)
     started_at = models.DateTimeField(null=True, blank=True)
     ended_at = models.DateTimeField(null=True, blank=True)
@@ -81,10 +62,6 @@ class LiveSession(models.Model):
     def clean(self) -> None:
         if self.flow_id and self.course_id and self.flow.course_id and self.flow.course_id != self.course_id:
             raise ValidationError({"flow": "The selected flow must belong to the selected course."})
-        if self.current_item_id and self.flow_id and self.current_item.flow_id != self.flow_id:
-            raise ValidationError({"current_item": "The item must belong to the selected flow."})
-        if self.current_step_id and self.flow_id and self.current_step.flow_id != self.flow_id:
-            raise ValidationError({"current_step": "The step must belong to the selected flow."})
 
     def __str__(self) -> str:
         return f"{self.title} ({self.join_code})"
@@ -96,11 +73,6 @@ class LiveSession(models.Model):
 
 
 class Participant(models.Model):
-    class Role(models.TextChoices):
-        TEACHER = "teacher", "Teacher"
-        ASSISTANT = "assistant", "Assistant"
-        STUDENT = "student", "Student"
-
     class AdmissionState(models.TextChoices):
         PENDING = "pending", "Pending"
         ADMITTED = "admitted", "Admitted"
@@ -117,7 +89,6 @@ class Participant(models.Model):
     )
     guest_id = models.CharField(max_length=128, blank=True)
     display_name = models.CharField(max_length=100)
-    role = models.CharField(max_length=16, choices=Role.choices, default=Role.STUDENT)
     admission_state = models.CharField(max_length=16, choices=AdmissionState.choices, default=AdmissionState.ADMITTED)
     joined_at = models.DateTimeField(auto_now_add=True)
     last_seen_at = models.DateTimeField(null=True, blank=True)
@@ -174,13 +145,6 @@ class LiveActivity(models.Model):
     session = models.ForeignKey(LiveSession, on_delete=models.CASCADE, related_name="activities")
     sequence = models.PositiveIntegerField()
     kind = models.CharField(max_length=16)
-    source_item = models.ForeignKey(
-        FlowItem,
-        null=True,
-        blank=True,
-        on_delete=models.SET_NULL,
-        related_name="live_activities",
-    )
     source_step = models.ForeignKey(
         FlowStep,
         null=True,
@@ -313,12 +277,19 @@ class SessionChannelState(models.Model):
     show_answer = models.BooleanField(default=False)
     show_explanation = models.BooleanField(default=False)
     show_own_status = models.BooleanField(default=True)
-    allow_review = models.BooleanField(default=False)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=["session", "channel"], name="lc_session_channel_once")]
         ordering = ["session", "channel"]
+
+
+@receiver(post_save, sender=LiveSession)
+def create_session_channel_states(sender, instance, created, **kwargs):
+    """Every newly created session has both independent audience channels."""
+    if created:
+        for channel in SessionChannelState.Channel:
+            SessionChannelState.objects.get_or_create(session=instance, channel=channel)
 
 
 class SessionMessage(models.Model):

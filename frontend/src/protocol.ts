@@ -17,6 +17,7 @@ export type SessionState = {
   participant: ParticipantState | null;
   my_submission: SubmissionState | null;
   aggregate: AggregateState | null;
+  act_as_active?: boolean;
   channel?: string;
   channels?: Record<string, ChannelState>;
 };
@@ -141,27 +142,6 @@ export async function putJson<T>(
   return payload;
 }
 
-export async function patchJson<T>(
-  url: string,
-  body: Record<string, unknown> = {},
-  idempotencyKey?: string,
-): Promise<T> {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    "X-CSRFToken": csrfToken(),
-  };
-  if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
-  const response = await fetch(url, {
-    method: "PATCH",
-    credentials: "same-origin",
-    headers,
-    body: JSON.stringify(body),
-  });
-  const payload = await response.json().catch(() => ({})) as T & ApiError;
-  if (!response.ok) throw new Error(payload.detail ?? "Request failed");
-  return payload;
-}
-
 export async function deleteJson<T>(
   url: string,
   idempotencyKey?: string,
@@ -193,7 +173,6 @@ export function apiEndpoint(stateUrl: string, resource: string): string {
   } else {
     url.pathname = `${match[1].replace(/sessions\/$/, "")}${resourcePath}/`;
   }
-  url.search = "";
   return url.toString();
 }
 

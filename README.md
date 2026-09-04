@@ -7,9 +7,10 @@ application.
 
 ## What is included now
 
-- Course, flow, question, live-session, participant, activity, submission, and
-  audit-event models, including immutable activity/answer revisions, named
-  chat messages, admission state, and independent display/participant channels.
+- Course, flow, typed activity-definition, flow-step, live-session,
+  participant, activity, submission, and audit-event models, including
+  immutable activity/answer revisions, named chat messages, admission state,
+  and independent display/participant channels.
 - Django admin for authoring and inspecting the core data.
 - HTTP endpoints for the classroom landing page, teacher console, and student
   join page.
@@ -24,6 +25,9 @@ application.
   VaultPub Slide View URL adapter.
 - Reusable activity authoring/validation APIs, Markdown/YAML import, activity
   manifests, pause/end lifecycle controls, and staff-only session analytics.
+- A staff-only Student view that lets authorized session managers inspect the
+  exact participant experience and explicitly act as an admitted participant;
+  delegated writes are retained in the session audit history.
 - Private teacher AI authoring threads with explicit source attachments,
   durable queued jobs, safe model discovery, and host-configured dispatch.
 - Staff-only session archive export plus summary, response, participant, and
@@ -55,13 +59,14 @@ Open <http://127.0.0.1:8000/>. The Django admin is available at
 
 ## Run the first live quiz
 
-1. In `/admin/`, create a Course, Flow, single-choice Question, and Question
-   FlowItem. The question `data` uses `{"options": [{"id": "A", "text":
-   "…"}]}`; its `answer` is a JSON list such as `["A"]`.
+1. In `/admin/`, create a Course, Flow, and a ready single-choice
+   ActivityDefinition. Its `definition` uses `{"prompt": "…", "options":
+   [{"id": "A", "text": "…"}], "answer": ["A"]}`. Add the definition to
+   the flow as a FlowStep.
 2. Visit `/teacher/`, create a session, and click **Start classroom**.
 3. Share `/join/` and the displayed join code. Guests enter only a display
    name, then see the teacher's current activity.
-4. Publish the Question FlowItem, close responses, and reveal the answer from
+4. Publish the FlowStep, close responses, and reveal the answer from
    the teacher console.
 
 ## Import Markdown/YAML content
@@ -93,6 +98,19 @@ To rebuild the packaged teaching client after editing TypeScript, run
 bundle to `src/liveclassroom/static/liveclassroom/app.js`; `bun run check`
 performs the optional TypeScript typecheck when frontend dependencies are
 installed.
+
+All public HTTP endpoints are versioned under `/api/v1/`; unversioned API
+aliases are not supported.
+
+## Staff Student view
+
+Authorized session managers can open the Student view from a teacher session,
+choose any existing participant, and inspect the same participant-facing state
+and redaction rules that the selected student receives. The page starts in
+inspect-only mode. An explicit action is required before acting as an admitted
+participant; actions then affect that participant's real classroom record and
+remain auditable with the staff actor. The Student view never creates a
+participant or changes attendance or presence simply by being opened.
 
 ## Design principles
 

@@ -1,8 +1,7 @@
 from .activity import ActivityDefinition, ActivityDefinitionRevision, AuthoringCommandReceipt
 from .authoring import AuthoringAttachment, AuthoringJob, AuthoringMessage, AuthoringThread
-from .content import Flow, FlowItem, FlowStep
+from .content import Flow, FlowStep
 from .course import Course, CourseMembership
-from .question import Question
 from .session import (
     ActivityRunRevision,
     CommandReceipt,
@@ -30,7 +29,6 @@ __all__ = [
     "AuthoringMessage",
     "AuthoringThread",
     "Flow",
-    "FlowItem",
     "FlowStep",
     "ActivityRun",
     "ActivityRunRevision",
@@ -38,7 +36,6 @@ __all__ = [
     "LiveSession",
     "Participant",
     "ParticipantConnection",
-    "Question",
     "SessionEvent",
     "SessionStaff",
     "SessionChannelState",

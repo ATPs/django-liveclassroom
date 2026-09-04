@@ -6,7 +6,6 @@ DEFAULTS = {
     "ALLOW_GUESTS": True,
     "JOIN_CODE_LENGTH": 6,
     "BASE_TEMPLATE": None,
-    "DEFAULT_SESSION_MODE": "teacher_paced",
     "ALLOW_IFRAME": False,
     "WEBSOCKET_PATH": "/ws/liveclassroom/sessions/{session_id}/",
     "RETENTION_DAYS": None,
@@ -34,14 +33,6 @@ def join_code_length() -> int:
     if isinstance(length, bool) or not isinstance(length, int) or not 4 <= length <= 12:
         raise ValueError("LIVECLASSROOM['JOIN_CODE_LENGTH'] must be an integer from 4 to 12.")
     return length
-
-
-def default_session_mode() -> str:
-    """Return the configured session mode without importing models at settings load time."""
-    mode = setting("DEFAULT_SESSION_MODE")
-    if mode not in {"teacher_paced", "student_paced"}:
-        raise ValueError("LIVECLASSROOM['DEFAULT_SESSION_MODE'] must be teacher_paced or student_paced.")
-    return mode
 
 
 def base_template() -> str:

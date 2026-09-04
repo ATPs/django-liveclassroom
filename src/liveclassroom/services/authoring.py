@@ -20,7 +20,7 @@ from liveclassroom.models import (
     AuthoringMessage,
     AuthoringThread,
     Flow,
-    FlowItem,
+    FlowStep,
 )
 from liveclassroom.providers import ContentReference, ProviderError, content_providers
 
@@ -156,7 +156,7 @@ def _normalize_attachment(payload: Mapping[str, Any], *, actor, request) -> dict
         "activity_definition": AuthoringAttachment.SourceType.ACTIVITY,
         "activity": AuthoringAttachment.SourceType.ACTIVITY,
         "flow": AuthoringAttachment.SourceType.FLOW,
-        "flow_item": AuthoringAttachment.SourceType.FLOW_ITEM,
+        "flow_step": AuthoringAttachment.SourceType.FLOW_STEP,
         "provider": AuthoringAttachment.SourceType.PROVIDER,
         "vaultpub": AuthoringAttachment.SourceType.PROVIDER,
     }.get(source_type, source_type)
@@ -181,8 +181,8 @@ def _normalize_attachment(payload: Mapping[str, Any], *, actor, request) -> dict
         source_id = payload.get("activity_id", source_id)
     elif source_type == AuthoringAttachment.SourceType.FLOW:
         source_id = payload.get("flow_id", source_id)
-    elif source_type == AuthoringAttachment.SourceType.FLOW_ITEM:
-        source_id = payload.get("flow_item_id", source_id)
+    elif source_type == AuthoringAttachment.SourceType.FLOW_STEP:
+        source_id = payload.get("flow_step_id", source_id)
     source_id = _positive_id(source_id, "source_id")
     if source_type == AuthoringAttachment.SourceType.ACTIVITY:
         source = ActivityDefinition.objects.filter(pk=source_id).first()
@@ -191,7 +191,7 @@ def _normalize_attachment(payload: Mapping[str, Any], *, actor, request) -> dict
         source = Flow.objects.filter(pk=source_id).first()
         allowed = source is not None and _can_attach_flow(actor, source)
     else:
-        source = FlowItem.objects.select_related("flow").filter(pk=source_id).first()
+        source = FlowStep.objects.select_related("flow", "activity_definition").filter(pk=source_id).first()
         allowed = source is not None and _can_attach_flow(actor, source.flow)
     if not allowed:
         raise ClassroomError("You do not have permission to attach this source.")
@@ -227,17 +227,18 @@ def _stored_attachment_payload(attachment: AuthoringAttachment, *, actor, reques
             "title": source.title,
             "description": source.description,
         }
-    elif attachment.source_type == AuthoringAttachment.SourceType.FLOW_ITEM:
-        source = FlowItem.objects.select_related("flow").filter(pk=attachment.source_id).first()
+    elif attachment.source_type == AuthoringAttachment.SourceType.FLOW_STEP:
+        source = FlowStep.objects.select_related("flow", "activity_definition").filter(pk=attachment.source_id).first()
         if source is None or not _can_attach_flow(actor, source.flow):
             raise ClassroomError("An attached flow item is unavailable or not authorized.")
         return {
             "source_type": attachment.source_type,
             "source_id": source.pk,
             "flow_id": source.flow_id,
-            "kind": source.kind,
-            "title": source.title,
-            "content": source.content,
+            "activity_definition_id": source.activity_definition_id,
+            "title": source.activity_definition.title,
+            "type_key": source.activity_definition.type_key,
+            "content": source.activity_definition.definition,
         }
     elif attachment.source_type == AuthoringAttachment.SourceType.PROVIDER:
         try:

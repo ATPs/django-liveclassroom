@@ -11,11 +11,9 @@ from .models import (
     Course,
     CourseMembership,
     Flow,
-    FlowItem,
     LiveActivity,
     LiveSession,
     Participant,
-    Question,
     SessionChannelState,
     SessionEvent,
     SessionMessage,
@@ -59,31 +57,16 @@ class ActivityDefinitionRevisionAdmin(admin.ModelAdmin):
     list_filter = ("schema_version",)
 
 
-@admin.register(FlowItem)
-class FlowItemAdmin(admin.ModelAdmin):
-    list_display = ("flow", "position", "kind", "title", "question")
-    list_filter = ("kind", "flow__course")
-    ordering = ("flow", "position")
-
-
-@admin.register(Question)
-class QuestionAdmin(admin.ModelAdmin):
-    list_display = ("id", "question_type", "status", "difficulty", "updated_at")
-    list_filter = ("question_type", "status")
-    search_fields = ("stem_markdown", "source")
-
-
 @admin.register(LiveSession)
 class LiveSessionAdmin(admin.ModelAdmin):
-    list_display = ("title", "course", "flow", "join_code", "status", "archived_at", "mode", "state_version")
-    list_filter = ("status", "mode", "access_mode", "admission_mode", "course")
+    list_display = ("title", "course", "flow", "join_code", "status", "archived_at", "state_version")
+    list_filter = ("status", "access_mode", "admission_mode", "course")
     search_fields = ("title", "join_code", "course__title")
 
 
 @admin.register(Participant)
 class ParticipantAdmin(admin.ModelAdmin):
-    list_display = ("display_name", "session", "role", "user", "joined_at", "last_seen_at")
-    list_filter = ("role",)
+    list_display = ("display_name", "session", "user", "joined_at", "last_seen_at")
     search_fields = ("display_name", "guest_id", "user__username")
 
 

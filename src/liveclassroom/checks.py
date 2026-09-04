@@ -11,7 +11,6 @@ from .conf import (
     ai_job_max_attempts,
     ai_job_timeout_seconds,
     base_template,
-    default_session_mode,
     guests_allowed,
     join_code_length,
     setting,
@@ -134,7 +133,6 @@ def check_liveclassroom_settings(app_configs: Any = None, **kwargs: Any) -> list
     messages: list[Error] = []
     try:
         join_code_length()
-        default_session_mode()
         guests_allowed()
         base_template()
         websocket_path(1)

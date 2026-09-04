@@ -67,6 +67,24 @@ class TeacherConsoleView(LoginRequiredMixin, LocaleContextMixin, TemplateView):
         return context
 
 
+class StudentView(LoginRequiredMixin, LocaleContextMixin, TemplateView):
+    """A staff-only participant-scoped student surface with no join side effects."""
+
+    template_name = "liveclassroom/student_view.html"
+
+    def dispatch(self, request, *args, **kwargs):
+        self.session = get_object_or_404(LiveSession, pk=kwargs["session_id"])
+        if not can_manage_session(request.user, self.session):
+            raise Http404
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["session"] = self.session
+        context["websocket_url"] = websocket_path(self.session.id)
+        return context
+
+
 class ClassroomDisplayView(LoginRequiredMixin, LocaleContextMixin, TemplateView):
     """Render a restricted projector surface for a teacher, co-host, or observer."""
 
