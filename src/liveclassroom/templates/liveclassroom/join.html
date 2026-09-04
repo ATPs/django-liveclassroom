@@ -1,13 +1,14 @@
 {% extends liveclassroom_base_template %}
-{% block title %}Join · LiveClassroom{% endblock %}
+{% load i18n %}
+{% block title %}{% translate "Join" %} · LiveClassroom{% endblock %}
 {% block content %}
   <section class="lc-card">
-    <p class="lc-kicker">Student</p>
-    <h1>Join a classroom</h1>
+    <p class="lc-kicker">{% translate "Student" %}</p>
+    <h1>{% translate "Join a classroom" %}</h1>
     <form method="post" class="lc-form">
       {% csrf_token %}
       {{ form.as_p }}
-      <button type="submit">Join</button>
+      <button type="submit">{% translate "Join" %}</button>
     </form>
   </section>
 {% endblock %}

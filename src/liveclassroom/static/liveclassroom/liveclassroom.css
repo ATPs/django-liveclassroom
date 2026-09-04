@@ -210,6 +210,25 @@
   cursor: not-allowed;
 }
 
+/* Base button class usable on both <button> and <a>. */
+#liveclassroom-root .lc-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  margin: 0.25rem 0;
+  padding: 0.55rem 0.85rem;
+  font: inherit;
+  font-weight: 500;
+  line-height: 1.2;
+  border: 1px solid var(--lc-border-strong);
+  border-radius: var(--lc-radius);
+  text-decoration: none;
+  cursor: pointer;
+  transition: background var(--lc-transition), border-color var(--lc-transition),
+    color var(--lc-transition);
+}
+
 #liveclassroom-root .lc-btn-sm {
   padding: 0.35rem 0.65rem;
   font-size: 0.85rem;

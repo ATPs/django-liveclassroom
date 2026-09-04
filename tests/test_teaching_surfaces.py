@@ -45,6 +45,26 @@ def test_base_template_lang_attribute_and_fallback(client):
 
 
 @pytest.mark.django_db
+def test_server_rendered_pages_are_bilingual(client, teacher_user):
+    # English default
+    home_en = client.get(reverse("liveclassroom:home"))
+    assert "Teacher console" in home_en.content.decode()
+
+    # Chinese via ?lang=
+    home_zh = client.get(f"{reverse('liveclassroom:home')}?lang=zh-Hans")
+    assert "教师控制台" in home_zh.content.decode()
+
+    join_zh = client.get(f"{reverse('liveclassroom:join')}?lang=zh-Hans")
+    assert "加入课堂" in join_zh.content.decode()
+    assert "加入码" in join_zh.content.decode()
+
+    client.force_login(teacher_user)
+    dash_zh = client.get(f"{reverse('liveclassroom:teacher-dashboard')}?lang=zh-Hans")
+    assert "我的课堂" in dash_zh.content.decode()
+    assert "开始直播课堂" in dash_zh.content.decode()
+
+
+@pytest.mark.django_db
 def test_teacher_console_bilingual_and_lang_switch(client, teacher_user, session_with_flow):
     client.force_login(teacher_user)
 
