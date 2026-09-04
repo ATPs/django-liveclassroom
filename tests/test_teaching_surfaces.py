@@ -155,6 +155,13 @@ def test_css_contains_teaching_surface_styles():
     assert css_path.exists(), "liveclassroom.css must exist"
     css = css_path.read_text(encoding="utf-8")
 
+    # Design tokens and theming
+    assert "--lc-accent" in css
+    assert "--lc-surface" in css
+    assert "--lc-text" in css
+    assert "prefers-color-scheme: dark" in css
+    assert "prefers-reduced-motion" in css
+    assert ":focus-visible" in css
     # Language Switcher
     assert ".lc-lang-switch" in css
     # Timer
@@ -172,6 +179,8 @@ def test_css_contains_teaching_surface_styles():
     assert ".lc-bar-container" in css
     assert ".lc-bar" in css
     assert ".lc-rate-badge" in css
+    # Buttons
+    assert ".lc-btn-primary" in css
 
 
 def test_locales_ts_key_parity_and_coverage():
