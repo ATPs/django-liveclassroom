@@ -11,6 +11,7 @@ from liveclassroom.models import (
     ActivityDefinition,
     ActivityDefinitionRevision,
     ActivityRunRevision,
+    ClassroomAsset,
     CourseMembership,
     FlowItem,
     FlowStep,
@@ -262,6 +263,7 @@ def _ensure_run_revision(activity: LiveActivity, actor=None, source_revision=Non
         activity=locked_activity,
         revision=1,
         definition_snapshot=locked_activity.definition_snapshot,
+        asset=getattr(source_revision, "asset", None),
         source_revision=source_revision,
         created_by=actor if getattr(actor, "is_authenticated", False) else None,
     )
@@ -351,7 +353,7 @@ def create_instant_session(
 
 @transaction.atomic
 def create_activity_definition(
-    *, owner, title: str, type_key: str, definition: dict[str, Any], course=None, change_note: str = ""
+    *, owner, title: str, type_key: str, definition: dict[str, Any], course=None, asset=None, change_note: str = ""
 ) -> ActivityDefinition:
     """Create a validated reusable activity and its first immutable revision."""
     if not getattr(owner, "is_authenticated", False):
@@ -367,6 +369,15 @@ def create_activity_definition(
         raise ClassroomError("You do not have permission to author content for this course.")
     if "." not in type_key:
         type_key = f"liveclassroom.{type_key}"
+    if type_key == "liveclassroom.file":
+        if not isinstance(asset, ClassroomAsset):
+            raise ClassroomError("A classroom asset is required for file content.")
+        if asset.owner_id != owner.pk and not getattr(owner, "is_superuser", False):
+            raise ClassroomError("You do not have permission to use this classroom asset.")
+        if definition.get("asset_id") != str(asset.public_id):
+            raise ClassroomError("The file definition does not match the selected asset.")
+    elif asset is not None:
+        raise ClassroomError("Only file content may reference a classroom asset.")
     try:
         activity_type = activity_registry.get(type_key)
         definition = activity_type.validate(definition)
@@ -380,6 +391,7 @@ def create_activity_definition(
         type_key=type_key,
         title=title.strip(),
         definition=definition,
+        asset=asset,
         status=ActivityDefinition.Status.READY,
     )
     activity.refresh_from_db(fields=["current_revision"])
@@ -389,6 +401,7 @@ def create_activity_definition(
             revision=1,
             schema_version=activity.schema_version,
             payload=definition,
+            asset=asset,
             changed_by=owner,
             change_note=change_note,
         )
@@ -419,6 +432,7 @@ def revise_activity_definition(
         revision=(latest.revision if latest else 0) + 1,
         schema_version=activity.schema_version,
         payload=definition,
+        asset=activity.asset,
         changed_by=actor,
         change_note=change_note,
     )
@@ -478,6 +492,7 @@ def pause_session(*, session: LiveSession, actor) -> LiveSession:
     locked.save(update_fields=["status", "updated_at"])
     session.status = locked.status
     version = _advance_version(locked)
+    session.state_version = version
     event_id = _append_event(locked, "session.paused", actor)
     notify_session_after_commit(
         locked.id,
@@ -659,8 +674,18 @@ def launch_item(
         channel_state.allow_review = activity.reviewable
     version = _advance_version(session)
     channel_state.version = version
+    channel_state.document_page = 1
+    channel_state.document_navigation = SessionChannelState.DocumentNavigation.FOLLOW
     channel_state.save(
-        update_fields=["current_activity", "current_revision", "allow_review", "version", "updated_at"]
+        update_fields=[
+            "current_activity",
+            "current_revision",
+            "allow_review",
+            "version",
+            "document_page",
+            "document_navigation",
+            "updated_at",
+        ]
     )
     event_id = _append_event(session, "activity.opened", actor, {"activity_id": activity.id})
     notify_session_after_commit(
@@ -694,6 +719,8 @@ def publish_activity_to_channel(
     state, _ = SessionChannelState.objects.get_or_create(session=session, channel=channel)
     state.current_activity = activity
     state.current_revision = revision
+    state.document_page = 1
+    state.document_navigation = SessionChannelState.DocumentNavigation.FOLLOW
     if channel == SessionChannelState.Channel.PARTICIPANTS:
         if allow_review is not None:
             activity.reviewable = allow_review
@@ -705,7 +732,17 @@ def publish_activity_to_channel(
         state.allow_review = allow_review
     version = _advance_version(session)
     state.version = version
-    state.save(update_fields=["current_activity", "current_revision", "allow_review", "version", "updated_at"])
+    state.save(
+        update_fields=[
+            "current_activity",
+            "current_revision",
+            "allow_review",
+            "version",
+            "document_page",
+            "document_navigation",
+            "updated_at",
+        ]
+    )
     event_id = _append_event(session, "channel.published", actor, {"channel": channel, "activity_id": activity.id})
     notify_session_after_commit(
         session.id,
@@ -796,6 +833,7 @@ def revise_activity(
         activity=activity,
         revision=next_revision,
         definition_snapshot=definition_snapshot,
+        asset=activity.current_revision.asset if activity.current_revision_id else None,
         source_revision=source_revision,
         created_by=actor if getattr(actor, "is_authenticated", False) else None,
     )
@@ -825,6 +863,71 @@ def revise_activity(
         },
     )
     return revision
+
+
+@transaction.atomic
+def update_document_presentation(
+    *, session: LiveSession, actor, channels: list[str], page: int | None, navigation: str | None
+):
+    """Update teacher-controlled page state without coupling display and student channels."""
+    if not can_manage_session(actor, session):
+        raise ClassroomError("You do not have permission to control this session.")
+    if not channels or len(set(channels)) != len(channels):
+        raise ClassroomError("At least one unique audience channel is required.")
+    if any(channel not in SessionChannelState.Channel.values for channel in channels):
+        raise ClassroomError("Unsupported session channel.")
+    if page is not None and (isinstance(page, bool) or not isinstance(page, int) or page < 1 or page > 10_000):
+        raise ClassroomError("Document page must be an integer from 1 to 10000.")
+    if navigation is not None and navigation not in SessionChannelState.DocumentNavigation.values:
+        raise ClassroomError("Unsupported student document navigation mode.")
+    locked = LiveSession.objects.select_for_update().get(pk=session.pk)
+    states = list(
+        locked.channel_states.select_for_update()
+        .select_related("current_activity", "current_revision", "current_revision__asset")
+        .filter(channel__in=channels)
+    )
+    if len(states) != len(channels):
+        raise ClassroomError("The requested audience channel is unavailable.")
+    assets = set()
+    for state in states:
+        revision = state.current_revision
+        if not state.current_activity_id or revision is None or revision.asset_id is None:
+            raise ClassroomError("The selected channel is not presenting a file.")
+        assets.add(revision.asset_id)
+    if len(states) > 1 and len(assets) != 1:
+        raise ClassroomError("Both channels must present the same file before they can move together.")
+    for state in states:
+        update_fields = ["updated_at"]
+        if page is not None:
+            state.document_page = page
+            update_fields.append("document_page")
+        if state.channel == SessionChannelState.Channel.PARTICIPANTS and navigation is not None:
+            state.document_navigation = navigation
+            update_fields.append("document_navigation")
+        state.save(update_fields=update_fields)
+    version = _advance_version(locked)
+    session.state_version = version
+    for state in states:
+        state.version = version
+        state.save(update_fields=["version", "updated_at"])
+    event_id = _append_event(
+        locked,
+        "document.presentation.updated",
+        actor,
+        {"channels": sorted(channels), "page": page, "navigation": navigation},
+    )
+    notify_session_after_commit(
+        locked.id,
+        {
+            "protocol": 1,
+            "session_id": locked.id,
+            "version": version,
+            "event_id": event_id,
+            "type": "document.presentation.updated",
+            "payload": {"channels": sorted(channels)},
+        },
+    )
+    return states
 
 
 @transaction.atomic

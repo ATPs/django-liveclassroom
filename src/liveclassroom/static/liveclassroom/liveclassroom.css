@@ -274,6 +274,41 @@
   font-style: italic;
 }
 
+/* Teacher-provided file content */
+#liveclassroom-root .lc-file-activity { margin: 1.25rem 0; }
+#liveclassroom-root .lc-file-status { color: #526660; }
+#liveclassroom-root .lc-file-pages { width: 100%; }
+#liveclassroom-root .lc-file-pages-scroll { display: grid; gap: 1rem; }
+#liveclassroom-root .lc-file-page {
+  display: grid;
+  place-items: center;
+  min-height: 5rem;
+  overflow: auto;
+  border: 1px solid #d4e6e0;
+  background: #fbfdfc;
+}
+#liveclassroom-root .lc-file-pdf-page { display: block; max-width: 100%; height: auto !important; }
+#liveclassroom-root .lc-file-pptx-page { display: block; width: 100%; aspect-ratio: 16 / 9; border: 0; background: #fff; }
+#liveclassroom-root .lc-file-video { display: block; width: 100%; max-height: 70vh; background: #000; }
+#liveclassroom-root .lc-file-pagination,
+#liveclassroom-root .lc-file-teacher-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .5rem;
+  margin-top: .75rem;
+}
+#liveclassroom-root .lc-file-teacher-controls { border: 1px solid #c9ddd7; padding: .65rem .8rem; }
+#liveclassroom-root .lc-file-teacher-controls label { display: inline-flex; align-items: center; gap: .35rem; }
+#liveclassroom-root .lc-file-teacher-controls select { font: inherit; max-width: 13rem; }
+#liveclassroom-root .lc-file-download { display: inline-block; margin-bottom: .75rem; }
+#liveclassroom-root .lc-file-picker { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin: .75rem 0; }
+#liveclassroom-root .lc-file-picker input, #liveclassroom-root .lc-file-picker select { min-width: 10rem; max-width: 100%; font: inherit; }
+@media (max-width: 44rem) {
+  #liveclassroom-root .lc-file-pptx-page { min-height: 12rem; }
+  #liveclassroom-root .lc-file-teacher-controls label { width: 100%; justify-content: space-between; }
+}
+
 /* Markdown Content */
 #liveclassroom-root .lc-markdown-body {
   margin: 1rem 0;

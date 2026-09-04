@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import api, api_authoring, api_flows, views
+from . import api, api_assets, api_authoring, api_flows, views
 
 app_name = "liveclassroom"
 
@@ -57,6 +57,18 @@ urlpatterns = [
     path("api/v1/sessions/<int:session_id>/activities/", api.launch, name="api-v1-launch"),
     path("api/v1/sessions/<int:session_id>/channels/publish/", api.publish_channel, name="api-v1-publish-channel"),
     path("api/v1/sessions/<int:session_id>/channels/settings/", api.channel_settings, name="api-v1-channel-settings"),
+    path("api/v1/sessions/<int:session_id>/files/", api_assets.session_file, name="api-v1-session-files"),
+    path(
+        "api/v1/sessions/<int:session_id>/presentation/",
+        api_assets.presentation,
+        name="api-v1-session-presentation",
+    ),
+    path(
+        "api/v1/sessions/<int:session_id>/activity-revisions/<int:revision_id>/assets/<uuid:asset_id>/content/",
+        api_assets.session_asset_content,
+        name="api-v1-session-asset-content",
+    ),
+    path("api/v1/assets/<uuid:asset_id>/content/", api_assets.asset_content, name="api-v1-asset-content"),
     path("api/v1/sessions/<int:session_id>/join-account/", api.join_account, name="api-v1-join-account"),
     path(
         "api/v1/sessions/<int:session_id>/participants/<int:participant_id>/admission/",
@@ -103,6 +115,7 @@ urlpatterns = [
     path("api/v1/flows/<int:flow_id>/", api_flows.flow_detail, name="api-v1-flow-detail"),
     path("api/v1/flows/<int:flow_id>/duplicate/", api_flows.duplicate_flow_api, name="api-v1-flow-duplicate"),
     path("api/v1/flows/<int:flow_id>/steps/", api_flows.add_step_api, name="api-v1-flow-add-step"),
+    path("api/v1/flows/<int:flow_id>/files/", api_assets.flow_file, name="api-v1-flow-files"),
     path("api/v1/flows/<int:flow_id>/steps/reorder/", api_flows.reorder_steps_api, name="api-v1-flow-reorder-steps"),
     path("api/v1/flows/<int:flow_id>/steps/<int:step_id>/", api_flows.delete_step_api, name="api-v1-flow-delete-step"),
     path(

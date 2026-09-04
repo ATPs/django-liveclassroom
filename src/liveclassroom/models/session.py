@@ -245,6 +245,13 @@ class ActivityRunRevision(models.Model):
     activity = models.ForeignKey(LiveActivity, on_delete=models.CASCADE, related_name="revisions")
     revision = models.PositiveIntegerField()
     definition_snapshot = models.JSONField(default=dict)
+    asset = models.ForeignKey(
+        "liveclassroom.ClassroomAsset",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="activity_run_revisions",
+    )
     source_revision = models.ForeignKey(
         "liveclassroom.ActivityDefinitionRevision",
         null=True,
@@ -291,6 +298,11 @@ class SessionChannelState(models.Model):
         DISPLAY = "display", "Classroom display"
         PARTICIPANTS = "participants", "Participants"
 
+    class DocumentNavigation(models.TextChoices):
+        FOLLOW = "follow", "Follow teacher"
+        PAGED = "paged", "Page controls"
+        SCROLL = "scroll", "Continuous scroll"
+
     session = models.ForeignKey(LiveSession, on_delete=models.CASCADE, related_name="channel_states")
     channel = models.CharField(max_length=16, choices=Channel.choices)
     current_activity = models.ForeignKey(
@@ -314,6 +326,12 @@ class SessionChannelState(models.Model):
     show_explanation = models.BooleanField(default=False)
     show_own_status = models.BooleanField(default=True)
     allow_review = models.BooleanField(default=False)
+    document_page = models.PositiveIntegerField(default=1)
+    document_navigation = models.CharField(
+        max_length=16,
+        choices=DocumentNavigation.choices,
+        default=DocumentNavigation.FOLLOW,
+    )
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

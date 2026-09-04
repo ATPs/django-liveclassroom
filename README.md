@@ -30,6 +30,10 @@ application.
   chat CSV datasets.
 - Ended-session archive/restore controls, explicit deletion protection, and a
   configurable retention cleanup command.
+- Private classroom presentation files: Markdown, PDF, PowerPoint, MP4, and
+  WebM can be added from the flow builder or teacher console, delivered only
+  within the authorized classroom session, and displayed with teacher page
+  control where applicable.
 
 The first milestone deliberately establishes the durable domain model,
 integration boundaries, teacher controls, and a useful reporting surface.
@@ -89,10 +93,31 @@ Mount `liveclassroom.routing.websocket_urlpatterns` in the host project's ASGI
 application.  The standalone `asgi.py` is the reference integration.
 
 To rebuild the packaged teaching client after editing TypeScript, run
-`bun run bundle` from `frontend/`. This writes the dependency-free browser
-bundle to `src/liveclassroom/static/liveclassroom/app.js`; `bun run check`
-performs the optional TypeScript typecheck when frontend dependencies are
-installed.
+`bun run bundle` from `frontend/`. This writes the browser bundle, its lazy
+viewer chunks, and the PDF worker to `src/liveclassroom/static/liveclassroom/`;
+`bun run check` performs the optional TypeScript typecheck when frontend
+dependencies are installed.
+
+## Classroom presentation files
+
+Teachers can upload `.md`, `.pdf`, `.pptx`, `.mp4`, and `.webm` files up to
+50 MiB from a flow or an active teacher console. Files remain private: an
+admitted participant receives a session-scoped content URL only while the file
+is published to their channel. Original-file downloads are limited to session
+managers. PDF and PowerPoint files use browser-side viewers; video uses native
+browser controls and is deliberately not playback-synchronized.
+
+By default, an uploaded file is stored in package-managed private media. A host
+can additionally permit a superuser to reference an existing absolute server
+path in place. That option exposes the current bytes at every request, so it is
+intended only for a trusted server where that live-reference behavior is wanted:
+
+```python
+LIVECLASSROOM = {
+    "ASSET_MAX_BYTES": 50 * 1024 * 1024,
+    "ALLOW_SERVER_FILE_PATHS": True,
+}
+```
 
 ## Design principles
 
@@ -147,4 +172,5 @@ Without a dispatcher, jobs remain queued for an explicit worker call to
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE). Bundled browser viewer notices are in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

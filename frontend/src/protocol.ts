@@ -68,6 +68,14 @@ export type ChannelState = {
   activity: ActivityState | null;
   visibility: VisibilityState;
   aggregate: AggregateState | null;
+  presentation?: PresentationState;
+};
+
+export type PresentationNavigationMode = "follow" | "paged" | "scroll";
+
+export type PresentationState = {
+  page?: number;
+  navigation_mode?: PresentationNavigationMode;
 };
 
 export type ParticipantState = {

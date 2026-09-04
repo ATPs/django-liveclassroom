@@ -6,7 +6,7 @@
   "scripts": {
     "build": "tsc --noEmit",
     "check": "tsc --noEmit",
-    "bundle": "bun build src/app.ts --outfile ../src/liveclassroom/static/liveclassroom/app.js --target browser --format esm --define process.env.NODE_ENV='\"production\"' --minify"
+    "bundle": "bun build src/app.ts --outdir ../src/liveclassroom/static/liveclassroom --entry-naming app.js --chunk-naming chunks/[name]-[hash].js --target browser --format esm --splitting --define process.env.NODE_ENV='\"production\"' --minify && cp node_modules/pdfjs-dist/build/pdf.worker.min.mjs ../src/liveclassroom/static/liveclassroom/pdf.worker.min.mjs"
   },
   "devDependencies": {
     "@types/react": "^19.1.0",
@@ -14,6 +14,9 @@
     "typescript": "^5.7.0"
   },
   "dependencies": {
+    "@web-ppt/core": "0.4.5",
+    "@web-ppt/viewer-core": "0.4.5",
+    "pdfjs-dist": "5.4.624",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   }

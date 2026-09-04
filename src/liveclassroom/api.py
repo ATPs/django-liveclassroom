@@ -6,6 +6,7 @@ from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
 from django.http import Http404, JsonResponse, StreamingHttpResponse
 from django.shortcuts import get_object_or_404
+from django.urls import reverse
 from django.views.decorators.http import require_GET, require_POST
 
 from .models import (
@@ -21,10 +22,12 @@ from .models import (
 )
 from .registry import activity_registry
 from .services.analytics import session_analytics
+from .services.assets import asset_descriptor
 from .services.classroom import (
     ClassroomError,
     archive_session,
     can_manage_admission,
+    can_manage_session,
     can_view_display,
     can_view_session,
     delete_session,
@@ -300,6 +303,8 @@ def _public_activity(
     activity: LiveActivity | None,
     *,
     channel_state=None,
+    request=None,
+    session: LiveSession | None = None,
     force_show_prompt: bool = False,
     force_hide_answer: bool = False,
     force_hide_explanation: bool = False,
@@ -361,6 +366,25 @@ def _public_activity(
         manifest = dict(activity_registry.get(type_key).frontend_manifest)
     except KeyError:
         manifest = {}
+    if type_key == "liveclassroom.file" and revision is not None and revision.asset_id:
+        content = snapshot.get("content")
+        if isinstance(content, dict):
+            content = dict(content)
+            content_url = None
+            download_url = None
+            if request is not None and session is not None:
+                content_url = reverse(
+                    "liveclassroom:api-v1-session-asset-content",
+                    args=[session.id, revision.id, revision.asset.public_id],
+                )
+                if can_manage_session(request.user, session):
+                    download_url = f"{content_url}?download=1"
+            content["asset"] = asset_descriptor(
+                revision.asset,
+                content_url=content_url,
+                download_url=download_url,
+            )
+            snapshot["content"] = content
     return {
         "id": activity.id,
         "state": activity.state,
@@ -982,7 +1006,12 @@ def state(request, session_id: int):
         )
         channels[other_state.channel] = {
             "version": other_state.version,
-            "activity": _public_activity(other_state.current_activity, channel_state=other_state),
+            "activity": _public_activity(
+                other_state.current_activity,
+                channel_state=other_state,
+                request=request,
+                session=session,
+            ),
             "visibility": {
                 "show_prompt": other_state.show_prompt,
                 "show_aggregate": other_state.show_aggregate,
@@ -990,6 +1019,10 @@ def state(request, session_id: int):
                 "show_explanation": other_state.show_explanation,
                 "show_own_status": other_state.show_own_status,
                 "allow_review": other_state.allow_review,
+            },
+            "presentation": {
+                "page": other_state.document_page,
+                "navigation_mode": other_state.document_navigation,
             },
             "aggregate": aggregate,
         }
@@ -1013,7 +1046,12 @@ def state(request, session_id: int):
                 "chat_enabled": session.chat_enabled,
             },
             "channel": channel,
-            "current_activity": _public_activity(activity, channel_state=channel_state),
+            "current_activity": _public_activity(
+                activity,
+                channel_state=channel_state,
+                request=request,
+                session=session,
+            ),
             "channels": channels,
             "participant": (
                 {
@@ -1052,6 +1090,8 @@ def history(request, session_id: int):
                 _public_activity(
                     activity,
                     channel_state=history_channel,
+                    request=request,
+                    session=session,
                     force_show_prompt=True,
                     force_hide_answer=(
                         not history_channel.show_answer

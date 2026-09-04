@@ -23,7 +23,7 @@ type PluginModule = {
 type PluginActivityOptions = Omit<PluginRenderContext, "container" | "fallback"> & {
   parent: HTMLElement;
   manifest?: Record<string, string>;
-  fallback: (container: HTMLElement) => void;
+  fallback: (container: HTMLElement) => void | (() => void);
 };
 
 function rendererKey(audience: Audience): "student_renderer" | "display_renderer" {
@@ -44,7 +44,10 @@ function PluginActivity({ options }: { options: PluginActivityOptions }): Return
     let disposed = false;
     let cleanup: (() => void) | undefined;
     const fallback = () => {
-      if (!disposed) options.fallback(container);
+      if (!disposed) {
+        const result = options.fallback(container);
+        if (typeof result === "function") cleanup = result;
+      }
     };
     const target = options.manifest?.[rendererKey(options.audience)];
     if (!target) {
