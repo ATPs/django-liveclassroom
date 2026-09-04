@@ -26,7 +26,7 @@ const RESPONSE_KINDS = [
   "ranking",
 ];
 
-function Prompt({ activity }: { activity: ActivityState }) {
+export function Prompt({ activity }: { activity: ActivityState }) {
   const prompt = questionPrompt(activity);
   const content = activityContent(activity);
   const markdown = stringValue(content.markdown, stringValue(activity.definition.markdown));
@@ -38,7 +38,7 @@ function Prompt({ activity }: { activity: ActivityState }) {
   );
 }
 
-function RevealedFeedback({ activity }: { activity: ActivityState }) {
+export function RevealedFeedback({ activity }: { activity: ActivityState }) {
   const locale = useLocale();
   const content = activityContent(activity);
   const answer = displayAnswer(content.answer ?? content.correct_answer ?? activity.definition.answer);

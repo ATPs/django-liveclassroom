@@ -144,6 +144,39 @@
   width: min(100%, 68rem);
 }
 
+/* Full-viewport presentation surface for the classroom display. */
+#liveclassroom-root .lc-display-shell {
+  position: relative;
+  width: min(100%, 90rem);
+  min-height: calc(100dvh - 4rem);
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 1rem;
+  padding: 2rem;
+  background: var(--lc-surface);
+  border: 1px solid var(--lc-border);
+  border-radius: var(--lc-radius-lg);
+  box-shadow: var(--lc-shadow-sm);
+  text-align: center;
+}
+
+#liveclassroom-root .lc-display-shell h1 {
+  font-size: clamp(2rem, 6vw, 4.5rem);
+  line-height: 1.1;
+  margin: 0;
+  align-self: center;
+}
+
+#liveclassroom-root .lc-display-shell #display-content {
+  align-self: center;
+}
+
+#liveclassroom-root .lc-display-toolbar {
+  position: absolute;
+  top: 1.25rem;
+  left: 1.25rem;
+}
+
 #liveclassroom-root .lc-actions {
   display: flex;
   flex-wrap: wrap;

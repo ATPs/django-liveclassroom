@@ -138,6 +138,7 @@ def test_frontend_bundle_contains_all_renderers_and_locales():
     # Verify Language Switcher
     assert "mountLanguageSwitcher" in content
     assert "mountStudentSession" in content
+    assert "mountClassroomDisplay" in content
     assert "lc-lang-switch" in content
 
     # Verify Timer Renderer
