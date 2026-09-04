@@ -543,6 +543,11 @@ async function submitAnswer(
 // Media renderer
 function renderMedia(parent: HTMLElement, activity: ActivityState): void {
   const content = activityContent(activity);
+  const mediaDisabled = content.media_disabled === true || activity.definition.media_disabled === true;
+  if (mediaDisabled) {
+    parent.append(text("p", "This media is unavailable."));
+    return;
+  }
   const url = stringValue(content.url, stringValue(activity.definition.url));
   if (!url) return;
   const rawMediaType = stringValue(content.media_type, stringValue(activity.definition.media_type)).toLowerCase();
@@ -585,7 +590,13 @@ function renderMedia(parent: HTMLElement, activity: ActivityState): void {
     container.append(audio);
   } else {
     const iframe = document.createElement("iframe");
+    const provider = stringValue(content.provider, stringValue(activity.definition.provider)).toLowerCase();
     iframe.src = url;
+    iframe.sandbox.value = provider === "vaultpub" ? "allow-scripts allow-same-origin" : "allow-scripts";
+    iframe.referrerPolicy = provider === "vaultpub" ? "same-origin" : "no-referrer";
+    iframe.allow = "";
+    iframe.loading = "lazy";
+    iframe.title = caption || (provider === "vaultpub" ? "VaultPub presentation" : "Embedded content");
     iframe.style.width = "100%";
     iframe.style.minHeight = "400px";
     iframe.style.border = "none";

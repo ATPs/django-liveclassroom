@@ -1,6 +1,7 @@
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models
-from django.db.models.signals import post_save
+from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
 
 
@@ -102,6 +103,17 @@ class AuthoringCommandReceipt(models.Model):
             )
         ]
         ordering = ["owner", "created_at", "id"]
+
+
+@receiver(pre_save, sender=ActivityDefinition)
+def validate_activity_definition_before_save(sender, instance, **kwargs):
+    """Keep direct ORM and admin writes behind the activity registry policy."""
+    try:
+        from liveclassroom.registry import activity_registry
+
+        instance.definition = activity_registry.get(instance.type_key).validate(instance.definition)
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValidationError({"definition": str(exc)}) from exc
 
 
 @receiver(post_save, sender=ActivityDefinition)

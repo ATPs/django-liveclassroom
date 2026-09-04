@@ -1,6 +1,8 @@
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.db.models.signals import pre_save
+from django.dispatch import receiver
 
 from .activity import ActivityDefinition
 from .course import Course
@@ -105,3 +107,36 @@ class FlowStep(models.Model):
         if self.activity_definition_id and self.activity_definition.course_id:
             if self.flow_id and self.flow.course_id and self.activity_definition.course_id != self.flow.course_id:
                 raise ValidationError({"activity_definition": "The activity must belong to the flow's course."})
+
+
+_LEGACY_MEDIA_KINDS = frozenset({"image", "video", "url", "iframe"})
+
+
+def _validate_legacy_media(kind: str, content: dict) -> dict:
+    if kind not in _LEGACY_MEDIA_KINDS or not isinstance(content, dict):
+        return content
+    if content.get("media_disabled") is True:
+        return content
+    from liveclassroom.registry import activity_registry
+
+    media_type = "iframe" if kind in {"url", "iframe"} else kind
+    payload = {**content, "media_type": content.get("media_type", media_type)}
+    return activity_registry.get("liveclassroom.media").validate(payload)
+
+
+@receiver(pre_save, sender=FlowItem)
+def validate_legacy_flow_item_media(sender, instance, **kwargs):
+    """Apply current media policy to compatibility FlowItem writes."""
+    try:
+        instance.content = _validate_legacy_media(instance.kind, instance.content)
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValidationError({"content": str(exc)}) from exc
+
+
+@receiver(pre_save, sender=FlowStep)
+def validate_legacy_flow_step_media(sender, instance, **kwargs):
+    """Apply current media policy to untyped compatibility FlowStep writes."""
+    try:
+        instance.content = _validate_legacy_media(instance.kind, instance.content)
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValidationError({"content": str(exc)}) from exc

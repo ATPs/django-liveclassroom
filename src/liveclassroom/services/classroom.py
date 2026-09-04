@@ -27,11 +27,67 @@ from liveclassroom.models import (
 from liveclassroom.registry import activity_registry
 
 from .events import notify_session_after_commit
-from .permissions import can_edit_flow, can_use_activity_definition
+from .permissions import can_author_course, can_edit_flow, can_use_activity_definition
 
 
 class ClassroomError(Exception):
     """A command error that is safe to return from the JSON API."""
+
+
+_LEGACY_MEDIA_KINDS = frozenset({"image", "video", "url", "iframe"})
+
+
+def _snapshot_type_key(snapshot: dict[str, Any]) -> str | None:
+    type_key = snapshot.get("type_key")
+    if isinstance(type_key, str) and type_key.strip():
+        return type_key if "." in type_key else f"liveclassroom.{type_key}"
+    kind = snapshot.get("kind")
+    if isinstance(kind, str) and kind in _LEGACY_MEDIA_KINDS:
+        return "liveclassroom.media"
+    return None
+
+
+def validate_activity_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
+    """Revalidate a run snapshot, including compatibility media content."""
+    if not isinstance(snapshot, dict):
+        raise ValueError("An activity snapshot must be an object.")
+    type_key = _snapshot_type_key(snapshot)
+    if type_key is None:
+        return snapshot
+    content = snapshot.get("content", {})
+    if not isinstance(content, dict):
+        raise ValueError("An activity snapshot content value must be an object.")
+    if type_key == "liveclassroom.media" and snapshot.get("kind") in _LEGACY_MEDIA_KINDS:
+        legacy_type = "iframe" if snapshot["kind"] in {"url", "iframe"} else snapshot["kind"]
+        content = {**content, "media_type": content.get("media_type", legacy_type)}
+    validated = activity_registry.get(type_key).validate(content)
+    result = dict(snapshot)
+    result["type_key"] = type_key
+    result["content"] = validated
+    return result
+
+
+def safe_activity_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
+    """Return a renderable snapshot, disabling unsafe stored media in place."""
+    try:
+        return validate_activity_snapshot(snapshot)
+    except (KeyError, TypeError, ValueError):
+        type_key = _snapshot_type_key(snapshot) if isinstance(snapshot, dict) else None
+        if type_key != "liveclassroom.media":
+            return {
+                key: snapshot[key]
+                for key in ("schema_version", "type_key", "kind", "title")
+                if isinstance(snapshot, dict) and key in snapshot
+            }
+        return {
+            key: snapshot[key]
+            for key in ("schema_version", "type_key", "kind", "title")
+            if key in snapshot
+        } | {
+            "type_key": "liveclassroom.media",
+            "content": {"media_disabled": True},
+            "media_disabled": True,
+        }
 
 
 def can_manage_session(user, session: LiveSession) -> bool:
@@ -281,12 +337,7 @@ def create_activity_definition(
     if (
         course is not None
         and not getattr(owner, "is_superuser", False)
-        and course.created_by_id != owner.pk
-        and not CourseMembership.objects.filter(
-            course=course,
-            user=owner,
-            role=CourseMembership.Role.TEACHER,
-        ).exists()
+        and not can_author_course(owner, course)
     ):
         raise ClassroomError("You do not have permission to author content for this course.")
     if "." not in type_key:
@@ -329,7 +380,10 @@ def revise_activity_definition(
     *, activity: ActivityDefinition, definition: dict[str, Any], actor, change_note: str = ""
 ) -> ActivityDefinitionRevision:
     """Update a reusable definition without rewriting its prior payload."""
-    if not getattr(actor, "is_authenticated", False) or activity.owner_id != actor.pk:
+    if not getattr(actor, "is_authenticated", False) or (
+        activity.owner_id != actor.pk
+        and not (activity.course_id and can_author_course(actor, activity.course))
+    ):
         raise ClassroomError("You do not have permission to edit this activity.")
     try:
         definition = activity_registry.get(activity.type_key).validate(definition)
@@ -521,7 +575,19 @@ def purge_expired_sessions(*, days: int | None = None) -> int:
 
 
 @transaction.atomic
-def launch_item(*, session: LiveSession, item: FlowItem | FlowStep | ActivityDefinition, actor) -> LiveActivity:
+def launch_item(
+    *,
+    session: LiveSession,
+    item: FlowItem | FlowStep | ActivityDefinition,
+    actor,
+    channel: str = SessionChannelState.Channel.DISPLAY,
+) -> LiveActivity:
+    """Open an activity and publish it to one channel.
+
+    Teacher-paced sessions default to the classroom display. Publishing to the
+    participant channel is a separate command so opening new display content
+    cannot replace what students are answering.
+    """
     if not can_manage_session(actor, session):
         raise ClassroomError("You do not have permission to control this session.")
     locked_session = LiveSession.objects.select_for_update().get(pk=session.pk)
@@ -530,7 +596,13 @@ def launch_item(*, session: LiveSession, item: FlowItem | FlowStep | ActivityDef
     session.status = locked_session.status
     if locked_session.status != LiveSession.Status.LIVE:
         raise ClassroomError("Start the session before publishing an item.")
+    if channel not in SessionChannelState.Channel.values:
+        raise ClassroomError("Unsupported session channel.")
     _validate_launch_source(session=session, item=item, actor=actor)
+    try:
+        snapshot = validate_activity_snapshot(activity_snapshot(item))
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ClassroomError("The selected activity contains invalid or unsafe content.") from exc
     definition = item if isinstance(item, ActivityDefinition) else getattr(item, "activity_definition", None)
 
     sequence = (session.activities.order_by("-sequence").values_list("sequence", flat=True).first() or 0) + 1
@@ -539,7 +611,7 @@ def launch_item(*, session: LiveSession, item: FlowItem | FlowStep | ActivityDef
         sequence=sequence,
         kind=(definition.type_key.rsplit(".", 1)[-1] if definition is not None else item.kind),
         source_item=item if isinstance(item, FlowItem) else None,
-        definition_snapshot=activity_snapshot(item),
+        definition_snapshot=snapshot,
     )
     run_revision = _ensure_run_revision(
         activity,
@@ -551,12 +623,16 @@ def launch_item(*, session: LiveSession, item: FlowItem | FlowStep | ActivityDef
         session.current_item = item
         update_fields.append("current_item")
     session.save(update_fields=update_fields)
-    for channel_state in ensure_channel_states(session):
-        channel_state.current_activity = activity
-        channel_state.current_revision = run_revision
-        channel_state.version = session.state_version + 1
-        channel_state.save(update_fields=["current_activity", "current_revision", "version", "updated_at"])
+    channel_state, _ = SessionChannelState.objects.get_or_create(session=session, channel=channel)
+    channel_state.current_activity = activity
+    channel_state.current_revision = run_revision
+    if channel == SessionChannelState.Channel.PARTICIPANTS:
+        channel_state.allow_review = activity.reviewable
     version = _advance_version(session)
+    channel_state.version = version
+    channel_state.save(
+        update_fields=["current_activity", "current_revision", "allow_review", "version", "updated_at"]
+    )
     event_id = _append_event(session, "activity.opened", actor, {"activity_id": activity.id})
     notify_session_after_commit(
         session.id,
@@ -589,11 +665,15 @@ def publish_activity_to_channel(
     state, _ = SessionChannelState.objects.get_or_create(session=session, channel=channel)
     state.current_activity = activity
     state.current_revision = revision
-    if allow_review is not None:
-        state.allow_review = allow_review
-        if channel == SessionChannelState.Channel.PARTICIPANTS:
+    if channel == SessionChannelState.Channel.PARTICIPANTS:
+        if allow_review is not None:
             activity.reviewable = allow_review
             activity.save(update_fields=["reviewable"])
+        # ``allow_review`` remains a compatibility mirror for old clients;
+        # the activity flag is authoritative for history filtering.
+        state.allow_review = activity.reviewable
+    elif allow_review is not None:
+        state.allow_review = allow_review
     version = _advance_version(session)
     state.version = version
     state.save(update_fields=["current_activity", "current_revision", "allow_review", "version", "updated_at"])
@@ -638,10 +718,11 @@ def update_channel_visibility(*, session: LiveSession, channel: str, actor, **ch
     version = _advance_version(session)
     state.version = version
     state.save(update_fields=[*changes, "version", "updated_at"])
-    # Keep the durable per-activity review flag in sync with the participants
-    # channel so student history retrieval never disagrees with channel state.
+    # Keep the compatibility mirror and durable per-activity flag synchronized.
     if channel == SessionChannelState.Channel.PARTICIPANTS and "allow_review" in changes and state.current_activity_id:
-        LiveActivity.objects.filter(pk=state.current_activity_id).update(reviewable=changes["allow_review"])
+        activity = LiveActivity.objects.select_for_update().get(pk=state.current_activity_id)
+        activity.reviewable = changes["allow_review"]
+        activity.save(update_fields=["reviewable"])
     event_id = _append_event(
         session,
         "channel.visibility.updated",
@@ -995,7 +1076,7 @@ def submit_answer(*, activity: LiveActivity, participant: Participant, answer: d
     return submission
 
 
-def result_summary(activity: LiveActivity) -> dict[str, Any]:
+def result_summary(activity: LiveActivity, *, public: bool = False) -> dict[str, Any]:
     current = activity.submissions.filter(is_stale=False)
     answers = list(current.values_list("answer", flat=True))
     try:
@@ -1004,8 +1085,11 @@ def result_summary(activity: LiveActivity) -> dict[str, Any]:
             if activity.current_revision_id
             else None
         ) or f"liveclassroom.{activity.kind}"
-        aggregate = activity_registry.get(type_key).aggregate(
-            answers, definition=_activity_validation_definition(activity)
+        activity_type = activity_registry.get(type_key)
+        aggregate = (
+            activity_type.aggregate_public(answers, definition=_activity_validation_definition(activity))
+            if public
+            else activity_type.aggregate(answers, definition=_activity_validation_definition(activity))
         )
     except (KeyError, ValueError):
         aggregate = {"submission_count": len(answers), "choices": {}}
@@ -1017,18 +1101,26 @@ def result_summary(activity: LiveActivity) -> dict[str, Any]:
     }
 
 
-_AGGREGATE_RAW_KEYS = frozenset({"values", "raw_answers"})
+def public_result_summary(activity: LiveActivity) -> dict[str, Any]:
+    """Return the explicit audience-safe aggregate for one activity."""
+    return result_summary(activity, public=True)
 
 
 def redact_aggregate(aggregate: dict[str, Any]) -> dict[str, Any]:
-    """Remove raw individual answers before an aggregate reaches an audience.
+    """Keep compatibility callers on the explicitly supported public fields.
 
-    Short text, numeric, rating, ranking, and word-cloud aggregates carry the
-    raw submitted values for teacher moderation. Those must never reach the
-    participant or display channels through ``state``; staff analytics, results,
-    and exports use ``result_summary`` directly and keep the full data.
+    New state serialization uses ``public_result_summary`` so plugin-defined
+    fields cannot accidentally cross an audience boundary.
     """
-    return {key: value for key, value in aggregate.items() if key not in _AGGREGATE_RAW_KEYS}
+    public_keys = frozenset({
+        "submission_count",
+        "choices",
+        "word_frequencies",
+        "words",
+        "numeric_summary",
+        "ranking_positions",
+    })
+    return {key: value for key, value in aggregate.items() if key in public_keys}
 
 
 @transaction.atomic
@@ -1036,6 +1128,7 @@ def post_message(
     *, session: LiveSession, body: str, actor=None, participant: Participant | None = None
 ) -> SessionMessage:
     """Create a named public chat message after checking session participation."""
+    session = LiveSession.objects.select_for_update().get(pk=session.pk)
     if session.status == LiveSession.Status.ENDED:
         raise ClassroomError("This classroom has ended.")
     if not session.chat_enabled:

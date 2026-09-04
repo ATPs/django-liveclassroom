@@ -335,6 +335,7 @@ def test_third_party_activity_type_registration(clean_registry):
 
     assert retrieved.validate_answer(normalized_sub, validated_def) == {"snippet": "x = 42"}
     assert retrieved.aggregate([{"snippet": "a"}, {"snippet": "bc"}]) == {"submission_count": 2, "total_chars": 3}
+    assert retrieved.aggregate_public([{"snippet": "a"}, {"snippet": "bc"}]) == {"submission_count": 2}
     assert retrieved.export(normalized_sub) == {"exported_snippet": "x = 42"}
 
 

@@ -18,13 +18,13 @@ from liveclassroom.models import (
     AuthoringJob,
     AuthoringMessage,
     AuthoringThread,
-    Course,
     Flow,
     FlowItem,
 )
 from liveclassroom.providers import ContentReference, ProviderError, content_providers
 
 from .classroom import ClassroomError
+from .permissions import can_author_course
 
 
 def can_view_authoring_thread(actor, thread: AuthoringThread) -> bool:
@@ -41,24 +41,13 @@ def create_authoring_thread(*, owner, title: str = "New authoring conversation")
     return AuthoringThread.objects.create(owner=owner, title=title.strip()[:200])
 
 
-def _can_author_course(actor, course_id: int | None) -> bool:
-    if not getattr(actor, "is_authenticated", False) or course_id is None:
-        return False
-    if actor.is_superuser:
-        return True
-    course = Course.objects.filter(pk=course_id).first()
-    if course is not None and course.created_by_id == actor.pk:
-        return True
-    return course is not None and course.memberships.filter(user=actor, role="teacher").exists()
-
-
 def _can_attach_activity(actor, activity: ActivityDefinition) -> bool:
     if not getattr(actor, "is_authenticated", False):
         return False
     return bool(
         actor.is_superuser
         or activity.owner_id == actor.pk
-        or _can_author_course(actor, activity.course_id)
+        or (activity.course_id and can_author_course(actor, activity.course))
     )
 
 
@@ -68,7 +57,7 @@ def _can_attach_flow(actor, flow: Flow) -> bool:
     return bool(
         actor.is_superuser
         or (flow.created_by_id and flow.created_by_id == actor.pk)
-        or _can_author_course(actor, flow.course_id)
+        or (flow.course_id and can_author_course(actor, flow.course))
     )
 
 

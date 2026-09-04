@@ -65,7 +65,8 @@ def test_instant_session_has_independent_channels_and_reusable_activity(teacher)
     display = session.channel_states.get(channel=SessionChannelState.Channel.DISPLAY)
     participants = session.channel_states.get(channel=SessionChannelState.Channel.PARTICIPANTS)
     assert activity.current_revision.revision == 1
-    assert display.current_activity_id == participants.current_activity_id == activity.id
+    assert display.current_activity_id == activity.id
+    assert participants.current_activity_id is None
 
     publish_activity_to_channel(
         session=session,

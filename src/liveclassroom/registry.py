@@ -17,6 +17,7 @@ class ActivityType:
     normalize_submission: Callable[[dict[str, Any]], dict[str, Any]] | None = None
     validate_submission: Callable[[dict[str, Any], dict[str, Any]], dict[str, Any]] | None = None
     aggregate_submissions: Callable[..., dict[str, Any]] | None = None
+    aggregate_public_submissions: Callable[..., dict[str, Any]] | None = None
     score_submission: Callable[[dict[str, Any], dict[str, Any]], dict[str, Any]] | None = None
     export_submission: Callable[[dict[str, Any]], dict[str, Any]] | None = None
     capabilities: frozenset[str] = field(default_factory=frozenset)
@@ -57,6 +58,24 @@ class ActivityType:
         if self.validate_submission is None:
             return submission
         return self.validate_submission(submission, definition)
+
+    def aggregate_public(
+        self,
+        submissions: Iterable[dict[str, Any]],
+        definition: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Return an audience-safe aggregate owned by the activity plugin.
+
+        A plugin without an explicit public aggregator exposes only its count.
+        This keeps arbitrary private keys, nested answers, and moderation data
+        out of participant and display state by default.
+        """
+        if self.aggregate_public_submissions is None:
+            return {"submission_count": sum(1 for _ in submissions)}
+        try:
+            return self.aggregate_public_submissions(submissions, definition=definition)
+        except TypeError:
+            return self.aggregate_public_submissions(submissions)
 
     def score(self, submission: dict[str, Any], definition: dict[str, Any]) -> dict[str, Any]:
         """Return optional plugin-owned scoring data."""
@@ -343,6 +362,60 @@ def _aggregate(answers: Iterable[dict[str, Any]]) -> dict[str, Any]:
     return result
 
 
+def _aggregate_public_choices(answers: Iterable[dict[str, Any]], definition=None) -> dict[str, Any]:
+    result = _aggregate(answers)
+    result.pop("values", None)
+    return result
+
+
+def _aggregate_public_text(answers: Iterable[dict[str, Any]], definition=None) -> dict[str, Any]:
+    return {"submission_count": sum(1 for answer in answers if isinstance(answer, dict))}
+
+
+def _aggregate_public_numeric(answers: Iterable[dict[str, Any]], definition=None) -> dict[str, Any]:
+    values: list[float] = []
+    count = 0
+    for answer in answers:
+        if not isinstance(answer, dict):
+            continue
+        count += 1
+        value = answer.get("value", answer.get("rating"))
+        if isinstance(value, bool):
+            continue
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(number):
+            values.append(number)
+    result: dict[str, Any] = {"submission_count": count}
+    if values:
+        result["numeric_summary"] = {
+            "minimum": min(values),
+            "maximum": max(values),
+            "average": sum(values) / len(values),
+        }
+    return result
+
+
+def _aggregate_public_ranking(answers: Iterable[dict[str, Any]], definition=None) -> dict[str, Any]:
+    positions: dict[str, Counter[int]] = {}
+    count = 0
+    for answer in answers:
+        if not isinstance(answer, dict) or not isinstance(answer.get("ranking"), list):
+            continue
+        count += 1
+        for index, value in enumerate(answer["ranking"], start=1):
+            positions.setdefault(str(value), Counter())[index] += 1
+    return {
+        "submission_count": count,
+        "ranking_positions": {
+            value: {str(position): total for position, total in counts.items()}
+            for value, counts in positions.items()
+        },
+    }
+
+
 def _score_choice(answer: dict[str, Any], definition: dict[str, Any]) -> dict[str, Any]:
     expected = definition.get("answer", definition.get("correct_answer"))
     if expected is None and isinstance(definition.get("question"), dict):
@@ -458,6 +531,18 @@ def _aggregate_word_cloud(
     }
 
 
+def _aggregate_public_word_cloud(
+    answers: Iterable[dict[str, Any]],
+    definition: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    result = _aggregate_word_cloud(answers, definition=definition)
+    return {
+        "submission_count": result["submission_count"],
+        "word_frequencies": result["word_frequencies"],
+        "words": result["words"],
+    }
+
+
 def _timer_definition(definition: dict[str, Any]) -> dict[str, Any]:
     result = _copy_definition(definition)
     duration = result.get("duration_seconds")
@@ -520,18 +605,76 @@ def _infer_media_type(url: str) -> str:
 
 
 def _validate_media_url(url: str) -> str:
-    """Canonicalize a media URL, rejecting executable or credential-bearing forms."""
-    if any(ord(char) < 0x20 or ord(char) == 0x7F for char in url):
+    """Canonicalize a media URL, rejecting ambiguous or executable forms."""
+    if any(ord(char) < 0x20 or ord(char) == 0x7F for char in url) or "\\" in url:
         raise ValueError("url contains control characters.")
-    parsed = urlsplit(url)
+    if "#" in url:
+        raise ValueError("url must not contain a fragment.")
+    if url.startswith("//"):
+        raise ValueError("scheme-relative URLs are not allowed.")
+    try:
+        parsed = urlsplit(url)
+        hostname = parsed.hostname
+        parsed.port
+    except ValueError as exc:
+        raise ValueError("url has an invalid host or port.") from exc
     if parsed.scheme:
         if parsed.scheme.lower() not in _MEDIA_URL_SCHEMES:
             raise ValueError("url must use http or https.")
+        if not parsed.netloc or not hostname:
+            raise ValueError("absolute url must include a host.")
         if parsed.username is not None or parsed.password is not None:
             raise ValueError("url must not contain credentials.")
-    elif not url.startswith("/"):
+    elif parsed.netloc or not url.startswith("/"):
         raise ValueError("relative url must start with '/'.")
     return url
+
+
+def _canonical_origin(value: str) -> str | None:
+    try:
+        parsed = urlsplit(value)
+        hostname = parsed.hostname
+        port = parsed.port
+    except (TypeError, ValueError):
+        return None
+    if parsed.scheme.lower() not in _MEDIA_URL_SCHEMES or not parsed.netloc or not hostname:
+        return None
+    if parsed.username is not None or parsed.password is not None or parsed.path not in {"", "/"}:
+        return None
+    if parsed.query or parsed.fragment:
+        return None
+    hostname = hostname.lower()
+    if ":" in hostname and not hostname.startswith("["):
+        hostname = f"[{hostname}]"
+    default_port = 443 if parsed.scheme.lower() == "https" else 80
+    suffix = f":{port}" if port is not None and port != default_port else ""
+    return f"{parsed.scheme.lower()}://{hostname}{suffix}"
+
+
+def _iframe_policy_allows(url: str) -> bool:
+    """Apply the host's explicit iframe policy to one canonical URL."""
+    from liveclassroom.conf import setting
+
+    policy = setting("ALLOW_IFRAME")
+    if policy is True:
+        return True
+    if callable(policy):
+        try:
+            return bool(policy(url))
+        except (TypeError, ValueError):
+            return False
+    if isinstance(policy, (list, tuple, set, frozenset)):
+        if url.startswith("/"):
+            return True
+        origin = _canonical_origin(url)
+        return origin is not None and origin in {
+            normalized
+            for item in policy
+            if isinstance(item, str)
+            for normalized in [_canonical_origin(item)]
+            if normalized is not None
+        }
+    return False
 
 
 def _media_definition(definition: dict[str, Any]) -> dict[str, Any]:
@@ -548,10 +691,16 @@ def _media_definition(definition: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(media_type, str) or media_type.strip().lower() not in VALID_MEDIA_TYPES:
         raise ValueError(f"media_type must be one of {sorted(VALID_MEDIA_TYPES)}.")
     media_type = media_type.strip().lower()
+    provider = result.get("provider")
+    if provider is not None and (not isinstance(provider, str) or not provider.strip()):
+        raise ValueError("provider must be non-empty text.")
+    if isinstance(provider, str):
+        result["provider"] = provider.strip().lower()
     if media_type == "iframe":
-        from liveclassroom.conf import setting
-
-        if not setting("ALLOW_IFRAME"):
+        is_vaultpub = result.get("provider") == "vaultpub"
+        if is_vaultpub and not url.startswith("/"):
+            raise ValueError("VaultPub embeds must use a same-origin relative URL.")
+        if not is_vaultpub and not _iframe_policy_allows(url):
             raise ValueError("Embedding ordinary iframes is disabled by the host.")
     result["media_type"] = media_type
 
@@ -570,6 +719,7 @@ for _activity_type in (
         normalize_submission=_normalize_choice,
         validate_submission=_validate_single_choice,
         aggregate_submissions=_aggregate,
+        aggregate_public_submissions=_aggregate_public_choices,
         score_submission=_score_choice,
         export_submission=_plain_export,
         capabilities=frozenset({"choices", "correctness", "aggregate"}),
@@ -581,6 +731,7 @@ for _activity_type in (
         normalize_submission=_normalize_multiple,
         validate_submission=_validate_multiple_choice,
         aggregate_submissions=_aggregate,
+        aggregate_public_submissions=_aggregate_public_choices,
         score_submission=_score_choice,
         export_submission=_plain_export,
         capabilities=frozenset({"choices", "correctness", "aggregate"}),
@@ -592,6 +743,7 @@ for _activity_type in (
         normalize_submission=_normalize_choice,
         validate_submission=_validate_single_choice,
         aggregate_submissions=_aggregate,
+        aggregate_public_submissions=_aggregate_public_choices,
         score_submission=_score_choice,
         export_submission=_plain_export,
         capabilities=frozenset({"choices", "correctness", "aggregate"}),
@@ -603,6 +755,7 @@ for _activity_type in (
         normalize_submission=_normalize_choice,
         validate_submission=_validate_single_choice,
         aggregate_submissions=_aggregate,
+        aggregate_public_submissions=_aggregate_public_choices,
         export_submission=_plain_export,
         capabilities=frozenset({"choices", "aggregate"}),
         frontend_manifest=_manifest("poll"),
@@ -613,6 +766,7 @@ for _activity_type in (
         normalize_submission=_normalize_text,
         validate_submission=_validate_text,
         aggregate_submissions=_aggregate,
+        aggregate_public_submissions=_aggregate_public_text,
         export_submission=_plain_export,
         capabilities=frozenset({"text", "aggregate"}),
         frontend_manifest=_manifest("short_text"),
@@ -623,6 +777,7 @@ for _activity_type in (
         normalize_submission=_normalize_numeric,
         validate_submission=_validate_numeric,
         aggregate_submissions=_aggregate,
+        aggregate_public_submissions=_aggregate_public_numeric,
         export_submission=_plain_export,
         capabilities=frozenset({"numeric", "aggregate"}),
         frontend_manifest=_manifest("numeric"),
@@ -633,6 +788,7 @@ for _activity_type in (
         normalize_submission=_normalize_rating,
         validate_submission=_validate_rating,
         aggregate_submissions=_aggregate,
+        aggregate_public_submissions=_aggregate_public_numeric,
         export_submission=_plain_export,
         capabilities=frozenset({"rating", "aggregate"}),
         frontend_manifest=_manifest("rating"),
@@ -643,6 +799,7 @@ for _activity_type in (
         normalize_submission=_normalize_ranking,
         validate_submission=_validate_ranking,
         aggregate_submissions=_aggregate,
+        aggregate_public_submissions=_aggregate_public_ranking,
         export_submission=_plain_export,
         capabilities=frozenset({"ranking", "aggregate"}),
         frontend_manifest=_manifest("ranking"),
@@ -653,6 +810,7 @@ for _activity_type in (
         normalize_submission=_normalize_text,
         validate_submission=_validate_text,
         aggregate_submissions=_aggregate_word_cloud,
+        aggregate_public_submissions=_aggregate_public_word_cloud,
         export_submission=_plain_export,
         capabilities=frozenset({"text", "aggregate"}),
         frontend_manifest=_manifest("word_cloud"),

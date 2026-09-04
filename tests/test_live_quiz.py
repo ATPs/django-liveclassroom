@@ -51,7 +51,7 @@ def test_teacher_to_guest_quiz_lifecycle(client, classroom):
     launched = post_json(
         client,
         reverse("liveclassroom:api-launch", args=[session.id]),
-        {"flow_item_id": classroom["item"].id},
+        {"flow_item_id": classroom["item"].id, "channel": "participants"},
     )
     assert launched.status_code == 201
     activity_id = launched.json()["activity_id"]
@@ -100,7 +100,7 @@ def test_students_cannot_launch_or_view_results(client, classroom):
     unauthorised_launch = post_json(
         client,
         reverse("liveclassroom:api-launch", args=[session.id]),
-        {"flow_item_id": classroom["item"].id},
+        {"flow_item_id": classroom["item"].id, "channel": "participants"},
     )
 
     assert unauthorised_launch.status_code == 403
@@ -165,7 +165,7 @@ def test_staff_can_export_archive_and_csv_datasets_but_students_cannot(client, c
     launched = post_json(
         client,
         reverse("liveclassroom:api-launch", args=[session.id]),
-        {"flow_item_id": classroom["item"].id},
+        {"flow_item_id": classroom["item"].id, "channel": "participants"},
     )
     activity_id = launched.json()["activity_id"]
 
@@ -273,7 +273,7 @@ def test_channel_visibility_can_show_explanation_without_answer(client, classroo
     launched = post_json(
         client,
         reverse("liveclassroom:api-launch", args=[session.id]),
-        {"flow_item_id": classroom["item"].id},
+        {"flow_item_id": classroom["item"].id, "channel": "participants"},
     )
     assert launched.status_code == 201
 

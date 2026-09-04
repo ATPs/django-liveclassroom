@@ -47,11 +47,12 @@ from .services.classroom import (
     launch_item,
     pause_session,
     post_message,
+    public_result_summary,
     publish_activity_to_channel,
-    redact_aggregate,
     result_summary,
     revise_activity,
     revise_activity_definition,
+    safe_activity_snapshot,
     set_activity_state,
     set_chat_enabled,
     set_participant_admission,
@@ -59,6 +60,7 @@ from .services.classroom import (
     submit_answer,
     update_channel_visibility,
 )
+from .services.permissions import can_author_course
 
 
 def _body(request) -> dict:
@@ -304,15 +306,6 @@ def _participant_for_request(request, session: LiveSession) -> Participant | Non
     return None
 
 
-def _can_author_course(user, course: Course) -> bool:
-    """Return whether a user may create reusable content for a course."""
-    if not getattr(user, "is_authenticated", False):
-        return False
-    if user.is_superuser or course.created_by_id == user.pk:
-        return True
-    return course.memberships.filter(user=user, role="teacher").exists()
-
-
 def _public_activity(
     activity: LiveActivity | None,
     *,
@@ -329,7 +322,8 @@ def _public_activity(
         else None
     )
     revision = revision or (activity.current_revision if activity.current_revision_id else None)
-    snapshot = revision.definition_snapshot.copy() if revision is not None else activity.definition_snapshot.copy()
+    raw_snapshot = revision.definition_snapshot if revision is not None else activity.definition_snapshot
+    snapshot = safe_activity_snapshot(raw_snapshot)
     snapshot = deepcopy(snapshot)
     show_prompt = force_show_prompt or channel_state is None or channel_state.show_prompt
     show_explanation = (
@@ -655,7 +649,7 @@ def create_activity(request):
         course = None
         if body.get("course_id") is not None:
             course = get_object_or_404(Course, pk=body["course_id"])
-            if not _can_author_course(request.user, course):
+            if not can_author_course(request.user, course):
                 return _record_authoring(
                     request,
                     key,
@@ -737,7 +731,12 @@ def launch(request, session_id: int):
             item = get_object_or_404(ActivityDefinition, pk=body["activity_definition_id"])
         else:
             raise KeyError("activity")
-        activity = launch_item(session=session, item=item, actor=request.user)
+        activity = launch_item(
+            session=session,
+            item=item,
+            actor=request.user,
+            channel=body.get("channel", SessionChannelState.Channel.DISPLAY),
+        )
     except KeyError:
         return _record(session, key, "activity.launch", request, _error("flow_item_id is required."))
     except ClassroomError as exc:
@@ -1135,7 +1134,7 @@ def state(request, session_id: int):
     )
     for other_state in visible_states:
         aggregate = (
-            redact_aggregate(result_summary(other_state.current_activity))
+            public_result_summary(other_state.current_activity)
             if other_state.current_activity_id and other_state.show_aggregate
             else None
         )
@@ -1153,7 +1152,7 @@ def state(request, session_id: int):
             "aggregate": aggregate,
         }
     current_aggregate = (
-        redact_aggregate(result_summary(activity))
+        public_result_summary(activity)
         if activity and channel_state and channel_state.show_aggregate
         else None
     )
@@ -1202,21 +1201,26 @@ def history(request, session_id: int):
     activities = session.activities.order_by("sequence")
     if not staff_view:
         activities = activities.filter(reviewable=True)
-    participant_channel = (
-        session.channel_states.filter(channel=SessionChannelState.Channel.PARTICIPANTS).first()
-        if not staff_view
-        else None
-    )
+    participant_channel = session.channel_states.filter(channel=SessionChannelState.Channel.PARTICIPANTS).first()
+    history_channel = None if staff_view else participant_channel
     return JsonResponse(
         {
             "session_id": session.id,
             "activities": [
                 _public_activity(
                     activity,
-                    channel_state=participant_channel,
+                    channel_state=history_channel,
                     force_show_prompt=True,
-                    force_hide_answer=participant_channel is None or not participant_channel.show_answer,
-                    force_hide_explanation=participant_channel is None or not participant_channel.show_explanation,
+                    force_hide_answer=(
+                        not history_channel.show_answer
+                        if history_channel is not None
+                        else False
+                    ),
+                    force_hide_explanation=(
+                        not history_channel.show_explanation
+                        if history_channel is not None
+                        else False
+                    ),
                 )
                 for activity in activities
             ],
