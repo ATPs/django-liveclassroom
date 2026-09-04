@@ -154,11 +154,10 @@ staff-only session analytics, an audited staff Student view for inspecting and
 explicitly acting as admitted participants, a restricted display route,
 authenticated Channels routing, archive/CSV export, and host-neutral plus
 `xcWebServer` VaultPub Slide View adapters. The teacher console, classroom
-display, and student surfaces are packaged React 19 islands with a scoped,
-token-driven stylesheet (neutral + teal, automatic dark mode), a
-presentation-focused full-viewport display, and complete EN/zh-Hans coverage
-including the server-rendered pages. The visual builder remains on the
-vanilla-DOM path (restyled but not yet a React island), and richer
+display, student surfaces, visual builder, and AI chat are all packaged React
+19 islands with a scoped, token-driven stylesheet (neutral + teal, automatic
+dark mode), a presentation-focused full-viewport display, and complete
+EN/zh-Hans coverage including the server-rendered pages. Richer
 browser-oriented analytics, provider-specific AI adapters, host-specific
 VaultPub participant grants, and production `xcWebServer` installation remain
 planned work.

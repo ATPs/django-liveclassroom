@@ -40,8 +40,7 @@ integration boundaries, teacher controls, and a useful reporting surface.
 The packaged teaching surfaces are React 19 islands (teacher console, classroom
 display, and student session) over a scoped, token-driven stylesheet with
 automatic dark mode, a presentation-focused full-viewport display, and complete
-EN/zh-Hans coverage including the server-rendered pages. The visual builder
-remains on the vanilla-DOM path, and browser acceptance,
+EN/zh-Hans coverage including the server-rendered pages. Browser acceptance,
 provider-specific AI adapters, and production host wiring remain planned work.
 
 ## Quick start
