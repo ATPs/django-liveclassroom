@@ -544,12 +544,16 @@ def archive_session(*, session: LiveSession, actor, archived: bool = True) -> Li
 
 @transaction.atomic
 def delete_session(*, session: LiveSession, actor) -> None:
-    """Permanently delete an archived ended session after explicit confirmation."""
+    """Permanently delete a draft or ended classroom after explicit confirmation."""
     if not can_manage_session(actor, session):
         raise ClassroomError("You do not have permission to delete this session.")
     locked = LiveSession.objects.select_for_update().get(pk=session.pk)
-    if locked.status != LiveSession.Status.ENDED or locked.archived_at is None:
-        raise ClassroomError("Archive the ended session before deleting it.")
+    if locked.status in {LiveSession.Status.LIVE, LiveSession.Status.PAUSED}:
+        raise ClassroomError("End this classroom before deleting it.")
+    from .demos import is_public_demo_session
+
+    if is_public_demo_session(locked):
+        raise ClassroomError("Public demo classrooms cannot be deleted.")
     locked.delete()
 
 
@@ -786,14 +790,25 @@ def update_document_presentation(
     )
     if len(states) != len(channels):
         raise ClassroomError("The requested audience channel is unavailable.")
-    assets = set()
+    presentations = set()
     for state in states:
         revision = state.current_revision
-        if not state.current_activity_id or revision is None or revision.asset_id is None:
-            raise ClassroomError("The selected channel is not presenting a file.")
-        assets.add(revision.asset_id)
-    if len(states) > 1 and len(assets) != 1:
-        raise ClassroomError("Both channels must present the same file before they can move together.")
+        snapshot = safe_activity_snapshot(revision.definition_snapshot) if revision is not None else {}
+        content = snapshot.get("content") if isinstance(snapshot, dict) else None
+        if not state.current_activity_id or revision is None:
+            raise ClassroomError("The selected channel is not presenting pageable content.")
+        if revision.asset_id is not None:
+            presentations.add(("asset", revision.asset_id))
+        elif (
+            isinstance(content, dict)
+            and content.get("provider") == "vaultpub"
+            and isinstance(content.get("url"), str)
+        ):
+            presentations.add(("vaultpub", content["url"]))
+        else:
+            raise ClassroomError("The selected channel is not presenting pageable content.")
+    if len(states) > 1 and len(presentations) != 1:
+        raise ClassroomError("Both channels must present the same content before they can move together.")
     for state in states:
         update_fields = ["updated_at"]
         if page is not None:

@@ -21,7 +21,13 @@ def test_manager_can_inspect_then_explicitly_act_as_participant(client):
 
     page = client.get(reverse("liveclassroom:student-view", args=[session.id]))
     assert page.status_code == 200
+    assert "preview=1" in page.content.decode()
     assert Participant.objects.filter(session=session).count() == 1
+
+    preview = client.get(f"{reverse('liveclassroom:api-v1-state', args=[session.id])}?preview=1&channel=participants")
+    assert preview.status_code == 200
+    assert preview.json()["participant"] is None
+    assert preview.json()["act_as_active"] is False
 
     roster = client.get(reverse("liveclassroom:api-v1-participants", args=[session.id])).json()["participants"]
     inspect_token = roster[0]["inspection_token"]

@@ -13,7 +13,7 @@ import {
   type VisibilityState,
 } from "../../protocol.js";
 import { useSessionState } from "../../hooks/useSessionState.js";
-import { AggregateView, WordCloud, ChoiceBars } from "../../activities/renderers.js";
+import { AggregateView, MediaView, WordCloud, ChoiceBars } from "../../activities/renderers.js";
 import { isBuiltinActivity, PluginActivityView, Prompt, RevealedFeedback } from "../../activities/ActivityView.js";
 import { FileActivity } from "../../activities/FileActivity.js";
 import { activityKind, activityTitle, stringValue } from "../../activities/activityData.js";
@@ -233,7 +233,10 @@ function BuiltinTeacherActivityView({
   const t = useT();
   const kind = activityKind(activity);
   const heading = <h2>{activityTitle(activity, t("activity"))}</h2>;
-  if (kind === "timer" || kind === "media" || kind === "markdown") {
+  if (kind === "media") {
+    return <><>{heading}</><Prompt activity={activity} /><MediaView activity={activity} state={state} stateUrl={stateUrl} audience="teacher" /></>;
+  }
+  if (kind === "timer" || kind === "markdown") {
     return (
       <>
         {heading}
@@ -264,6 +267,40 @@ function BuiltinTeacherActivityView({
       </p>
     </>
   );
+}
+
+type PresenterStep = { id: number; position: number; title: string; activity_id: number | null };
+
+function PresenterStage({
+  state, steps, stateUrl, onRefresh, canManage,
+}: { state: SessionState | null; steps: PresenterStep[]; stateUrl: string; onRefresh: () => Promise<void>; canManage: boolean }) {
+  const t = useT();
+  const locale = useLocale();
+  const tr = (en: string, zh: string) => locale.startsWith("zh") ? zh : en;
+  const currentId = state?.channels?.display?.activity?.id ?? state?.current_activity?.id ?? null;
+  const currentIndex = steps.findIndex((step) => step.activity_id === currentId);
+  const next = steps[currentIndex >= 0 ? currentIndex + 1 : 0] ?? null;
+  const showNext = async (channel: "both" | "display") => {
+    if (!next || state?.session.status !== "live") return;
+    await postJson(apiEndpoint(stateUrl, `sessions/plan/${next.id}/launch`), { channel }, `present-${channel}-${next.id}-${Date.now()}`);
+    await onRefresh();
+  };
+  return <section className="lc-presenter" aria-label={tr("Presenter workspace", "演示者工作区")}>
+    <div className="lc-presenter-current">
+      <p className="lc-presenter-label">{tr("Now showing", "当前展示")}</p>
+      <TeacherActivityView activity={state?.current_activity ?? null} aggregate={state?.aggregate ?? null} state={state} stateUrl={stateUrl} />
+    </div>
+    <aside className="lc-presenter-next">
+      <p className="lc-presenter-label">{tr("Up next", "下一项")}</p>
+      {next ? <><h2>{next.position}. {next.title}</h2><p>{tr("Students follow by default.", "学生默认跟随演示。")}</p>
+        <button className="lc-btn-primary" disabled={!canManage || state?.session.status !== "live"} onClick={() => void showNext("both").catch(() => undefined)}>{tr("Show to everyone", "展示给所有人")}</button>
+        <button disabled={!canManage || state?.session.status !== "live"} onClick={() => void showNext("display").catch(() => undefined)}>{tr("Continue display only", "仅继续投屏")}</button></> : <p>{tr("End of this lesson.", "已到教案末尾。")}</p>}
+      <p className="lc-presenter-status">{tr("Student channel", "学生端")}: {state?.channels?.participants?.activity?.id === currentId ? tr("following", "跟随") : tr("held on another item", "停留在其他内容")}</p>
+    </aside>
+    <nav className="lc-presenter-strip" aria-label={tr("Lesson outline", "教案目录")}>
+      {steps.map((step) => <span key={step.id} className={step.activity_id === currentId ? "lc-presenter-step lc-presenter-step-current" : "lc-presenter-step"}>{step.position}. {step.title}</span>)}
+    </nav>
+  </section>;
 }
 
 function LiveResults({
@@ -455,6 +492,7 @@ function TeacherConsole({ bootstrap }: { bootstrap: TeacherBootstrap }) {
   const [chat, setChat] = useState<{ enabled: boolean; messages: Array<{ id: number; display_name: string; body: string }> } | null>(null);
   const [selectedId,setSelectedId] = useState<number|null>(null);
   const [history,setHistory] = useState<Array<ActivityState & {reviewable:boolean;review_visibility:Record<string,boolean>}>>([]);
+  const [planSteps, setPlanSteps] = useState<PresenterStep[]>([]);
   const [chatBody, setChatBody] = useState("");
 
   const stateVersion = state?.state_version ?? 0;
@@ -462,6 +500,7 @@ function TeacherConsole({ bootstrap }: { bootstrap: TeacherBootstrap }) {
   useEffect(() => {
     if (!state) return;
     void getJson<{activities:typeof history}>(apiEndpoint(stateUrl,"sessions/history")).then(d=>setHistory(d.activities)).catch(()=>undefined);
+    void getJson<{steps: PresenterStep[]}>(apiEndpoint(stateUrl, "sessions/plan")).then(d => setPlanSteps(d.steps ?? [])).catch(() => undefined);
     void getJson<Record<string, unknown>>(apiEndpoint(stateUrl, "sessions/analytics"))
       .then(setAnalytics)
       .catch(() => undefined);
@@ -495,7 +534,7 @@ function TeacherConsole({ bootstrap }: { bootstrap: TeacherBootstrap }) {
         {t("statusColumn")}: <strong id="session-status">{state?.session.status ?? ""}</strong>
       </p>
       {canManage && <LifecycleControls state={state} run={run} />}
-      <SessionPlanPanel stateUrl={stateUrl} state={state} onRefresh={sync.refresh}/>
+      <PresenterStage state={state} steps={planSteps} stateUrl={stateUrl} onRefresh={sync.refresh} canManage={canManage} />
       {canManage && state?.session.status==="live" && <FilePicker
         endpoint={apiEndpoint(stateUrl, "sessions/files")}
         isSuperuser={bootstrap.isSuperuser}
@@ -503,22 +542,8 @@ function TeacherConsole({ bootstrap }: { bootstrap: TeacherBootstrap }) {
         onSuccess={() => void sync.refresh()}
       />}
       {status ? <p className="lc-builder-status-error">{status}</p> : null}
-      <div className="lc-grid">
-
-        <section aria-live="polite">
-          <h2>{t("displayPreview")}</h2>
-          <div data-liveclassroom-content>
-            <TeacherActivityView
-              activity={state?.current_activity ?? null}
-              aggregate={state?.aggregate ?? null}
-              state={state}
-              stateUrl={stateUrl}
-            />
-          </div>
-          <p data-liveclassroom-status>{state?.session.status ?? ""}</p>
-        </section>
-        {canManage && <LiveResults state={focusedState} analytics={analytics} run={run} />}
-      </div>
+      {canManage && <LiveResults state={focusedState} analytics={analytics} run={run} />}
+      <details className="lc-console-panel"><summary>{tr("Lesson and classroom editing", "教案与课堂编辑")}</summary><SessionPlanPanel stateUrl={stateUrl} state={state} onRefresh={sync.refresh}/></details>
       <label>{tr("Activity to inspect or control", "选择查看或控制的活动")}<select value={selectedId??""} onChange={e=>setSelectedId(e.target.value?Number(e.target.value):null)}><option value="">{tr("Current display activity","当前投屏活动")}</option>{history.map(a=><option key={a.id} value={a.id}>{activityTitle(a,t("activity"))}</option>)}</select></label>
       {canManage && <ChannelControls state={focusedState} run={run} />}
       {canManage && focused && <fieldset><legend>{tr("Student review access","学生复习权限")}</legend>
@@ -526,7 +551,7 @@ function TeacherConsole({ bootstrap }: { bootstrap: TeacherBootstrap }) {
         {(["show_answer","show_explanation"] as const).map(field=><label key={field}><input type="checkbox" checked={Boolean((focused as typeof history[number]).review_visibility?.[field])} onChange={e=>void run(`activities/${focused.id}/review`,{[field]:e.target.checked})}/>{field==="show_answer"?t("showAnswer"):t("showExplanation")}</label>)}
       </fieldset>}
       <div className="lc-actions">{canAdmit && <>{["summary","responses","participants","chat"].map(dataset=><a key={dataset} href={`${bootstrap.exportUrl}?format=csv&dataset=${dataset}`}>{({summary:tr("Summary","汇总"),responses:tr("Responses","答案"),participants:tr("Attendance","出席"),chat:tr("Chat","聊天")} as Record<string,string>)[dataset]} CSV</a>)}<a href={bootstrap.exportUrl}>JSON</a></>}
-      {canManage && state?.session.status==="ended" && <><button onClick={()=>void run("sessions/archive",{archived:true})}>{tr("Archive","归档")}</button><button onClick={()=>{if(window.confirm(tr("Delete this archived classroom permanently?","永久删除这个已归档课堂？"))) void postJson(apiEndpoint(stateUrl,"sessions/delete"),{confirm:true},crypto.randomUUID()).then(()=>window.location.assign(bootstrap.workspaceUrl));}}>{tr("Delete archived classroom","删除已归档课堂")}</button></>}
+      {canManage && ["draft", "ended"].includes(state?.session.status ?? "") && <button className="lc-btn-danger" onClick={()=>{if(window.confirm(tr("Delete this classroom permanently? Its classroom records will be removed; its reusable lesson remains.","永久删除本次课堂吗？课堂记录将被移除，教案会保留。"))) void postJson(apiEndpoint(stateUrl,"sessions/delete"),{confirm:true},crypto.randomUUID()).then(()=>window.location.assign(bootstrap.workspaceUrl)).catch(error=>window.alert(error instanceof Error?error.message:tr("Delete failed","删除失败")));}}>{tr("Delete classroom","删除课堂")}</button>}
       </div>
       <ParticipantPreview state={state} stateUrl={stateUrl} />
       <AnalyticsPanel stateUrl={stateUrl} analytics={analytics} activityId={focused?.id ?? null} />

@@ -30,7 +30,7 @@ def test_content_provider_registry_loads_configured_instance():
     with override_settings(LIVECLASSROOM={"CONTENT_PROVIDERS": {"dummy": DummyProvider()}}):
         registry = content_providers()
 
-    assert registry.keys() == ("dummy",)
+    assert registry.keys() == ("dummy", "vaultpub")
     assert registry.get("dummy").parse_reference("https://example.test/note").value["url"]
 
 

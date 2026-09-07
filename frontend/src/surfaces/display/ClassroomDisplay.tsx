@@ -87,7 +87,7 @@ function BuiltinDisplayActivity({
       <>
         {heading}
         <Prompt activity={activity} />
-        <MediaView activity={activity} />
+        <MediaView activity={activity} state={state} stateUrl={stateUrl} audience="display" />
       </>
     );
   }

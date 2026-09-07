@@ -21,12 +21,14 @@ function StudentViewControls({
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [status, setStatus] = useState("");
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     getJson<{ participants: Participant[] }>(participantsUrl)
       .then((data) => {
         setParticipants(data.participants);
         if (data.participants.length) setSelectedId(String(data.participants[0].id));
+        setLoaded(true);
       })
       .catch((error: unknown) => setStatus(error instanceof Error ? error.message : t("unableToLoadParticipants")));
   }, [participantsUrl]);
@@ -35,6 +37,7 @@ function StudentViewControls({
     const app = document.querySelector<HTMLElement>("[data-liveclassroom-app][data-audience='student']");
     if (!app) return;
     app.dispatchEvent(new Event("liveclassroom:unmount"));
+    app.dataset.preview = "false";
     app.dataset.stateUrl = `${stateUrl}?act_as_token=${encodeURIComponent(token)}`;
     mountStudentSession(app);
     setStatus(active ? t("actingAsParticipant") : t("inspectingParticipant"));
@@ -44,6 +47,8 @@ function StudentViewControls({
 
   return (
     <>
+      {!loaded ? <p aria-live="polite">{t("loading")}</p> : null}
+      {loaded && !participants.length ? <p aria-live="polite">{t("noParticipantsYet")}</p> : null}
       <label>
         {t("participants")} {" "}
         <select value={selectedId} onChange={(e) => setSelectedId(e.target.value)}>
@@ -54,11 +59,12 @@ function StudentViewControls({
           ))}
         </select>
       </label>
-      <button type="button" onClick={() => selected && inspectSelection(selected.inspection_token)}>
+      <button type="button" disabled={!selected} onClick={() => selected && inspectSelection(selected.inspection_token)}>
         {t("inspect")}
       </button>
       <button
         type="button"
+        disabled={!selected}
         onClick={() => {
           const participantId = Number(selectedId);
           if (!Number.isInteger(participantId)) return;

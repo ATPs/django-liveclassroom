@@ -7,7 +7,7 @@
     <button type="button" data-student-view-activate>Act as participant</button>
     <p data-student-view-status aria-live="polite"></p>
   </section>
-  <section class="lc-card lc-wide" data-liveclassroom-app data-audience="student" data-websocket-url="{{ websocket_url }}" data-locale="{{ active_lang|default:'en' }}">
+  <section class="lc-card lc-wide" data-liveclassroom-app data-audience="student" data-preview="true" data-state-url="{% url 'liveclassroom:api-v1-state' session.id %}?preview=1" data-websocket-url="{{ websocket_url }}" data-locale="{{ active_lang|default:'en' }}">
     {% include "liveclassroom/student_surface.html" %}
   </section>
 {% endblock %}

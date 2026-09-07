@@ -7,6 +7,7 @@ from django.test import Client, override_settings
 from django.urls import reverse
 
 from liveclassroom.models import ClassroomAsset, Flow, SessionChannelState
+from liveclassroom.providers import ContentReference
 from liveclassroom.services.classroom import create_instant_session, join_guest, start_session
 
 
@@ -16,6 +17,18 @@ def post_json(client, url, payload):
 
 def response_bytes(response):
     return b"".join(response.streaming_content)
+
+
+class StudentDeckProvider:
+    """Host-style adapter proving the package only substitutes student URLs when asked."""
+
+    key = "vaultpub"
+
+    def parse_reference(self, url, *, request=None):
+        return ContentReference(self.key, "vault", {"url": url})
+
+    def grant_participant_access(self, reference, *, session, participant, request=None):
+        return {"embed_url": "/database/vaultpub/share/student-deck/__slides__/Deck.md?embed=1"}
 
 
 @pytest.fixture
@@ -162,6 +175,56 @@ def test_presentation_state_requires_active_file_and_updates_channels(teacher, t
     )
     assert rejected.status_code == 403
     assert session.channel_states.get(channel="display").document_page == 3
+
+
+@pytest.mark.django_db
+def test_host_can_substitute_a_participant_vaultpub_url_without_package_permissions(teacher, teacher_client):
+    session = create_instant_session(owner=teacher, title="VaultPub deck")
+    start_session(session=session, actor=teacher)
+    original_url = "/database/vaultpub/vault/server/__slides__/Deck.md?embed=1"
+    with override_settings(LIVECLASSROOM={"CONTENT_PROVIDERS": {"vaultpub": StudentDeckProvider()}}):
+        created = post_json(
+            teacher_client,
+            reverse("liveclassroom:api-v1-session-plan", args=[session.id]),
+            {
+                "plan_version": session.plan_version,
+                "snapshot": {
+                    "type_key": "liveclassroom.media",
+                    "kind": "media",
+                    "schema_version": 1,
+                    "title": "Deck",
+                    "content": {"url": original_url, "provider": "vaultpub", "media_type": "iframe"},
+                },
+            },
+        )
+        assert created.status_code == 200
+        step_id = created.json()["steps"][0]["id"]
+        launched = post_json(
+            teacher_client,
+            reverse("liveclassroom:api-v1-plan-launch", args=[session.id, step_id]),
+            {"channel": "both"},
+        )
+        assert launched.status_code == 201
+        moved = post_json(
+            teacher_client,
+            reverse("liveclassroom:api-v1-session-presentation", args=[session.id]),
+            {"channels": ["display", "participants"], "page": 2},
+        )
+        assert moved.status_code == 200
+        participant = join_guest(session=session, display_name="Student")
+        student = Client()
+        browser_session = student.session
+        browser_session[f"liveclassroom.participant.{session.id}"] = participant.id
+        browser_session.save()
+
+        display = teacher_client.get(
+            reverse("liveclassroom:api-v1-state", args=[session.id]), {"channel": "display"}
+        ).json()
+        student_state = student.get(
+            reverse("liveclassroom:api-v1-state", args=[session.id]), {"channel": "participants"}
+        ).json()
+    assert display["current_activity"]["definition"]["content"]["url"] == original_url
+    assert student_state["current_activity"]["definition"]["content"]["url"].startswith("/database/vaultpub/share/")
 
 
 @pytest.mark.django_db

@@ -28,8 +28,9 @@ def test_share_and_standalone_references_are_scoped():
         provider.parse_reference("/database/vaultpub/vault/server/__slides__/../Secret.md")
 
 
-def test_protected_grants_require_host_callback():
+def test_participant_urls_pass_through_without_a_host_callback():
     provider = VaultPubProvider()
     reference = ContentReference("vaultpub", "share", {"token": "abc", "note_path": "Deck.md"})
-    with pytest.raises(ProviderError, match="host adapter"):
-        provider.grant_participant_access(reference, session=object(), participant=object())
+    assert provider.grant_participant_access(reference, session=object(), participant=object())["embed_url"] == (
+        "/database/vaultpub/share/abc/__slides__/Deck.md?embed=1"
+    )

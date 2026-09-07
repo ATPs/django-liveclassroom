@@ -13,7 +13,7 @@ from django.views.decorators.http import require_GET, require_http_methods, requ
 
 from .api import _authoring_replay, _body, _error, _record_authoring
 from .models import ActivityDefinition, Course, CourseMembership, Flow, FlowShare, LiveSession, SessionPlanStep
-from .services.classroom import ClassroomError, can_view_session, session_capabilities
+from .services.classroom import ClassroomError, can_view_session, publish_activity_to_channel, session_capabilities
 from .services.permissions import can_author_course, can_edit_flow, can_teach, can_use_flow
 from .services.plan_changes import apply_changes, compare_changes
 from .services.plans import (
@@ -90,6 +90,11 @@ def _session(session, user):
         "student_view_url": reverse("liveclassroom:student-view", args=[session.id]),
         "join_code": session.join_code,
         "demo": is_public_demo_session(session),
+        "can_delete": (
+            "manage_session" in session_capabilities(user, session)
+            and not is_public_demo_session(session)
+            and session.status not in {LiveSession.Status.LIVE, LiveSession.Status.PAUSED}
+        ),
     }
 
 
@@ -327,13 +332,20 @@ def plan_launch(request, session_id, step_id):
     body = _body(request)
     if not isinstance(body.get("restart", False), bool):
         raise ClassroomError("restart must be a boolean.")
-    activity = launch_plan_step(
+    channel = body.get("channel", "display")
+    if channel == "both":
+        activity = launch_plan_step(
+            session=session, step=step, actor=request.user, channel="display", restart=body.get("restart", False)
+        )
+        publish_activity_to_channel(session=session, activity=activity, channel="participants", actor=request.user)
+    else:
+        activity = launch_plan_step(
         session=session,
         step=step,
         actor=request.user,
-        channel=body.get("channel", "display"),
+        channel=channel,
         restart=body.get("restart", False),
-    )
+        )
     return JsonResponse({"activity_id": activity.pk}, status=201)
 
 

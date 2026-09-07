@@ -50,7 +50,7 @@ class ContentProvider(Protocol):
         participant: Any,
         request: Any | None = None,
     ) -> dict[str, Any]:
-        """Create a narrowly scoped participant grant for protected content."""
+        """Optionally substitute a participant-facing URL for host-managed content."""
 
     def revoke_participant_access(self, grant: dict[str, Any]) -> None:
         """Revoke a previously created participant grant."""
@@ -103,4 +103,11 @@ def content_providers() -> ContentProviderRegistry:
         if provider_key != str(key):
             raise ProviderError(f"Provider key mismatch for {key!r}: {provider_key!r}")
         providers[provider_key] = provider
+    if "vaultpub" not in providers:
+        # VaultPub URLs are ordinary unrestricted embeds for reusable package
+        # installations.  A host may replace this entry with a policy-aware
+        # adapter without changing classroom code.
+        from liveclassroom.integrations.vaultpub import VaultPubProvider
+
+        providers["vaultpub"] = VaultPubProvider()
     return ContentProviderRegistry(providers)

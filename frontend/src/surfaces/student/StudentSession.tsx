@@ -226,7 +226,7 @@ function StudentSession({ bootstrap }: { bootstrap: Bootstrap }) {
     const join = async (): Promise<void> => {
       if (joinedRef.current) return;
       joinedRef.current = true;
-      if (!bootstrap.guestJoinUrl && !bootstrap.accountJoinUrl) {
+      if (bootstrap.preview || (!bootstrap.guestJoinUrl && !bootstrap.accountJoinUrl)) {
         // Act-as / inspection surface: no join is needed; fetch state directly.
         if (!cancelled) {
           setJoined(true);
@@ -318,7 +318,9 @@ function StudentSession({ bootstrap }: { bootstrap: Bootstrap }) {
         {joined ? (
           state?.participant && state.participant.admission_state !== "admitted" ? (
             <p>{t("waitingAdmission")}</p>
-          ) : state?.session.status === "ended" ? null : (
+          ) : state?.session.status === "ended" ? null : bootstrap.preview ? (
+            <ActivityView activity={state?.current_activity ?? null} state={state ? { ...state, act_as_active: false } : null} stateUrl={stateUrl} refresh={sync.refresh} />
+          ) : (
             <ActivityView activity={state?.current_activity ?? null} state={state} stateUrl={stateUrl} refresh={sync.refresh} />
           )
         ) : needName ? (

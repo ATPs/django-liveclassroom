@@ -41,6 +41,7 @@ type SessionSummary = {
   console_url: string;
   student_view_url?: string;
   join_code?: string;
+  can_delete?: boolean;
 };
 
 type FlowSummary = {
@@ -128,6 +129,9 @@ type WorkspaceTextKey =
   | "role"
   | "addMember"
   | "remove"
+  | "delete"
+  | "deleteConfirm"
+  | "endBeforeDelete"
   | "teacherRole"
   | "assistantRole"
   | "studentRole"
@@ -209,6 +213,9 @@ const workspaceCopy: Record<Locale, Record<WorkspaceTextKey, string>> = {
     role: "Role",
     addMember: "Add member",
     remove: "Remove",
+    delete: "Delete",
+    deleteConfirm: "Delete \"{title}\" permanently? Its attendance, answers, chat, and classroom history will be removed. Your reusable lesson will remain.",
+    endBeforeDelete: "End this classroom before deleting it.",
     teacherRole: "Teacher",
     assistantRole: "Assistant",
     studentRole: "Student",
@@ -289,6 +296,9 @@ const workspaceCopy: Record<Locale, Record<WorkspaceTextKey, string>> = {
     role: "角色",
     addMember: "添加成员",
     remove: "移除",
+    delete: "删除",
+    deleteConfirm: "永久删除“{title}”吗？其出席、答案、聊天和课堂记录将被移除；教案会保留。",
+    endBeforeDelete: "请先结束此课堂，再删除。",
     teacherRole: "教师",
     assistantRole: "助教",
     studentRole: "学生",
@@ -924,6 +934,15 @@ function TeacherWorkspace({ apiRoot, builderUrl }: { apiRoot: string; builderUrl
     flowId: session.demo ? session.flow_id ?? null : null,
     sourceSessionId: session.demo ? null : session.id,
   });
+  const deleteSession = (session: SessionSummary) => {
+    if (!session.can_delete) return;
+    const message = t("deleteConfirm").replace("{title}", session.title);
+    if (!window.confirm(message)) return;
+    void run(`session-delete-${session.id}`, async (key) => {
+      await postJson(endpoint(apiRoot, `sessions/${session.id}/delete/`), { confirm: true }, key);
+      await refresh();
+    });
+  };
 
   const visibleFlows = tab === "shared"
     ? flows.filter((flow) => flow.shared && !flow.demo)
@@ -1004,6 +1023,7 @@ function TeacherWorkspace({ apiRoot, builderUrl }: { apiRoot: string; builderUrl
                 <div className="lc-actions">
                   {(session.demo || session.capabilities?.includes("manage_session")) && <button type="button" className="lc-btn-sm lc-btn-primary" onClick={() => openReuse(session)} disabled={Boolean(busy)}>{session.demo ? t("useDemo") : t("reuseSession")}</button>}
                   <a className="lc-btn-sm lc-btn-outline" href={session.console_url}>{t("status")}</a>
+                  {session.can_delete ? <button type="button" className="lc-btn-sm lc-btn-danger" onClick={() => deleteSession(session)} disabled={Boolean(busy)}>{t("delete")}</button> : null}
                 </div>
               </article>
             ))}

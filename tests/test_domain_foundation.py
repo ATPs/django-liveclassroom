@@ -247,8 +247,12 @@ def test_ended_session_archive_delete_and_retention_cleanup(teacher):
     start_session(session=session, actor=teacher)
     end_session(session=session, actor=teacher)
 
-    with pytest.raises(ClassroomError, match="Archive"):
-        delete_session(session=session, actor=teacher)
+    delete_session(session=session, actor=teacher)
+    assert not LiveSession.objects.filter(pk=session.pk).exists()
+
+    session = create_instant_session(owner=teacher, title="Retention archive")
+    start_session(session=session, actor=teacher)
+    end_session(session=session, actor=teacher)
     archive_session(session=session, actor=teacher)
     session.refresh_from_db()
     assert session.archived_at is not None

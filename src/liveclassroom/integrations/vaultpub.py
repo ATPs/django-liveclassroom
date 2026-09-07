@@ -130,10 +130,15 @@ class VaultPubProvider:
     def grant_participant_access(
         self, reference: ContentReference, *, session, participant, request=None
     ) -> dict[str, object]:
-        """Delegate protected grants to the host, never fabricate an authorization token."""
-        if not callable(self.grant_factory):
-            raise ProviderError("VaultPub participant grants require a host adapter.")
-        return self.grant_factory(reference, session=session, participant=participant, request=request)
+        """Return the normal deck URL unless a host deliberately substitutes one.
+
+        The reusable package treats a supplied VaultPub URL as unrestricted.
+        Hosts with their own access system may inject a factory that substitutes
+        a temporary URL for participants.
+        """
+        if callable(self.grant_factory):
+            return self.grant_factory(reference, session=session, participant=participant, request=request)
+        return {"embed_url": self.embed_url(reference, request=request)}
 
     def revoke_participant_access(self, grant: dict[str, object]) -> None:
         """Delegate revocation to the host adapter when one is configured."""

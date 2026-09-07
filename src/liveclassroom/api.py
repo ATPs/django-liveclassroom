@@ -20,6 +20,7 @@ from .models import (
     Participant,
     SessionChannelState,
 )
+from .providers import ProviderError, content_providers
 from .registry import activity_registry
 from .services.analytics import session_analytics
 from .services.assets import asset_descriptor
@@ -340,6 +341,7 @@ def _public_activity(
     channel_state=None,
     request=None,
     session: LiveSession | None = None,
+    participant: Participant | None = None,
     force_show_prompt: bool = False,
     force_hide_answer: bool = False,
     force_hide_explanation: bool = False,
@@ -419,6 +421,29 @@ def _public_activity(
                 content_url=content_url,
                 download_url=download_url,
             )
+            snapshot["content"] = content
+    if (
+        channel_state is not None
+        and channel_state.channel == SessionChannelState.Channel.PARTICIPANTS
+        and participant is not None
+        and participant.admission_state == Participant.AdmissionState.ADMITTED
+        and session is not None
+    ):
+        content = snapshot.get("content")
+        if isinstance(content, dict) and content.get("provider") == "vaultpub" and isinstance(content.get("url"), str):
+            content = dict(content)
+            try:
+                provider = content_providers().get("vaultpub")
+                reference = provider.parse_reference(content["url"], request=request)
+                grant = provider.grant_participant_access(
+                    reference, session=session, participant=participant, request=request
+                )
+                embed_url = grant.get("embed_url") if isinstance(grant, dict) else None
+                if not isinstance(embed_url, str) or not embed_url.startswith("/"):
+                    raise ProviderError("The VaultPub participant URL is unavailable.")
+                content["url"] = embed_url
+            except (ProviderError, TypeError, ValueError):
+                content["media_disabled"] = True
             snapshot["content"] = content
     return {
         "id": activity.id,
@@ -1017,8 +1042,11 @@ def state(request, session_id: int):
     except ClassroomError as exc:
         return _error(str(exc), 403)
     acting_as = participant is not None
+    preview = request.GET.get("preview") == "1"
+    if preview and (acting_as or not can_manage_session(request.user, session)):
+        return _error("You do not have permission to preview participant state.", 403)
     participant = participant or _participant_for_request(request, session)
-    staff_view = not acting_as and can_view_session(request.user, session)
+    staff_view = not preview and not acting_as and can_view_session(request.user, session)
     requested_channel = request.GET.get("channel")
     if requested_channel not in {None, *SessionChannelState.Channel.values}:
         return _error("Unsupported session channel.")
@@ -1029,7 +1057,7 @@ def state(request, session_id: int):
     )
     if channel == SessionChannelState.Channel.DISPLAY and not can_view_display(request.user, session):
         return _error("The classroom display is restricted to teaching staff.", 403)
-    if channel == SessionChannelState.Channel.PARTICIPANTS and not staff_view:
+    if channel == SessionChannelState.Channel.PARTICIPANTS and not staff_view and not preview:
         if participant is None:
             return _error("Join the classroom before viewing participant state.", 403)
         if participant.admission_state != Participant.AdmissionState.ADMITTED:
@@ -1100,6 +1128,7 @@ def state(request, session_id: int):
                 channel_state=other_state,
                 request=request,
                 session=session,
+                participant=participant,
             ),
             "visibility": {
                 "show_prompt": other_state.show_prompt,
@@ -1140,6 +1169,7 @@ def state(request, session_id: int):
                 channel_state=channel_state,
                 request=request,
                 session=session,
+                participant=participant,
             ),
             "channels": channels,
             "participant": (
@@ -1153,7 +1183,7 @@ def state(request, session_id: int):
             ),
             "my_submission": submission if (staff_view or not channel_state or channel_state.show_own_status) else None,
             "aggregate": current_aggregate,
-            "act_as_active": (active if acting_as else True) and session.status != LiveSession.Status.ENDED,
+            "act_as_active": (active if acting_as else not preview) and session.status != LiveSession.Status.ENDED,
         }
     )
 

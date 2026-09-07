@@ -13,6 +13,7 @@ export type Bootstrap = {
   guestJoinUrl: string | null;
   accountJoinUrl: string | null;
   locale: Locale;
+  preview: boolean;
 };
 
 export function readBootstrap(root: HTMLElement): Bootstrap {
@@ -28,5 +29,6 @@ export function readBootstrap(root: HTMLElement): Bootstrap {
     guestJoinUrl: d.guestJoinUrl ?? null,
     accountJoinUrl: d.accountJoinUrl ?? null,
     locale: (d.locale as Locale | undefined) ?? "en",
+    preview: d.preview === "true",
   };
 }

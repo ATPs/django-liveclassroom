@@ -21,6 +21,7 @@ export function ActivityEditor({ initial, onSave, onCancel }: {
   const [explanation, setExplanation] = useState(String(content.explanation_markdown ?? ""));
   const [markdown, setMarkdown] = useState(String(content.markdown ?? ""));
   const [url, setUrl] = useState(String(content.url ?? ""));
+  const [vaultpub, setVaultpub] = useState(content.provider === "vaultpub");
   const [duration, setDuration] = useState(String(content.duration_seconds ?? 60));
   const [filesystem, setFilesystem] = useState(JSON.stringify(content.filesystem ?? {}, null, 2));
   const [initialDirectory, setInitialDirectory] = useState(String(content.initial_directory ?? "/"));
@@ -61,7 +62,20 @@ export function ActivityEditor({ initial, onSave, onCancel }: {
       }
       if (explanation.trim()) next.explanation_markdown = explanation.trim(); else delete next.explanation_markdown;
       if (kind === "liveclassroom.markdown") next.markdown = markdown;
-      if (kind === "liveclassroom.media") next.url = url;
+      if (kind === "liveclassroom.media") {
+        let mediaUrl = url.trim();
+        if (vaultpub && mediaUrl) {
+          try {
+            const parsed = new URL(mediaUrl, window.location.href);
+            if (parsed.origin === window.location.origin) mediaUrl = `${parsed.pathname}${parsed.search}`;
+          } catch { /* server validation reports an invalid URL */ }
+          next.provider = "vaultpub";
+          next.media_type = "iframe";
+        } else if (content.provider === "vaultpub") {
+          delete next.provider;
+        }
+        next.url = mediaUrl;
+      }
       if (kind === "liveclassroom.timer") next.duration_seconds = Number(duration);
       if (bashSimulator) {
         const parsedFilesystem = JSON.parse(filesystem);
@@ -92,7 +106,7 @@ export function ActivityEditor({ initial, onSave, onCancel }: {
     {(choice || numeric) && <label>{tr("Correct answer (optional)", "正确答案（可选）")}<input value={answer} onChange={e => setAnswer(e.target.value)} /></label>}
     {numeric && <><label>{tr("Minimum", "最小值")}<input type="number" value={minimum} onChange={e => setMinimum(e.target.value)} /></label><label>{tr("Maximum", "最大值")}<input type="number" value={maximum} onChange={e => setMaximum(e.target.value)} /></label></>}
     {kind === "liveclassroom.markdown" && <label>Markdown<textarea aria-label="Markdown" rows={8} value={markdown} onChange={e => setMarkdown(e.target.value)} /></label>}
-    {kind === "liveclassroom.media" && <label>{tr("Media URL", "媒体链接")}<input type="url" value={url} onChange={e => setUrl(e.target.value)} /></label>}
+    {kind === "liveclassroom.media" && <><label>{tr("Media URL", "媒体链接")}<input type="text" value={url} onChange={e => setUrl(e.target.value)} /></label><label><input type="checkbox" checked={vaultpub} onChange={e => setVaultpub(e.target.checked)} /> {tr("VaultPub Slide View", "VaultPub 幻灯片视图")}</label></>}
     {kind === "liveclassroom.timer" && <label>{tr("Seconds", "秒")}<input type="number" min={1} value={duration} onChange={e => setDuration(e.target.value)} /></label>}
     {bashSimulator && <>
       <label>{tr("Virtual filesystem (JSON path to text)", "虚拟文件系统（JSON 路径到文本）")}<textarea rows={8} value={filesystem} onChange={e => setFilesystem(e.target.value)} /></label>

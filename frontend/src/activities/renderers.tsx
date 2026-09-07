@@ -1,7 +1,7 @@
 import * as React from "react";
 import { useEffect, useRef, useState } from "react";
 import { useLocale, useT } from "../i18n.js";
-import type { ActivityState, AggregateState } from "../protocol.js";
+import { apiEndpoint, postJson, type ActivityState, type AggregateState, type Audience, type SessionState } from "../protocol.js";
 import { activityContent, numberValue, stringValue } from "./activityData.js";
 
 const activeTimerStartTimes = new Map<string, number>();
@@ -64,7 +64,72 @@ export function TimerDisplay({ activity }: { activity: ActivityState }) {
   );
 }
 
-export function MediaView({ activity }: { activity: ActivityState }) {
+type MediaViewProps = {
+  activity: ActivityState;
+  state?: SessionState | null;
+  stateUrl?: string | null;
+  audience?: Audience;
+};
+
+function VaultPubFrame({ activity, url, caption, state, stateUrl, audience }: MediaViewProps & { url: string; caption: string }) {
+  const t = useT();
+  const frame = useRef<HTMLIFrameElement>(null);
+  const lastReported = useRef<number | null>(null);
+  const channel = audience === "student" ? "participants" : "display";
+  const page = Math.max(1, Math.floor(state?.channels?.[channel]?.presentation?.page ?? 1));
+  const canControl = audience === "teacher" && Boolean(stateUrl) && state?.session.status === "live";
+  const sameOnParticipants = state?.channels?.display?.activity?.id === activity.id
+    && state?.channels?.display?.activity?.revision_id === activity.revision_id
+    && state?.channels?.participants?.activity?.id === activity.id
+    && state?.channels?.participants?.activity?.revision_id === activity.revision_id;
+  useEffect(() => { lastReported.current = page - 1; }, [page, url]);
+  const postFrame = (command: "previous" | "next" | "go_to", index?: number) => {
+    frame.current?.contentWindow?.postMessage(
+      { protocol: "vaultpub.slide", version: 1, type: "command", command, ...(index === undefined ? {} : { index }) },
+      window.location.origin,
+    );
+  };
+  const savePage = (index: number) => {
+    if (!canControl || !stateUrl || index < 0) return;
+    const channels = sameOnParticipants ? ["display", "participants"] : ["display"];
+    void postJson(apiEndpoint(stateUrl, "sessions/presentation"), { channels, page: index + 1 }).catch(() => undefined);
+  };
+
+  useEffect(() => {
+    const onMessage = (event: MessageEvent<unknown>) => {
+      if (event.origin !== window.location.origin || event.source !== frame.current?.contentWindow) return;
+      if (!event.data || typeof event.data !== "object" || Array.isArray(event.data)) return;
+      const message = event.data as Record<string, unknown>;
+      if (message.protocol !== "vaultpub.slide" || message.version !== 1) return;
+      if (message.type === "ready") {
+        postFrame("go_to", page - 1);
+        return;
+      }
+      if (message.type !== "slide-changed" || !canControl || typeof message.index !== "number") return;
+      const index = Math.floor(message.index);
+      if (index < 0 || lastReported.current === index || index === page - 1) return;
+      lastReported.current = index;
+      savePage(index);
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [page, canControl, stateUrl, sameOnParticipants]);
+
+  return <div className="lc-vaultpub-frame" data-vaultpub-presentation>
+    {canControl ? <div className="lc-actions lc-vaultpub-controls"><button type="button" aria-label="Previous slide" onClick={() => postFrame("previous")}>←</button><button type="button" aria-label="Next slide" onClick={() => postFrame("next")}>→</button><span>{page}</span></div> : null}
+    <iframe
+      ref={frame}
+      src={url}
+      sandbox="allow-scripts allow-same-origin"
+      referrerPolicy="same-origin"
+      loading="lazy"
+      onLoad={() => frame.current?.contentWindow?.postMessage({ protocol: "vaultpub.slide", version: 1, type: "handshake" }, window.location.origin)}
+      title={caption || t("vaultpubPresentation")}
+    />
+  </div>;
+}
+
+export function MediaView({ activity, state = null, stateUrl = null, audience = "student" }: MediaViewProps) {
   const t = useT();
   const content = activityContent(activity);
   const mediaDisabled = content.media_disabled === true || activity.definition.media_disabled === true;
@@ -87,6 +152,10 @@ export function MediaView({ activity }: { activity: ActivityState }) {
   const isVideo = mediaType === "video" || cleanUrl.match(/\.(mp4|webm)$/i);
   const isAudio = mediaType === "audio" || cleanUrl.match(/\.(mp3|ogg|wav)$/i);
   const provider = stringValue(content.provider, stringValue(activity.definition.provider)).toLowerCase();
+
+  if (provider === "vaultpub" && !isImage && !isVideo && !isAudio) {
+    return <><VaultPubFrame activity={activity} url={url} caption={caption} state={state} stateUrl={stateUrl} audience={audience} />{caption ? <p className="lc-media-caption">{caption}</p> : null}</>;
+  }
 
   return (
     <div className="lc-media-container">

@@ -82,7 +82,13 @@ def test_student_join_and_teacher_console_render_without_mobile_overflow(live_se
         teacher_page.goto(f"{live_server.url}{reverse('liveclassroom:teacher-console', args=[session.id])}")
         assert teacher_page.locator("[data-audience='teacher']").is_visible()
         assert teacher_page.locator(".lc-join-qr img").is_visible()
+        assert teacher_page.locator(".lc-presenter").is_visible()
         teacher_page.screenshot(path="/tmp/liveclassroom-teacher-desktop.png", full_page=True)
+
+        teacher_page.goto(f"{live_server.url}{reverse('liveclassroom:student-view', args=[session.id])}")
+        teacher_page.locator("#student-title").wait_for()
+        assert teacher_page.locator("#student-title").inner_text() == "Browser classroom"
+        assert teacher_page.get_by_role("button", name="Inspect").is_enabled()
     finally:
         browser.close()
         browser_manager.stop()

@@ -69,6 +69,11 @@ export function SessionPlanPanel({stateUrl, state, onRefresh}: {stateUrl:string;
   return <section className="lc-plan-section" data-session-plan>
     <h2>{tr("This classroom's lesson","本次课堂教案")}</h2>
     {error && <p role="alert">{error}</p>}
+    {editor && <section className="lc-editor-workspace" aria-label={tr("Edit this classroom", "编辑本次课堂")}>
+      <aside className="lc-editor-outline"><p>{tr("Lesson outline", "教案目录")}</p>{plan?.steps.map(step => <button type="button" key={step.key} className={editor !== "new" && editor.id === step.id ? "lc-editor-outline-current" : ""} onClick={() => setEditor(step)}>{step.position}. {step.title}</button>)}</aside>
+      <div className="lc-editor-form"><h3>{editor === "new" ? tr("Add activity", "添加活动") : tr("Edit this classroom", "编辑本次内容")}</h3><ActivityEditor key={editor === "new" ? "new" : editor.id} initial={editor === "new" ? undefined : editor.snapshot} onSave={save} onCancel={()=>setEditor(null)}/></div>
+      <aside className="lc-editor-preview"><p>{tr("Preview", "预览")}</p>{editor === "new" ? <p>{tr("Choose an activity type and enter content to preview it after saving.", "选择活动类型并填写内容；保存后可预览。")}</p> : <ChangeContent value={{snapshot: editor.snapshot}} />}</aside>
+    </section>}
     {plan?.steps.map((step,index)=><div key={step.key} className="lc-plan-step">
       <strong>{index+1}. {step.title}</strong> {step.launched && <small>{tr("Used in class","已开展")}</small>}
       {manage && <div className="lc-actions">
@@ -79,7 +84,6 @@ export function SessionPlanPanel({stateUrl, state, onRefresh}: {stateUrl:string;
         <button aria-label={tr("Move up","上移")} disabled={ended||busy||index===0} onClick={()=>move(index,-1)}>↑</button>
         <button aria-label={tr("Move down","下移")} disabled={ended||busy||index===plan.steps.length-1} onClick={()=>move(index,1)}>↓</button>
       </div>}
-      {editor!=="new" && editor?.id===step.id && <ActivityEditor key={step.id} initial={editor.snapshot} onSave={save} onCancel={()=>setEditor(null)}/>}
     </div>)}
     {manage && <>
       <div className="lc-actions">
@@ -94,7 +98,6 @@ export function SessionPlanPanel({stateUrl, state, onRefresh}: {stateUrl:string;
       {!!library.length && <form className="lc-form" onSubmit={e=>{e.preventDefault();void execute(()=>post(endpoint("plan"),{activity_definition_id:Number(libraryId),plan_version:plan?.session.plan_version}));}}>
         <label>{tr("Library activity or material","资料库活动或材料")}<select required value={libraryId} onChange={e=>setLibraryId(e.target.value)}><option value="">—</option>{library.map(a=><option key={a.id} value={a.id}>{a.title}</option>)}</select></label><button disabled={busy||!libraryId}>{tr("Add","添加")}</button>
       </form>}
-      {editor==="new" && <ActivityEditor onSave={save} onCancel={()=>setEditor(null)}/>}
       <form className="lc-form" onSubmit={e=>{e.preventDefault();void execute(async()=>{await post(endpoint("save-flow"),{title:saveTitle});setSaveTitle("");});}}>
         <label>{tr("Save a personal lesson copy","另存为个人教案")}<input required maxLength={200} value={saveTitle} onChange={e=>setSaveTitle(e.target.value)}/></label><button disabled={busy}>{tr("Save lesson copy","保存教案副本")}</button>
       </form>
