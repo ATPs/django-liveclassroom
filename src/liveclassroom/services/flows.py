@@ -16,6 +16,7 @@ from liveclassroom.services.classroom import ClassroomError
 from liveclassroom.services.permissions import (
     can_author_course,
     can_edit_flow,
+    can_teach,
     can_use_activity_definition,
 )
 
@@ -43,8 +44,8 @@ def create_flow(
     description: str = "",
 ) -> Flow:
     """Create a new flow associated with a creator and optional course."""
-    if not getattr(creator, "is_authenticated", False):
-        raise ClassroomError("An authenticated user is required to create a flow.")
+    if not can_teach(creator):
+        raise ClassroomError("An authorized teacher is required to create a flow.")
     if not isinstance(title, str) or not title.strip():
         raise ClassroomError("Flow title is required.")
     title = title.strip()

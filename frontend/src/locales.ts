@@ -124,6 +124,7 @@ export const translations = {
     rating: "Rating",
     ranking: "Ranking",
     wordCloud: "Word cloud",
+    bashSimulator: "Bash simulator",
     markdownContent: "Markdown content",
     mediaContent: "Media content",
     mediaUnavailable: "This media is unavailable.",
@@ -229,6 +230,10 @@ export const translations = {
     mediaTypeLabel: "Media type",
     captionLabel: "Caption",
     durationSecondsLabel: "Duration (seconds)",
+    bashSimulatorFilesystemLabel: "Virtual filesystem (JSON path to text)",
+    bashSimulatorInitialDirectoryLabel: "Initial directory",
+    bashSimulatorCompletionLabel: "Completion requirements (JSON)",
+    bashSimulatorJsonError: "Filesystem and completion must be valid JSON objects.",
     validationError: "Please fill in all required fields.",
     saveStep: "Save step",
     cancelStep: "Cancel",
@@ -404,6 +409,7 @@ export const translations = {
     rating: "评分题",
     ranking: "排序题",
     wordCloud: "词云互动",
+    bashSimulator: "Bash 模拟器",
     markdownContent: "Markdown 内容",
     mediaContent: "多媒体展示",
     mediaUnavailable: "该媒体当前不可用。",
@@ -509,6 +515,10 @@ export const translations = {
     mediaTypeLabel: "媒体类型",
     captionLabel: "说明文字",
     durationSecondsLabel: "倒计时时长（秒）",
+    bashSimulatorFilesystemLabel: "虚拟文件系统（JSON 路径到文本）",
+    bashSimulatorInitialDirectoryLabel: "初始目录",
+    bashSimulatorCompletionLabel: "完成条件（JSON）",
+    bashSimulatorJsonError: "文件系统和完成条件必须是有效的 JSON 对象。",
     validationError: "请填写所有必填字段。",
     saveStep: "保存步骤",
     cancelStep: "取消",
@@ -585,8 +595,18 @@ export function getLocale(root?: HTMLElement | null): Locale {
 export function setStoredLocale(locale: Locale): void {
   if (typeof window !== "undefined") {
     window.localStorage.setItem("liveclassroom_locale", locale);
+    document.cookie = `liveclassroom_locale=${encodeURIComponent(locale)}; path=/; max-age=31536000; SameSite=Lax`;
     document.documentElement.lang = locale === "zh-Hans" ? "zh-CN" : "en";
   }
+}
+
+/** Persist the preference, then rerender server-rendered guidance in that locale. */
+export function switchLocalePage(locale: Locale): void {
+  setStoredLocale(locale);
+  if (typeof window === "undefined") return;
+  const destination = new URL(window.location.href);
+  destination.searchParams.set("lang", locale);
+  window.location.assign(destination.toString());
 }
 
 export function t(key: TranslationKey, locale?: Locale): string {
@@ -620,9 +640,7 @@ export function mountLanguageSwitcher(
       event.stopPropagation();
       const current = getLocale(root);
       const nextLocale: Locale = current === "zh-Hans" ? "en" : "zh-Hans";
-      setStoredLocale(nextLocale);
-      root.dataset.locale = nextLocale;
-      mountLanguageSwitcher(root, onLocaleChange);
+      switchLocalePage(nextLocale);
       if (onLocaleChange) {
         onLocaleChange(nextLocale);
       }

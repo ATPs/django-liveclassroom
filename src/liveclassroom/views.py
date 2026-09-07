@@ -2,6 +2,7 @@ import json
 
 import qrcode
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.core.exceptions import PermissionDenied
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
@@ -14,19 +15,29 @@ from .conf import base_template, websocket_path
 from .forms import CreateSessionForm, JoinSessionForm
 from .models import LiveSession
 from .services.classroom import can_manage_session, can_view_display, can_view_session, session_capabilities
+from .services.permissions import can_teach
 
 
 class LocaleContextMixin:
     """Provide active_lang context and active translation based on ?lang=."""
 
     def resolve_locale(self) -> str:
-        lang = (self.request.GET.get("lang") or "").strip().lower()
-        if lang.startswith("zh"):
-            return "zh-Hans"
-        if lang.startswith("en"):
-            return "en"
-        if hasattr(self.request, "LANGUAGE_CODE"):
-            return self.request.LANGUAGE_CODE
+        def normalize(value) -> str | None:
+            lang = str(value or "").strip().lower()
+            if lang.startswith("zh"):
+                return "zh-Hans"
+            if lang.startswith("en"):
+                return "en"
+            return None
+
+        for value in (
+            self.request.GET.get("lang"),
+            self.request.COOKIES.get("liveclassroom_locale"),
+            getattr(self.request, "LANGUAGE_CODE", None),
+        ):
+            locale = normalize(value)
+            if locale:
+                return locale
         return "en"
 
     def dispatch(self, request, *args, **kwargs):
@@ -49,7 +60,25 @@ class HomeView(LocaleContextMixin, TemplateView):
     template_name = "liveclassroom/home.html"
 
 
-class TeacherDashboardView(LoginRequiredMixin, LocaleContextMixin, FormView):
+class HelpView(LocaleContextMixin, TemplateView):
+    template_name = "liveclassroom/help.html"
+
+
+class TeacherRequiredMixin(LoginRequiredMixin):
+    """Require the optional host teacher policy after normal authentication."""
+
+    def dispatch(self, request, *args, **kwargs):
+        # Preserve Django's normal login redirect for anonymous visitors.  Once
+        # authenticated, a host policy denial is intentionally a 403 rather
+        # than a second login prompt.
+        if not request.user.is_authenticated:
+            return super().dispatch(request, *args, **kwargs)
+        if not can_teach(request.user):
+            raise PermissionDenied
+        return super().dispatch(request, *args, **kwargs)
+
+
+class TeacherDashboardView(TeacherRequiredMixin, LocaleContextMixin, FormView):
     template_name = "liveclassroom/teacher_dashboard.html"
     form_class = CreateSessionForm
 
@@ -68,7 +97,7 @@ class TeacherDashboardView(LoginRequiredMixin, LocaleContextMixin, FormView):
         return context
 
 
-class TeacherConsoleView(LoginRequiredMixin, LocaleContextMixin, TemplateView):
+class TeacherConsoleView(TeacherRequiredMixin, LocaleContextMixin, TemplateView):
     template_name = "liveclassroom/teacher_console.html"
 
     def dispatch(self, request, *args, **kwargs):
@@ -92,7 +121,7 @@ class TeacherConsoleView(LoginRequiredMixin, LocaleContextMixin, TemplateView):
         return context
 
 
-class StudentView(LoginRequiredMixin, LocaleContextMixin, TemplateView):
+class StudentView(TeacherRequiredMixin, LocaleContextMixin, TemplateView):
     """A staff-only participant-scoped student surface with no join side effects."""
 
     template_name = "liveclassroom/student_view.html"
@@ -110,7 +139,7 @@ class StudentView(LoginRequiredMixin, LocaleContextMixin, TemplateView):
         return context
 
 
-class ClassroomDisplayView(LoginRequiredMixin, LocaleContextMixin, TemplateView):
+class ClassroomDisplayView(TeacherRequiredMixin, LocaleContextMixin, TemplateView):
     """Render a restricted projector surface for a teacher, co-host, or observer."""
 
     template_name = "liveclassroom/classroom_display.html"
@@ -175,7 +204,7 @@ def join_qr(request, session_id: int):
     return response
 
 
-class FlowBuilderView(LoginRequiredMixin, LocaleContextMixin, TemplateView):
+class FlowBuilderView(TeacherRequiredMixin, LocaleContextMixin, TemplateView):
     template_name = "liveclassroom/builder.html"
 
     def get_context_data(self, **kwargs):

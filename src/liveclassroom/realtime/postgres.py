@@ -10,6 +10,11 @@ from typing import Any
 from django.conf import settings
 from django.db import connection
 
+from liveclassroom.conf import postgres_notify_channel
+
+# Kept as the documented default and compatibility import for host extensions.
+# Runtime publishing/listening uses ``postgres_notify_channel()`` so a host may
+# configure an isolated channel without mutating module state.
 NOTIFY_CHANNEL = "liveclassroom_events"
 _MAX_PAYLOAD_BYTES = 7_500
 
@@ -57,7 +62,7 @@ def publish_notification(session_id: int, message: dict[str, Any]) -> bool:
     if len(payload.encode("utf-8")) > _MAX_PAYLOAD_BYTES:
         raise ValueError("LiveClassroom realtime notification is too large")
     with connection.cursor() as cursor:
-        cursor.execute("SELECT pg_notify(%s, %s)", [NOTIFY_CHANNEL, payload])
+        cursor.execute("SELECT pg_notify(%s, %s)", [postgres_notify_channel(), payload])
     return True
 
 
@@ -122,7 +127,7 @@ class PostgresNotificationRelay:
                 async with await AsyncConnection.connect(**_connection_kwargs(), autocommit=True) as database:
                     self._connection = database
                     try:
-                        await database.execute(f"LISTEN {NOTIFY_CHANNEL}")
+                        await database.execute(f"LISTEN {postgres_notify_channel()}")
                         async for notification in database.notifies():
                             if self._stopping.is_set():
                                 return

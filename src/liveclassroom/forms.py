@@ -4,6 +4,7 @@ from django.utils.translation import gettext_lazy as _
 
 from .conf import guests_allowed, join_code_length
 from .models import CourseMembership, Flow, LiveSession
+from .services.permissions import can_teach
 
 
 class CreateSessionForm(forms.ModelForm):
@@ -41,7 +42,10 @@ class CreateSessionForm(forms.ModelForm):
             "course"
         ].queryset.filter(created_by=user)
         self.fields["flow"].queryset = Flow.objects.filter(
-            Q(course__in=self.fields["course"].queryset) | Q(created_by=user) | Q(shares__user=user)
+            Q(course__in=self.fields["course"].queryset)
+            | Q(created_by=user)
+            | Q(shares__user=user)
+            | (Q(demo_lesson__is_public=True) if can_teach(user) else Q(pk__in=[]))
         ).distinct()
 
     def save(self, commit=True):

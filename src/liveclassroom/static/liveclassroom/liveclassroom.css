@@ -144,6 +144,145 @@
   width: min(100%, 68rem);
 }
 
+#liveclassroom-root .lc-page-stack {
+  width: min(100%, 76rem);
+  display: grid;
+  gap: 1rem;
+  align-items: start;
+}
+
+#liveclassroom-root .lc-context-help {
+  width: min(100%, 68rem);
+  padding: 1.25rem 1.5rem;
+  background: var(--lc-accent-soft);
+  border-color: var(--lc-accent-border);
+}
+
+#liveclassroom-root .lc-context-help h2 {
+  margin: 0 0 0.45rem;
+  font-size: 1.2rem;
+}
+
+#liveclassroom-root .lc-context-help p {
+  margin: 0.5rem 0;
+}
+
+#liveclassroom-root .lc-context-kicker {
+  color: var(--lc-accent);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.78rem;
+  margin-bottom: 0.15rem;
+}
+
+#liveclassroom-root .lc-context-help-link,
+#liveclassroom-root .lc-help-footer {
+  margin-bottom: 0;
+}
+
+#liveclassroom-root .lc-guidance-risk {
+  padding: 0.65rem 0.8rem;
+  border-left: 0.25rem solid var(--lc-warning);
+  background: var(--lc-warning-soft);
+  color: var(--lc-text);
+}
+
+#liveclassroom-root .lc-help-page {
+  width: min(100%, 76rem);
+}
+
+#liveclassroom-root .lc-help-nav {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.4rem;
+  margin-bottom: 1.5rem;
+  color: var(--lc-text-2);
+  font-size: 0.9rem;
+}
+
+#liveclassroom-root .lc-help-lead {
+  max-width: 56rem;
+  color: var(--lc-text-2);
+  font-size: 1.08rem;
+}
+
+#liveclassroom-root .lc-help-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
+  gap: 1rem;
+  margin: 1rem 0 1.75rem;
+}
+
+#liveclassroom-root .lc-help-card {
+  padding: 1rem;
+  border: 1px solid var(--lc-border);
+  border-radius: var(--lc-radius);
+  background: var(--lc-surface-2);
+}
+
+#liveclassroom-root .lc-help-card h3 {
+  margin: 0 0 0.35rem;
+  font-size: 1.05rem;
+}
+
+#liveclassroom-root .lc-help-card p {
+  margin: 0;
+  color: var(--lc-text-2);
+}
+
+#liveclassroom-root .lc-help-steps {
+  display: grid;
+  gap: 0.75rem;
+  padding-left: 1.5rem;
+  margin: 1rem 0 1.75rem;
+}
+
+#liveclassroom-root .lc-help-warning {
+  margin: 1rem 0 1.75rem;
+  padding: 1rem 1.25rem;
+  border: 1px solid var(--lc-warning);
+  border-radius: var(--lc-radius);
+  background: var(--lc-warning-soft);
+}
+
+#liveclassroom-root .lc-help-warning h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1.15rem;
+}
+
+#liveclassroom-root .lc-help-warning ul {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding-left: 1.3rem;
+}
+
+#liveclassroom-root .lc-help-tasks {
+  display: grid;
+  gap: 0.65rem;
+  margin-top: 1rem;
+}
+
+#liveclassroom-root .lc-help-tasks details {
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--lc-border);
+  border-radius: var(--lc-radius);
+  background: var(--lc-surface-2);
+}
+
+#liveclassroom-root .lc-help-tasks summary {
+  color: var(--lc-accent);
+  cursor: pointer;
+  font-weight: 700;
+}
+
+#liveclassroom-root .lc-help-tasks p {
+  margin: 0.65rem 0 0;
+  color: var(--lc-text-2);
+}
+
 #liveclassroom-root .lc-workspace-root .lc-grid {
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
 }

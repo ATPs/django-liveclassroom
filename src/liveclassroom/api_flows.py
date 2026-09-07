@@ -25,7 +25,7 @@ from .services.flows import (
     save_session_as_flow,
     update_flow,
 )
-from .services.permissions import can_use_activity_definition, can_use_flow
+from .services.permissions import can_teach, can_use_activity_definition, can_use_flow
 
 
 def _serialize_flow(flow: Flow) -> dict[str, Any]:
@@ -44,6 +44,10 @@ def _serialize_flow(flow: Flow) -> dict[str, Any]:
 def _serialize_flow_summary(flow: Flow) -> dict[str, Any]:
     data = _serialize_flow(flow)
     data["steps_count"] = flow.steps.count()
+    try:
+        data["demo"] = flow.demo_lesson.is_public
+    except Flow.demo_lesson.RelatedObjectDoesNotExist:
+        data["demo"] = False
     return data
 
 
@@ -70,10 +74,16 @@ def _serialize_step(step: FlowStep) -> dict[str, Any]:
     }
 
 
-def _serialize_flow_with_steps(flow: Flow) -> dict[str, Any]:
+def _serialize_flow_with_steps(flow: Flow, *, actor=None) -> dict[str, Any]:
     from .services.plans import lesson_token
     payload = _serialize_flow(flow)
     payload["token"] = lesson_token(flow)
+    try:
+        payload["demo"] = flow.demo_lesson.is_public
+    except Flow.demo_lesson.RelatedObjectDoesNotExist:
+        payload["demo"] = False
+    if actor is not None:
+        payload["can_edit"] = can_edit_flow(actor, flow)
     payload["steps"] = [
         _serialize_step(step)
         for step in flow.steps.select_related("activity_definition").order_by("position")
@@ -87,6 +97,8 @@ def flows_collection(request):
     """List accessible flows or create a new flow."""
     if not getattr(request.user, "is_authenticated", False):
         return _error("Authentication required.", 401)
+    if not can_teach(request.user):
+        return _error("Teacher access is required.", 403)
 
     if request.method == "POST":
         command_type = "flow.create"
@@ -142,9 +154,10 @@ def flows_collection(request):
             | models.Q(course__created_by=request.user)
             | models.Q(course_id__in=course_ids)
             | models.Q(shares__user=request.user)
+            | models.Q(demo_lesson__is_public=True)
         ).distinct()
 
-    flows = flows.select_related("course", "created_by").order_by("-updated_at")
+    flows = flows.select_related("course", "created_by", "demo_lesson").order_by("-updated_at")
     return JsonResponse({"flows": [{**_serialize_flow_summary(f), "can_edit": can_edit_flow(request.user, f),
         "shared": not can_edit_flow(request.user, f), "can_share": f.created_by_id == request.user.pk,
         "course_ids": list(f.associated_courses.values_list("id", flat=True))} for f in flows]})
@@ -161,7 +174,7 @@ def flow_detail(request, flow_id: int):
         return _error("You do not have permission to access this flow.", 403)
 
     if request.method == "GET":
-        return JsonResponse(_serialize_flow_with_steps(flow))
+        return JsonResponse(_serialize_flow_with_steps(flow, actor=request.user))
 
     # PATCH / PUT
     command_type = f"flow.update.{flow_id}"
@@ -218,7 +231,7 @@ def duplicate_flow_api(request, flow_id: int):
         request,
         key,
         command_type,
-        JsonResponse(_serialize_flow_with_steps(new_flow), status=201),
+        JsonResponse(_serialize_flow_with_steps(new_flow, actor=request.user), status=201),
     )
 
 
@@ -365,6 +378,8 @@ def import_flow_api(request):
     """Import a flow from a JSON or Markdown/YAML source."""
     if not getattr(request.user, "is_authenticated", False):
         return _error("Authentication required.", 401)
+    if not can_teach(request.user):
+        return _error("Teacher access is required.", 403)
 
     command_type = "flow.import"
     replay, key = _authoring_replay(request, command_type)

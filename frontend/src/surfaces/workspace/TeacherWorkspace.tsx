@@ -32,6 +32,7 @@ type SessionSummary = {
   id: number;
   title: string;
   status: string;
+  demo?: boolean;
   archived?: boolean;
   course_id?: number | null;
   flow_id?: number | null;
@@ -46,6 +47,7 @@ type FlowSummary = {
   id: number;
   title: string;
   description?: string;
+  demo?: boolean;
   course_id?: number | null;
   steps_count?: number;
   can_edit?: boolean;
@@ -88,6 +90,8 @@ type WorkspaceTextKey =
   | "recentSessions"
   | "newInstant"
   | "startFromLesson"
+  | "publicDemo"
+  | "useDemo"
   | "reuseSession"
   | "edit"
   | "share"
@@ -167,6 +171,8 @@ const workspaceCopy: Record<Locale, Record<WorkspaceTextKey, string>> = {
     recentSessions: "Recent sessions",
     newInstant: "Instant classroom",
     startFromLesson: "Start from lesson",
+    publicDemo: "Public demo",
+    useDemo: "Use this demo",
     reuseSession: "Reuse session",
     edit: "Edit lesson",
     share: "Share",
@@ -245,6 +251,8 @@ const workspaceCopy: Record<Locale, Record<WorkspaceTextKey, string>> = {
     recentSessions: "最近课堂",
     newInstant: "即时课堂",
     startFromLesson: "从教案开始",
+    publicDemo: "公开示例",
+    useDemo: "使用此示例",
     reuseSession: "复用课堂",
     edit: "编辑教案",
     share: "分享",
@@ -524,7 +532,7 @@ function LessonCard({
   builderUrl: string;
   run: RunAction;
   busy: string | null;
-  onStart: (flowId: number) => void;
+  onStart: (flowId: number, demo?: boolean) => void;
   onRefresh: () => Promise<void>;
 }) {
   const t = useWorkspaceText();
@@ -608,11 +616,11 @@ function LessonCard({
           <h3>{flow.title}</h3>
           {flow.description ? <p>{flow.description}</p> : null}
         </div>
-        {flow.shared ? <span className="lc-badge">{t("shared")}</span> : null}
+        {flow.demo ? <span className="lc-badge">{t("publicDemo")}</span> : flow.shared ? <span className="lc-badge">{t("shared")}</span> : null}
       </div>
       <p className="lc-workspace-meta">{flow.steps_count ?? 0} {t("steps")}</p>
       <div className="lc-actions">
-        <button type="button" className="lc-btn-sm lc-btn-primary" onClick={() => onStart(flow.id)} disabled={Boolean(busy)}>{t("startFromLesson")}</button>
+        <button type="button" className="lc-btn-sm lc-btn-primary" onClick={() => onStart(flow.id, flow.demo)} disabled={Boolean(busy)}>{flow.demo ? t("useDemo") : t("startFromLesson")}</button>
         {flow.can_edit ? <a className="lc-btn-sm lc-btn-outline" href={builderLink}>{t("edit")}</a> : null}
         <button type="button" className="lc-btn-sm lc-btn-outline" onClick={() => setDuplicateTitle(flow.title)} disabled={Boolean(busy)}>{t("duplicate")}</button>
         {flow.shared ? <button type="button" className="lc-btn-sm lc-btn-outline" onClick={togglePreview} disabled={Boolean(busy) || previewBusy}>{previewOpen ? t("hidePreview") : t("preview")}</button> : null}
@@ -910,10 +918,16 @@ function TeacherWorkspace({ apiRoot, builderUrl }: { apiRoot: string; builderUrl
   };
 
   const openInstant = () => setComposer({ label: t("newInstant"), flowId: null, sourceSessionId: null });
-  const openLesson = (flowId: number) => setComposer({ label: t("fromLesson"), flowId, sourceSessionId: null });
-  const openReuse = (session: SessionSummary) => setComposer({ label: `${t("fromSession")}: ${session.title}`, flowId: null, sourceSessionId: session.id });
+  const openLesson = (flowId: number, demo = false) => setComposer({ label: demo ? t("useDemo") : t("fromLesson"), flowId, sourceSessionId: null });
+  const openReuse = (session: SessionSummary) => setComposer({
+    label: session.demo ? t("useDemo") : `${t("fromSession")}: ${session.title}`,
+    flowId: session.demo ? session.flow_id ?? null : null,
+    sourceSessionId: session.demo ? null : session.id,
+  });
 
-  const visibleFlows = tab === "shared" ? flows.filter((flow) => flow.shared) : flows.filter((flow) => !flow.shared);
+  const visibleFlows = tab === "shared"
+    ? flows.filter((flow) => flow.shared && !flow.demo)
+    : flows.filter((flow) => !flow.shared || flow.demo);
   const emptyText = tab === "shared" ? t("noSharedLessons") : tab === "classes" ? t("noClasses") : tab === "recent" ? t("noRecentSessions") : t("noLessons");
 
   return (
@@ -985,10 +999,10 @@ function TeacherWorkspace({ apiRoot, builderUrl }: { apiRoot: string; builderUrl
           <div className="lc-grid">
             {sessions.map((session) => (
               <article className="lc-card lc-workspace-item" key={session.id}>
-                <h2>{session.title}</h2>
+                <h2>{session.title} {session.demo ? <span className="lc-badge">{t("publicDemo")}</span> : null}</h2>
                 <p><span className="lc-badge">{session.status}</span>{session.course_id ? ` · ${courses.find((course) => course.id === session.course_id)?.title ?? t("class")}` : ""}</p>
                 <div className="lc-actions">
-                  {session.capabilities?.includes("manage_session") && <button type="button" className="lc-btn-sm lc-btn-primary" onClick={() => openReuse(session)} disabled={Boolean(busy)}>{t("reuseSession")}</button>}
+                  {(session.demo || session.capabilities?.includes("manage_session")) && <button type="button" className="lc-btn-sm lc-btn-primary" onClick={() => openReuse(session)} disabled={Boolean(busy)}>{session.demo ? t("useDemo") : t("reuseSession")}</button>}
                   <a className="lc-btn-sm lc-btn-outline" href={session.console_url}>{t("status")}</a>
                 </div>
               </article>

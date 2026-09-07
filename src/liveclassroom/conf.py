@@ -1,5 +1,7 @@
 """Configuration defaults for host Django projects."""
 
+import re
+
 from django.conf import settings
 
 DEFAULTS = {
@@ -16,6 +18,11 @@ DEFAULTS = {
     "AI_JOB_TIMEOUT_SECONDS": 300,
     "ASSET_MAX_BYTES": 50 * 1024 * 1024,
     "ALLOW_SERVER_FILE_PATHS": False,
+    # ``None`` preserves the standalone package behaviour: authenticated users
+    # can teach.  A host may supply a callable accepting ``user`` and returning
+    # an actual bool to apply its own teacher membership policy.
+    "TEACHER_AUTHORIZER": None,
+    "POSTGRES_NOTIFY_CHANNEL": "liveclassroom_events",
 }
 
 
@@ -88,4 +95,20 @@ def server_file_paths_allowed() -> bool:
     value = setting("ALLOW_SERVER_FILE_PATHS")
     if not isinstance(value, bool):
         raise ValueError("LIVECLASSROOM['ALLOW_SERVER_FILE_PATHS'] must be a boolean.")
+    return value
+
+
+def teacher_authorizer():
+    """Return the optional host teacher policy after validating its contract."""
+    value = setting("TEACHER_AUTHORIZER")
+    if value is not None and not callable(value):
+        raise ValueError("LIVECLASSROOM['TEACHER_AUTHORIZER'] must be a callable or None.")
+    return value
+
+
+def postgres_notify_channel() -> str:
+    """Return a safe PostgreSQL identifier for the package notification bus."""
+    value = setting("POSTGRES_NOTIFY_CHANNEL")
+    if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,62}", value):
+        raise ValueError("LIVECLASSROOM['POSTGRES_NOTIFY_CHANNEL'] must be a PostgreSQL identifier.")
     return value

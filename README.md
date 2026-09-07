@@ -13,6 +13,8 @@ Use **Teach again** to create a fresh classroom from retained teaching content. 
 
 Classes are optional cohort workspaces with reusable entry/chat defaults and an optional account roster. Guest QR entry remains supported. External presentation URLs and server-file references stay live; uploaded materials have retained asset references. Student review after class is read-only and limited to the activities the teacher enables.
 
+The public help page explains the workspace, builder, console, publication, sharing, and ending workflow in English and Simplified Chinese. Hosts can install the bilingual **Bash for Linux beginners** demo with `seed_liveclassroom_bash_demo`. It is a common read-only lesson: **Use this demo** creates a teacher-owned classroom snapshot. Its terminal is a fixed browser-only simulator with no server subprocess or local-file access.
+
 ## What is included now
 
 - Course, flow, typed activity-definition, flow-step, live-session,
@@ -47,6 +49,9 @@ Classes are optional cohort workspaces with reusable entry/chat defaults and an 
   WebM can be added from the flow builder or teacher console, delivered only
   within the authorized classroom session, and displayed with teacher page
   control where applicable.
+- A strict `liveclassroom.bash_simulator` activity plugin and a complete
+  bilingual, 20-minute Bash-for-beginners demo lesson with ready, live, and
+  ended sample classrooms.
 
 The first milestone deliberately establishes the durable domain model,
 integration boundaries, teacher controls, and a useful reporting surface.
@@ -72,6 +77,12 @@ python standalone/manage.py runserver
 
 Open <http://127.0.0.1:8000/>. The Django admin is available at
 `/admin/`.
+
+To install the optional common examples after migrating, run:
+
+```bash
+python standalone/manage.py seed_liveclassroom_bash_demo
+```
 
 ## Run the first live quiz
 
@@ -109,6 +120,18 @@ INSTALLED_APPS += ["channels", "liveclassroom"]
 
 Mount `liveclassroom.routing.websocket_urlpatterns` in the host project's ASGI
 application.  The standalone `asgi.py` is the reference integration.
+
+By default every authenticated account can use teacher tools. A host that has
+its own teacher group can provide a strict boolean callback; accounts that do
+not pass it still retain ordinary student access:
+
+```python
+LIVECLASSROOM = {
+    "TEACHER_AUTHORIZER": lambda user: user.is_authenticated and user.groups.filter(
+        name="liveclassroom-teacher"
+    ).exists(),
+}
+```
 
 To rebuild the packaged teaching client after editing TypeScript, run
 `bun run bundle` from `frontend/`. This writes the browser bundle, its lazy

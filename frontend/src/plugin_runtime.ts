@@ -13,6 +13,7 @@ export type PluginRenderContext = {
   locale: Locale;
   container: HTMLElement;
   fallback: () => void;
+  submit?: (answer: Record<string, unknown>) => Promise<void>;
 };
 
 type PluginModule = {
@@ -69,6 +70,7 @@ function PluginActivity({ options }: { options: PluginActivityOptions }): Return
           locale: options.locale,
           container,
           fallback,
+          submit: options.submit,
         });
         if (typeof result === "function") cleanup = result;
       })

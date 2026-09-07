@@ -1,0 +1,5 @@
+{% if active_lang == "zh-Hans" %}
+  <a class="lc-help-link" href="{% url 'liveclassroom:help' %}?lang={{ active_lang|urlencode }}" aria-label="帮助">帮助</a>
+{% else %}
+  <a class="lc-help-link" href="{% url 'liveclassroom:help' %}?lang={{ active_lang|urlencode }}" aria-label="Help">Help</a>
+{% endif %}

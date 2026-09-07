@@ -28,7 +28,7 @@ from liveclassroom.models import (
 from liveclassroom.registry import activity_registry
 
 from .events import notify_session_after_commit
-from .permissions import can_author_course
+from .permissions import can_author_course, can_teach
 
 
 class ClassroomError(Exception):
@@ -90,7 +90,7 @@ def safe_activity_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
 
 
 def can_manage_session(user, session: LiveSession) -> bool:
-    if not user.is_authenticated:
+    if not can_teach(user):
         return False
     if (user.pk == session.teacher_id or user.is_superuser
             or (session.course_id and session.course.created_by_id == user.pk)):
@@ -112,7 +112,7 @@ def can_manage_session(user, session: LiveSession) -> bool:
 
 
 def can_manage_admission(user, session: LiveSession) -> bool:
-    if not user.is_authenticated:
+    if not can_teach(user):
         return False
     if (user.pk == session.teacher_id or user.is_superuser
             or (session.course_id and session.course.created_by_id == user.pk)):
@@ -134,8 +134,12 @@ def can_manage_admission(user, session: LiveSession) -> bool:
 
 
 def can_view_session(user, session: LiveSession) -> bool:
-    if not user.is_authenticated:
+    if not can_teach(user):
         return False
+    from .demos import is_public_demo_session
+
+    if is_public_demo_session(session):
+        return True
     if (user.pk == session.teacher_id or user.is_superuser
             or (session.course_id and session.course.created_by_id == user.pk)):
         return True
@@ -298,7 +302,7 @@ def create_activity_definition(
     *, owner, title: str, type_key: str, definition: dict[str, Any], course=None, asset=None, change_note: str = ""
 ) -> ActivityDefinition:
     """Create a validated reusable activity and its first immutable revision."""
-    if not getattr(owner, "is_authenticated", False):
+    if not can_teach(owner):
         raise ClassroomError("An authenticated teacher is required to create an activity.")
     if not isinstance(type_key, str) or not type_key.strip():
         raise ClassroomError("An activity type is required.")
@@ -360,7 +364,7 @@ def revise_activity_definition(
     *, activity: ActivityDefinition, definition: dict[str, Any], actor, change_note: str = ""
 ) -> ActivityDefinitionRevision:
     """Update a reusable definition without rewriting its prior payload."""
-    if not getattr(actor, "is_authenticated", False) or (
+    if not can_teach(actor) or (
         activity.owner_id != actor.pk
         and not (activity.course_id and can_author_course(actor, activity.course))
     ):

@@ -130,6 +130,6 @@ def test_teacher_console_exposes_mounted_surface_urls(client):
     assert response.status_code == 200
     content = response.content.decode()
     assert f'data-qr-url="/classroom/teacher/sessions/{session.id}/join-qr.svg"' in content
-    assert f'data-display-url="/classroom/teacher/sessions/{session.id}/display/"' in content
+    assert f'data-display-url="/classroom/teacher/sessions/{session.id}/display/?lang=en"' in content
     assert f'data-export-url="/classroom/api/v1/sessions/{session.id}/export/"' in content
-    assert f'data-student-view-url="/classroom/teacher/sessions/{session.id}/student-view/"' in content
+    assert f'data-student-view-url="/classroom/teacher/sessions/{session.id}/student-view/?lang=en"' in content

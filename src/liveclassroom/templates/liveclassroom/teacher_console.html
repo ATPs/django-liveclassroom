@@ -1,25 +1,41 @@
 {% extends liveclassroom_base_template %}
 {% block title %}Teacher console · LiveClassroom{% endblock %}
 {% block content %}
-  <section class="lc-card lc-wide"
-    data-liveclassroom-app data-audience="teacher"
-    data-capabilities='{{ capabilities_json }}'
-    data-workspace-url="{% url 'liveclassroom:teacher-dashboard' %}"
-    data-session-id="{{ session.id }}"
-    data-is-superuser="{{ request.user.is_superuser|yesno:'true,false' }}"
-    data-state-url="{% url 'liveclassroom:api-v1-state' session.id %}"
-    data-websocket-url="{{ websocket_url }}"
-    data-locale="{{ active_lang|default:'en' }}"
-    data-session-title="{{ session.title }}"
-    data-flow-title="{{ flow_title }}"
-    data-join-code="{{ session.join_code }}"
-    data-join-url="{% url 'liveclassroom:join' %}?code={{ session.join_code|urlencode }}"
-    data-display-url="{% url 'liveclassroom:classroom-display' session.id %}"
-    data-qr-url="{% url 'liveclassroom:join-qr' session.id %}"
-    data-export-url="{% url 'liveclassroom:api-v1-export' session.id %}"
-    data-builder-url="{% url 'liveclassroom:flow-builder' %}?session_id={{ session.id }}"
-    data-student-view-url="{% url 'liveclassroom:student-view' session.id %}"
-    data-flow-steps='{{ flow_steps_json }}'>
-    <noscript><p>The live console needs JavaScript.</p></noscript>
-  </section>
+  <div class="lc-page-stack">
+    <aside class="lc-card lc-context-help" aria-labelledby="console-guidance-title">
+      {% if active_lang == "zh-Hans" %}
+        <p class="lc-context-kicker">开始控制课堂前</p>
+        <h2 id="console-guidance-title">发布前确认目标频道</h2>
+        <p>控制台把“大屏”和“学生端”分开管理。选择活动后，先确认目标频道，再发布题目；两个频道可以同时显示不同内容。</p>
+        <p class="lc-guidance-risk"><strong>高风险提示：</strong>公布答案或解析前检查当前频道的可见性设置。结束课堂会关闭新的作答和聊天；归档会保留记录，删除已归档课堂会永久移除记录。</p>
+      {% else %}
+        <p class="lc-context-kicker">Before you control the class</p>
+        <h2 id="console-guidance-title">Confirm the target channel before publishing</h2>
+        <p>The console controls the Display and Students channels separately. After selecting an activity, confirm its target channel before publishing; the two channels can show different content at the same time.</p>
+        <p class="lc-guidance-risk"><strong>High impact check:</strong> Check the current channel's visibility settings before revealing an answer or explanation. Ending closes new responses and chat; archiving keeps the record, while deleting an archived classroom permanently removes it.</p>
+      {% endif %}
+      <p class="lc-context-help-link">{% include "liveclassroom/_help_link.html" %}</p>
+    </aside>
+    <section class="lc-card lc-wide"
+      data-liveclassroom-app data-audience="teacher"
+      data-capabilities='{{ capabilities_json }}'
+      data-workspace-url="{% url 'liveclassroom:teacher-dashboard' %}?lang={{ active_lang|urlencode }}"
+      data-session-id="{{ session.id }}"
+      data-is-superuser="{{ request.user.is_superuser|yesno:'true,false' }}"
+      data-state-url="{% url 'liveclassroom:api-v1-state' session.id %}"
+      data-websocket-url="{{ websocket_url }}"
+      data-locale="{{ active_lang|default:'en' }}"
+      data-session-title="{{ session.title }}"
+      data-flow-title="{{ flow_title }}"
+      data-join-code="{{ session.join_code }}"
+      data-join-url="{% url 'liveclassroom:join' %}?code={{ session.join_code|urlencode }}"
+      data-display-url="{% url 'liveclassroom:classroom-display' session.id %}?lang={{ active_lang|urlencode }}"
+      data-qr-url="{% url 'liveclassroom:join-qr' session.id %}"
+      data-export-url="{% url 'liveclassroom:api-v1-export' session.id %}"
+      data-builder-url="{% url 'liveclassroom:flow-builder' %}?session_id={{ session.id }}&amp;lang={{ active_lang|urlencode }}"
+      data-student-view-url="{% url 'liveclassroom:student-view' session.id %}?lang={{ active_lang|urlencode }}"
+      data-flow-steps='{{ flow_steps_json }}'>
+      <noscript><p>The live console needs JavaScript.</p></noscript>
+    </section>
+  </div>
 {% endblock %}

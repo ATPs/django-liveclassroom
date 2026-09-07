@@ -22,17 +22,22 @@ export function ActivityEditor({ initial, onSave, onCancel }: {
   const [markdown, setMarkdown] = useState(String(content.markdown ?? ""));
   const [url, setUrl] = useState(String(content.url ?? ""));
   const [duration, setDuration] = useState(String(content.duration_seconds ?? 60));
+  const [filesystem, setFilesystem] = useState(JSON.stringify(content.filesystem ?? {}, null, 2));
+  const [initialDirectory, setInitialDirectory] = useState(String(content.initial_directory ?? "/"));
+  const [completion, setCompletion] = useState(JSON.stringify(content.completion ?? {}, null, 2));
   const [minimum, setMinimum] = useState(String(content.minimum ?? ""));
   const [maximum, setMaximum] = useState(String(content.maximum ?? ""));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const choice = ["single_choice", "multiple_choice", "poll", "ranking", "true_false"].some(k => kind === `liveclassroom.${k}`);
   const numeric = ["liveclassroom.numeric", "liveclassroom.rating"].includes(kind);
+  const bashSimulator = kind === "liveclassroom.bash_simulator";
   const kinds = [
     ["short_text", "Short text", "简答"], ["single_choice", "Single choice", "单选"],
     ["multiple_choice", "Multiple choice", "多选"], ["true_false", "True / false", "判断"],
     ["poll", "Poll", "投票"], ["numeric", "Numeric", "数值"], ["rating", "Rating", "评分"],
     ["ranking", "Ranking", "排序"], ["word_cloud", "Word cloud", "词云"],
+    ["bash_simulator", "Bash simulator", "Bash 模拟器"],
     ["markdown", "Markdown", "Markdown"], ["media", "Media URL", "媒体链接"], ["timer", "Timer", "计时器"],
   ];
   const submit = async (event: React.FormEvent) => {
@@ -58,6 +63,19 @@ export function ActivityEditor({ initial, onSave, onCancel }: {
       if (kind === "liveclassroom.markdown") next.markdown = markdown;
       if (kind === "liveclassroom.media") next.url = url;
       if (kind === "liveclassroom.timer") next.duration_seconds = Number(duration);
+      if (bashSimulator) {
+        const parsedFilesystem = JSON.parse(filesystem);
+        const parsedCompletion = JSON.parse(completion);
+        if (!parsedFilesystem || typeof parsedFilesystem !== "object" || Array.isArray(parsedFilesystem)) {
+          throw new Error(tr("Filesystem must be a JSON object", "文件系统必须是 JSON 对象"));
+        }
+        if (!parsedCompletion || typeof parsedCompletion !== "object" || Array.isArray(parsedCompletion)) {
+          throw new Error(tr("Completion must be a JSON object", "完成条件必须是 JSON 对象"));
+        }
+        next.filesystem = parsedFilesystem;
+        next.initial_directory = initialDirectory.trim() || "/";
+        next.completion = parsedCompletion;
+      }
       if (numeric) {
         if (minimum !== "") next.minimum = Number(minimum); else delete next.minimum;
         if (maximum !== "") next.maximum = Number(maximum); else delete next.maximum;
@@ -76,6 +94,11 @@ export function ActivityEditor({ initial, onSave, onCancel }: {
     {kind === "liveclassroom.markdown" && <label>Markdown<textarea aria-label="Markdown" rows={8} value={markdown} onChange={e => setMarkdown(e.target.value)} /></label>}
     {kind === "liveclassroom.media" && <label>{tr("Media URL", "媒体链接")}<input type="url" value={url} onChange={e => setUrl(e.target.value)} /></label>}
     {kind === "liveclassroom.timer" && <label>{tr("Seconds", "秒")}<input type="number" min={1} value={duration} onChange={e => setDuration(e.target.value)} /></label>}
+    {bashSimulator && <>
+      <label>{tr("Virtual filesystem (JSON path to text)", "虚拟文件系统（JSON 路径到文本）")}<textarea rows={8} value={filesystem} onChange={e => setFilesystem(e.target.value)} /></label>
+      <label>{tr("Initial directory", "初始目录")}<input value={initialDirectory} onChange={e => setInitialDirectory(e.target.value)} /></label>
+      <label>{tr("Completion requirements (JSON)", "完成条件（JSON）")}<textarea rows={4} value={completion} onChange={e => setCompletion(e.target.value)} /></label>
+    </>}
     <label>{tr("Explanation (optional)", "解析（可选）")}<textarea aria-label={tr("Explanation (optional)", "解析（可选）")} value={explanation} onChange={e => setExplanation(e.target.value)} /></label>
     {error && <p role="alert">{error}</p>}
     <div className="lc-actions"><button disabled={busy}>{tr("Save", "保存")}</button><button type="button" onClick={onCancel}>{tr("Cancel", "取消")}</button></div>
