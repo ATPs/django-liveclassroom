@@ -152,6 +152,16 @@ def test_presentation_state_requires_active_file_and_updates_channels(teacher, t
     ).json()
     assert state["channels"]["display"]["presentation"] == {"page": 3, "navigation_mode": "follow"}
     assert state["channels"]["participants"]["presentation"] == {"page": 3, "navigation_mode": "paged"}
+    from liveclassroom.services.classroom import end_session
+
+    end_session(session=session, actor=teacher)
+    rejected = post_json(
+        teacher_client,
+        reverse("liveclassroom:api-v1-session-presentation", args=[session.id]),
+        {"channels": ["display"], "page": 4},
+    )
+    assert rejected.status_code == 403
+    assert session.channel_states.get(channel="display").document_page == 3
 
 
 @pytest.mark.django_db

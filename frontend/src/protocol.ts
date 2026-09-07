@@ -26,6 +26,7 @@ export type ActivityState = {
   id: number;
   state: string;
   revision: number;
+  revision_id: number;
   definition: Record<string, unknown>;
   frontend_manifest?: Record<string, string>;
 };
@@ -85,7 +86,19 @@ export type ParticipantState = {
   admission_state: string;
 };
 
-export type ApiError = { detail?: string };
+type ApiErrorPayload = { detail?: string; code?: string };
+
+export class ApiError extends Error {
+  readonly code?: string;
+  readonly status: number;
+
+  constructor(message: string, code?: string, status = 0) {
+    super(message);
+    this.name = "ApiError";
+    this.code = code;
+    this.status = status;
+  }
+}
 
 export type ApiResponse = Record<string, unknown>;
 
@@ -103,8 +116,8 @@ export function csrfToken(): string {
 
 export async function getJson<T>(url: string): Promise<T> {
   const response = await fetch(url, { credentials: "same-origin" });
-  const payload = await response.json().catch(() => ({})) as T & ApiError;
-  if (!response.ok) throw new Error(payload.detail ?? "Request failed");
+  const payload = await response.json().catch(() => ({})) as T & ApiErrorPayload;
+  if (!response.ok) throw new ApiError(payload.detail ?? "Request failed", payload.code, response.status);
   return payload;
 }
 
@@ -124,8 +137,8 @@ export async function postJson<T>(
     headers,
     body: JSON.stringify(body),
   });
-  const payload = await response.json().catch(() => ({})) as T & ApiError;
-  if (!response.ok) throw new Error(payload.detail ?? "Request failed");
+  const payload = await response.json().catch(() => ({})) as T & ApiErrorPayload;
+  if (!response.ok) throw new ApiError(payload.detail ?? "Request failed", payload.code, response.status);
   return payload;
 }
 
@@ -145,8 +158,8 @@ export async function putJson<T>(
     headers,
     body: JSON.stringify(body),
   });
-  const payload = await response.json().catch(() => ({})) as T & ApiError;
-  if (!response.ok) throw new Error(payload.detail ?? "Request failed");
+  const payload = await response.json().catch(() => ({})) as T & ApiErrorPayload;
+  if (!response.ok) throw new ApiError(payload.detail ?? "Request failed", payload.code, response.status);
   return payload;
 }
 
@@ -164,8 +177,8 @@ export async function deleteJson<T>(
     credentials: "same-origin",
     headers,
   });
-  const payload = await response.json().catch(() => ({})) as T & ApiError;
-  if (!response.ok) throw new Error(payload.detail ?? "Request failed");
+  const payload = await response.json().catch(() => ({})) as T & ApiErrorPayload;
+  if (!response.ok) throw new ApiError(payload.detail ?? "Request failed", payload.code, response.status);
   return payload;
 }
 

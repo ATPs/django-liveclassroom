@@ -1,3 +1,6 @@
+import os
+import tempfile
+
 SECRET_KEY = "test-key"
 DEBUG = True
 MEDIA_ROOT = "/tmp/liveclassroom-test-media"
@@ -11,7 +14,18 @@ INSTALLED_APPS = [
     "channels",
     "liveclassroom",
 ]
-DATABASES = {"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": ":memory:"}}
+DATABASES = {
+    "default": {
+        "ENGINE": "django.db.backends.sqlite3",
+        "NAME": os.path.join(tempfile.gettempdir(), f"liveclassroom-checks-{os.getpid()}.sqlite3"),
+        # LiveServer handles parallel browser requests. A file keeps each thread
+        # on its own connection instead of sharing the in-memory test connection.
+        # Both names must be files: the session-scoped server may start before
+        # pytest-django has switched the connection to the test database.
+        "TEST": {"NAME": os.path.join(tempfile.gettempdir(), f"liveclassroom-tests-{os.getpid()}.sqlite3")},
+        "OPTIONS": {"timeout": 30},
+    }
+}
 MIDDLEWARE = [
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",

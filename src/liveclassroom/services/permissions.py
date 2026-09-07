@@ -69,3 +69,26 @@ def can_use_activity_definition(actor, activity) -> bool:
     ).exists():
         return True
     return Course.objects.filter(pk=activity.course_id, created_by=actor).exists()
+
+
+def can_use_flow(actor, flow: Flow) -> bool:
+    """A share grants use and copying, never authoring or access to session data."""
+    return can_edit_flow(actor, flow) or bool(
+        getattr(actor, "is_authenticated", False) and flow.shares.filter(user=actor).exists()
+    )
+
+
+def can_read_asset(actor, asset) -> bool:
+    if not getattr(actor, "is_authenticated", False):
+        return False
+    if actor.is_superuser or asset.owner_id == actor.pk:
+        return True
+    # A retained copy explicitly owns its content reference; sharing exposes
+    # only assets actually used by the selected lesson.
+    if asset.activity_definitions.filter(owner=actor).exists():
+        return True
+    from django.db.models import Q
+    return Flow.objects.filter(steps__activity_definition__asset=asset).filter(
+        Q(created_by=actor) | Q(shares__user=actor) | Q(course__created_by=actor)
+        | Q(course__memberships__user=actor, course__memberships__role__in=["teacher", "assistant"])
+    ).exists()

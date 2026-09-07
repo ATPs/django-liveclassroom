@@ -5,21 +5,30 @@ content and collecting real-time student responses.  The package and the
 included standalone project share the same models, routes, templates, and ASGI
 application.
 
+## Prepare once, teach independently
+
+The teacher workspace organizes **My lessons**, **Shared with me**, **Classes**, and **Recent sessions**. A lesson is reusable content; each classroom receives its own complete snapshot and teaching plan. Editing a lesson never silently changes a classroom already created from it.
+
+Use **Teach again** to create a fresh classroom from retained teaching content. Answers, attendance, chat and presentation progress stay with the original classroom. Use **Save improvements to lesson** to review selected classroom changes before applying them to the original lesson. Shared lessons may be used or copied by a named colleague; editing the source remains with its author.
+
+Classes are optional cohort workspaces with reusable entry/chat defaults and an optional account roster. Guest QR entry remains supported. External presentation URLs and server-file references stay live; uploaded materials have retained asset references. Student review after class is read-only and limited to the activities the teacher enables.
+
 ## What is included now
 
 - Course, flow, typed activity-definition, flow-step, live-session,
   participant, activity, submission, and audit-event models, including
   immutable activity/answer revisions, named chat messages, admission state,
   and independent display/participant channels.
-- Django admin for authoring and inspecting the core data.
+- A teacher workspace for ordinary authoring and teaching, with Django admin
+  reserved for diagnostics and maintenance; immutable history is read-only.
 - HTTP endpoints for the classroom landing page, teacher console, and student
   join page.
 - An authenticated ASGI WebSocket endpoint that broadcasts lightweight,
   versioned session events; PostgreSQL `LISTEN/NOTIFY` is the optional
   cross-worker wake-up path.
 - A standalone Django project for local development and deployment experiments.
-- A working teacher-paced single-choice quiz loop: create/start a session, join
-  as a guest, submit once, close answers, view live totals, then reveal.
+- A teacher-paced activity loop: create/start a classroom, join as a guest,
+  submit and revise answers, close responses, view live totals, then reveal.
 - Instant sessions, authenticated or guest entry, waiting-room admission,
   channel-specific reveal settings, hot activity revisions, and a host-neutral
   VaultPub Slide View URL adapter.
@@ -44,8 +53,9 @@ integration boundaries, teacher controls, and a useful reporting surface.
 The packaged teaching surfaces are React 19 islands (teacher console, classroom
 display, and student session) over a scoped, token-driven stylesheet with
 automatic dark mode, a presentation-focused full-viewport display, and complete
-EN/zh-Hans coverage including the server-rendered pages. Browser acceptance,
-provider-specific AI adapters, and production host wiring remain planned work.
+EN/zh-Hans coverage including the server-rendered pages. Browser workflows and
+local PostgreSQL multi-worker acceptance have executable tests. Provider-specific
+AI adapters and production host wiring remain separate integration work.
 
 ## Quick start
 
@@ -65,15 +75,16 @@ Open <http://127.0.0.1:8000/>. The Django admin is available at
 
 ## Run the first live quiz
 
-1. In `/admin/`, create a Course, Flow, and a ready single-choice
-   ActivityDefinition. Its `definition` uses `{"prompt": "…", "options":
-   [{"id": "A", "text": "…"}], "answer": ["A"]}`. Add the definition to
-   the flow as a FlowStep.
-2. Visit `/teacher/`, create a session, and click **Start classroom**.
+1. Sign in and visit `/teacher/`. Choose **Create lesson**, add a single-choice
+   activity in the builder, and save the lesson. A Class is optional.
+2. Return to the workspace, choose **Start from lesson**, create a classroom,
+   and click **Start classroom**.
 3. Share `/join/` and the displayed join code. Guests enter only a display
    name, then see the teacher's current activity.
-4. Publish the FlowStep, close responses, and reveal the answer from
-   the teacher console.
+4. Launch the activity to student devices from the classroom plan. The display
+   has separate controls. Close responses and reveal the answer when ready.
+5. End the classroom and enable review for selected activities. Use **Teach
+   again** for a fresh classroom or save selected improvements to the lesson.
 
 ## Import Markdown/YAML content
 
@@ -149,6 +160,12 @@ participant or changes attendance or presence simply by being opened.
 - Do not add Redis or another external message broker. SQLite uses the local
   in-memory channel layer; PostgreSQL deployments can enable the notification
   relay and clients refetch authoritative state over HTTP.
+
+## Development Database
+
+The current development migration history is a single fresh `0001_initial`.
+Recreate disposable development databases when moving from the earlier schema;
+this reset is not an upgrade migration for an existing populated installation.
 
 ## Optional VaultPub provider
 

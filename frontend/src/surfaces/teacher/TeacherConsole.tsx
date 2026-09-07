@@ -1,8 +1,9 @@
+import { SessionPlanPanel } from "./SessionPlanPanel.js";
 import * as React from "react";
 import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { readBootstrap, type Bootstrap } from "../../bootstrap.js";
-import { LanguageSwitcher, LocaleProvider, useT } from "../../i18n.js";
+import { LanguageSwitcher, LocaleProvider, useLocale, useT } from "../../i18n.js";
 import {
   apiEndpoint,
   getJson,
@@ -19,6 +20,8 @@ import { activityKind, activityTitle, stringValue } from "../../activities/activ
 import { FilePicker } from "../FilePicker.js";
 
 type TeacherBootstrap = Bootstrap & {
+  capabilities: string[];
+  workspaceUrl: string;
   sessionTitle: string;
   flowTitle: string;
   joinCode: string;
@@ -43,6 +46,8 @@ function readTeacherBootstrap(root: HTMLElement): TeacherBootstrap {
   }
   return {
     ...base,
+    capabilities: JSON.parse(d.capabilities ?? "[]") as string[],
+    workspaceUrl: d.workspaceUrl ?? "",
     sessionTitle: d.sessionTitle ?? "",
     flowTitle: d.flowTitle ?? "",
     joinCode: d.joinCode ?? "",
@@ -139,57 +144,19 @@ const DEFAULT_PARTICIPANT_VISIBILITY: VisibilityState = {
   allow_review: false,
 };
 
-function ChannelControls({
-  state,
-  run,
-}: {
-  state: SessionState | null;
-  run: (suffix: string, body?: Record<string, unknown>) => Promise<void>;
-}) {
-  const t = useT();
-  const activity = state?.current_activity;
-  const visibility = state?.channels?.participants?.visibility ?? DEFAULT_PARTICIPANT_VISIBILITY;
-  const settings: Array<[keyof VisibilityState, string]> = [
-    ["show_prompt", t("showPrompt")],
-    ["show_aggregate", t("showAggregate")],
-    ["show_answer", t("showAnswer")],
-    ["show_explanation", t("showExplanation")],
-    ["show_own_status", t("showOwnStatus")],
-    ["allow_review", t("allowReview")],
-  ];
-  return (
-    <section className="lc-channel-controls">
-      <div className="lc-actions">
-        {(["display", "participants"] as const).map((channel) => (
-          <button
-            key={channel}
-            type="button"
-            disabled={!activity}
-            onClick={() => activity && void run("sessions/channels/publish", { channel, activity_id: activity.id })}
-          >
-            {t("publish")} · {channel === "display" ? t("display") : t("participants")}
-          </button>
-        ))}
-      </div>
-      <fieldset>
-        <legend>{t("audienceVisibility")}</legend>
-        {settings.map(([field, label]) => (
-          <label key={field}>
-            <input
-              type="checkbox"
-              checked={visibility[field]}
-              disabled={!activity}
-              onChange={(event) => void run("sessions/channels/settings", {
-                channel: "participants",
-                [field]: event.target.checked,
-              })}
-            />{" "}
-            {label}
-          </label>
-        ))}
-      </fieldset>
-    </section>
-  );
+function ChannelControls({state,run}: {state:SessionState|null;run:(suffix:string,body?:Record<string,unknown>)=>Promise<void>}) {
+  const t=useT();
+  const selected=state?.current_activity;
+  const fields: Array<[keyof VisibilityState,string]> = [["show_prompt",t("showPrompt")],["show_aggregate",t("showAggregate")],["show_answer",t("showAnswer")],["show_explanation",t("showExplanation")],["show_own_status",t("showOwnStatus")],["allow_review",t("allowReview")]];
+  return <section className="lc-grid">{(["display","participants"] as const).map(channel=>{
+    const current=state?.channels?.[channel];
+    const visibility=current?.visibility??DEFAULT_PARTICIPANT_VISIBILITY;
+    return <fieldset key={channel}><legend>{channel==="display"?t("display"):t("participants")}</legend>
+      <p>{current?.activity?activityTitle(current.activity,t("activity")):t("noActivityPublished")}</p>
+      <button disabled={!selected||state?.session.status!=="live"} onClick={()=>selected&&void run("sessions/channels/publish",{channel,activity_id:selected.id})}>{t("publish")}</button>
+      {fields.map(([field,label])=><label key={field} style={{display:"block"}}><input type="checkbox" checked={visibility[field]} disabled={!current?.activity||state?.session.status==="ended"} onChange={e=>void run("sessions/channels/settings",{channel,[field]:e.target.checked})}/>{label}</label>)}
+    </fieldset>;
+  })}</section>;
 }
 
 function ParticipantPreview({ state, stateUrl }: { state: SessionState | null; stateUrl: string }) {
@@ -476,18 +443,25 @@ function AnalyticsPanel({ stateUrl, analytics, activityId }: { stateUrl: string;
 function TeacherConsole({ bootstrap }: { bootstrap: TeacherBootstrap }) {
   const t = useT();
   const stateUrl = bootstrap.stateUrl!;
-  const sync = useSessionState({ stateUrl, websocketPath: bootstrap.websocketUrl, channel: "display", enabled: true });
+  const canManage = bootstrap.capabilities.includes("manage_session");
+  const canAdmit = bootstrap.capabilities.includes("manage_admission");
+  const locale = useLocale();
+  const tr = (en:string,zh:string) => locale.startsWith("zh") ? zh : en;
+  const sync = useSessionState({ stateUrl, websocketPath: bootstrap.websocketUrl, channel: canManage ? "display" : "participants", enabled: true });
   const state = sync.state;
   const { run, status } = useCommand(stateUrl, sync.refresh);
   const [analytics, setAnalytics] = useState<Record<string, unknown> | null>(null);
   const [participants, setParticipants] = useState<Array<Record<string, unknown>>>([]);
   const [chat, setChat] = useState<{ enabled: boolean; messages: Array<{ id: number; display_name: string; body: string }> } | null>(null);
+  const [selectedId,setSelectedId] = useState<number|null>(null);
+  const [history,setHistory] = useState<Array<ActivityState & {reviewable:boolean;review_visibility:Record<string,boolean>}>>([]);
   const [chatBody, setChatBody] = useState("");
 
   const stateVersion = state?.state_version ?? 0;
 
   useEffect(() => {
     if (!state) return;
+    void getJson<{activities:typeof history}>(apiEndpoint(stateUrl,"sessions/history")).then(d=>setHistory(d.activities)).catch(()=>undefined);
     void getJson<Record<string, unknown>>(apiEndpoint(stateUrl, "sessions/analytics"))
       .then(setAnalytics)
       .catch(() => undefined);
@@ -499,34 +473,38 @@ function TeacherConsole({ bootstrap }: { bootstrap: TeacherBootstrap }) {
       .catch(() => undefined);
   }, [stateUrl, stateVersion]);
 
+  const focused = history.find(a=>a.id===(selectedId ?? state?.current_activity?.id)) ?? state?.current_activity ?? null;
+  const focusedState = state ? {...state,current_activity:focused} : null;
   const pending = participants.filter((p) => p.admission_state === "pending");
 
   return (
     <>
       <LanguageSwitcher />
+      <a href={bootstrap.workspaceUrl}>{tr("Teacher home","教师首页")}</a>
       <p className="lc-kicker">{t("teacher")} · {bootstrap.sessionTitle}</p>
       <h1>{bootstrap.flowTitle || t("instantSession")}</h1>
       <p>
         {t("joinCode")}: <strong className="lc-code">{bootstrap.joinCode}</strong> · <a href={bootstrap.joinUrl}>{t("studentJoinPage")}</a> ·{" "}
-        <a href={bootstrap.displayUrl}>{t("openDisplay")}</a> · <a href={bootstrap.studentViewUrl}>{t("studentView")}</a>
+        {bootstrap.capabilities.includes("view_display") && <a href={bootstrap.displayUrl}>{t("openDisplay")}</a>} {canManage && <a href={bootstrap.studentViewUrl}>{t("studentView")}</a>}
       </p>
-      <figure className="lc-join-qr">
+      {canManage && <figure className="lc-join-qr">
         <img src={bootstrap.qrUrl} alt={`${t("joinCode")}: ${bootstrap.sessionTitle}`} />
         <figcaption>{t("studentJoinCode")}: {bootstrap.joinCode}</figcaption>
-      </figure>
+      </figure>}
       <p>
         {t("statusColumn")}: <strong id="session-status">{state?.session.status ?? ""}</strong>
       </p>
-      <LifecycleControls state={state} run={run} />
-      <FilePicker
+      {canManage && <LifecycleControls state={state} run={run} />}
+      <SessionPlanPanel stateUrl={stateUrl} state={state} onRefresh={sync.refresh}/>
+      {canManage && state?.session.status==="live" && <FilePicker
         endpoint={apiEndpoint(stateUrl, "sessions/files")}
         isSuperuser={bootstrap.isSuperuser}
         includeChannels
         onSuccess={() => void sync.refresh()}
-      />
+      />}
       {status ? <p className="lc-builder-status-error">{status}</p> : null}
       <div className="lc-grid">
-        <FlowSteps steps={bootstrap.flowSteps} builderUrl={bootstrap.builderUrl} run={(s, b) => run(s, b)} />
+
         <section aria-live="polite">
           <h2>{t("displayPreview")}</h2>
           <div data-liveclassroom-content>
@@ -539,12 +517,20 @@ function TeacherConsole({ bootstrap }: { bootstrap: TeacherBootstrap }) {
           </div>
           <p data-liveclassroom-status>{state?.session.status ?? ""}</p>
         </section>
-        <LiveResults state={state} analytics={analytics} run={run} />
+        {canManage && <LiveResults state={focusedState} analytics={analytics} run={run} />}
       </div>
-      <ChannelControls state={state} run={run} />
+      <label>{tr("Activity to inspect or control", "选择查看或控制的活动")}<select value={selectedId??""} onChange={e=>setSelectedId(e.target.value?Number(e.target.value):null)}><option value="">{tr("Current display activity","当前投屏活动")}</option>{history.map(a=><option key={a.id} value={a.id}>{activityTitle(a,t("activity"))}</option>)}</select></label>
+      {canManage && <ChannelControls state={focusedState} run={run} />}
+      {canManage && focused && <fieldset><legend>{tr("Student review access","学生复习权限")}</legend>
+        <label><input type="checkbox" checked={Boolean((focused as typeof history[number]).reviewable)} onChange={e=>void run(`activities/${focused.id}/review`,{reviewable:e.target.checked})}/>{tr("Allow review","允许复习")}</label>
+        {(["show_answer","show_explanation"] as const).map(field=><label key={field}><input type="checkbox" checked={Boolean((focused as typeof history[number]).review_visibility?.[field])} onChange={e=>void run(`activities/${focused.id}/review`,{[field]:e.target.checked})}/>{field==="show_answer"?t("showAnswer"):t("showExplanation")}</label>)}
+      </fieldset>}
+      <div className="lc-actions">{canAdmit && <>{["summary","responses","participants","chat"].map(dataset=><a key={dataset} href={`${bootstrap.exportUrl}?format=csv&dataset=${dataset}`}>{({summary:tr("Summary","汇总"),responses:tr("Responses","答案"),participants:tr("Attendance","出席"),chat:tr("Chat","聊天")} as Record<string,string>)[dataset]} CSV</a>)}<a href={bootstrap.exportUrl}>JSON</a></>}
+      {canManage && state?.session.status==="ended" && <><button onClick={()=>void run("sessions/archive",{archived:true})}>{tr("Archive","归档")}</button><button onClick={()=>{if(window.confirm(tr("Delete this archived classroom permanently?","永久删除这个已归档课堂？"))) void postJson(apiEndpoint(stateUrl,"sessions/delete"),{confirm:true},crypto.randomUUID()).then(()=>window.location.assign(bootstrap.workspaceUrl));}}>{tr("Delete archived classroom","删除已归档课堂")}</button></>}
+      </div>
       <ParticipantPreview state={state} stateUrl={stateUrl} />
-      <AnalyticsPanel stateUrl={stateUrl} analytics={analytics} activityId={state?.current_activity?.id ?? null} />
-      {pending.length ? (
+      <AnalyticsPanel stateUrl={stateUrl} analytics={analytics} activityId={focused?.id ?? null} />
+      {canAdmit && pending.length ? (
         <section data-liveclassroom-admission>
           <h2>
             {t("participants")} ({pending.length} {t("pending")})
@@ -572,17 +558,19 @@ function TeacherConsole({ bootstrap }: { bootstrap: TeacherBootstrap }) {
               ))
             : <li>{chat?.enabled ? t("noMessages") : t("chatDisabled")}</li>}
         </ul>
-        <div data-liveclassroom-chat-settings>
+        {canAdmit && <div data-liveclassroom-chat-settings>
           <label>
             <input
               type="checkbox"
               checked={chat?.enabled ?? false}
+              disabled={state?.session.status === "ended"}
               onChange={(e) => void run("sessions/chat/settings", { enabled: e.target.checked })}
             />{" "}
             {t("enableChat")}
           </label>
-        </div>
+        </div>}
         <form
+          hidden={!canAdmit || state?.session.status!=="live"}
           data-liveclassroom-chat-form
           onSubmit={(e) => {
             e.preventDefault();

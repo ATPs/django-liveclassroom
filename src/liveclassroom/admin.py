@@ -3,6 +3,7 @@ from django.contrib import admin
 from .models import (
     ActivityDefinition,
     ActivityDefinitionRevision,
+    ActivityRunRevision,
     AuthoringAttachment,
     AuthoringJob,
     AuthoringMessage,
@@ -12,6 +13,7 @@ from .models import (
     Course,
     CourseMembership,
     Flow,
+    FlowSnapshot,
     LiveActivity,
     LiveSession,
     Participant,
@@ -20,7 +22,26 @@ from .models import (
     SessionMessage,
     SessionStaff,
     Submission,
+    SubmissionRevision,
 )
+
+
+class DiagnosticAdmin(admin.ModelAdmin):
+    """Inspect history without bypassing revisioned classroom commands."""
+
+    def get_readonly_fields(self, request, obj=None):
+        return tuple(field.name for field in self.model._meta.fields) + tuple(
+            field.name for field in self.model._meta.many_to_many
+        )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 class CourseMembershipInline(admin.TabularInline):
@@ -46,14 +67,14 @@ class FlowAdmin(admin.ModelAdmin):
 
 
 @admin.register(ActivityDefinition)
-class ActivityDefinitionAdmin(admin.ModelAdmin):
+class ActivityDefinitionAdmin(DiagnosticAdmin):
     list_display = ("title", "type_key", "owner", "course", "status", "updated_at")
     list_filter = ("type_key", "status", "course")
     search_fields = ("title", "type_key")
 
 
 @admin.register(ActivityDefinitionRevision)
-class ActivityDefinitionRevisionAdmin(admin.ModelAdmin):
+class ActivityDefinitionRevisionAdmin(DiagnosticAdmin):
     list_display = ("definition", "revision", "changed_by", "created_at")
     list_filter = ("schema_version",)
 
@@ -71,15 +92,19 @@ class ParticipantAdmin(admin.ModelAdmin):
     search_fields = ("display_name", "guest_id", "user__username")
 
 
-admin.site.register(LiveActivity)
-admin.site.register(Submission)
-admin.site.register(SessionEvent)
+admin.site.register(LiveActivity, DiagnosticAdmin)
+admin.site.register(Submission, DiagnosticAdmin)
+admin.site.register(SessionEvent, DiagnosticAdmin)
 admin.site.register(SessionMessage)
-admin.site.register(CommandReceipt)
-admin.site.register(SessionChannelState)
+admin.site.register(CommandReceipt, DiagnosticAdmin)
+admin.site.register(SessionChannelState, DiagnosticAdmin)
 admin.site.register(SessionStaff)
 admin.site.register(AuthoringThread)
 admin.site.register(AuthoringMessage)
 admin.site.register(AuthoringAttachment)
 admin.site.register(AuthoringJob)
 admin.site.register(ClassroomAsset)
+
+admin.site.register(ActivityRunRevision, DiagnosticAdmin)
+admin.site.register(SubmissionRevision, DiagnosticAdmin)
+admin.site.register(FlowSnapshot, DiagnosticAdmin)

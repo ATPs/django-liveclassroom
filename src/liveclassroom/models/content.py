@@ -1,5 +1,6 @@
+import uuid
+
 from django.conf import settings
-from django.core.exceptions import ValidationError
 from django.db import models
 
 from .activity import ActivityDefinition
@@ -15,6 +16,7 @@ class Flow(models.Model):
         on_delete=models.SET_NULL,
         related_name="liveclassroom_flows_created",
     )
+    associated_courses = models.ManyToManyField(Course, blank=True, related_name="library_flows")
     title = models.CharField(max_length=200)
     slug = models.SlugField()
     description = models.TextField(blank=True)
@@ -33,6 +35,7 @@ class FlowStep(models.Model):
     """An ordered reusable activity in a prepared flow."""
 
     flow = models.ForeignKey(Flow, on_delete=models.CASCADE, related_name="steps")
+    key = models.UUIDField(default=uuid.uuid4)
     position = models.PositiveIntegerField()
     activity_definition = models.ForeignKey(
         ActivityDefinition,
@@ -48,8 +51,3 @@ class FlowStep(models.Model):
 
     def __str__(self) -> str:
         return f"{self.flow} step {self.position}: {self.activity_definition}"
-
-    def clean(self) -> None:
-        if self.activity_definition_id and self.activity_definition.course_id:
-            if self.flow_id and self.flow.course_id and self.activity_definition.course_id != self.flow.course_id:
-                raise ValidationError({"activity_definition": "The activity must belong to the flow's course."})

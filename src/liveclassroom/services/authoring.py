@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import secrets
 from collections.abc import Iterable, Mapping
 from datetime import timedelta
 from importlib import import_module
@@ -425,29 +426,41 @@ def claim_next_authoring_job(*, worker_token: str) -> AuthoringJob | None:
     return job
 
 
-def _retry_or_fail_job(*, job: AuthoringJob, error_code: str, retry: bool) -> None:
+def _retry_or_fail_job(*, job: AuthoringJob, error_code: str, retry: bool, execution_token: str) -> None:
     """Complete a safe failure or return a transient worker failure to its queue."""
     from liveclassroom.conf import ai_job_max_attempts
 
-    now = timezone.now()
-    if retry and job.attempt < ai_job_max_attempts():
-        AuthoringJob.objects.filter(pk=job.pk).update(
-            status=AuthoringJob.Status.QUEUED,
-            attempt=job.attempt + 1,
-            started_at=None,
-            completed_at=None,
-            lease_token="",
-            lease_expires_at=None,
-            error_code=error_code,
-        )
-        return
-    AuthoringJob.objects.filter(pk=job.pk).update(
-        status=AuthoringJob.Status.FAILED,
-        error_code=error_code,
-        completed_at=now,
-        lease_token="",
-        lease_expires_at=None,
-    )
+    with transaction.atomic():
+        current = AuthoringJob.objects.select_for_update().get(pk=job.pk)
+        if current.status != AuthoringJob.Status.RUNNING or current.lease_token != execution_token:
+            return
+        now = timezone.now()
+        if retry and current.attempt < ai_job_max_attempts():
+            current.status = AuthoringJob.Status.QUEUED
+            current.attempt += 1
+            current.started_at = None
+            current.completed_at = None
+            current.lease_token = ""
+            current.lease_expires_at = None
+            current.error_code = error_code
+            current.save(
+                update_fields=[
+                    "status",
+                    "attempt",
+                    "started_at",
+                    "completed_at",
+                    "lease_token",
+                    "lease_expires_at",
+                    "error_code",
+                ]
+            )
+            return
+        current.status = AuthoringJob.Status.FAILED
+        current.error_code = error_code
+        current.completed_at = now
+        current.lease_token = ""
+        current.lease_expires_at = None
+        current.save(update_fields=["status", "error_code", "completed_at", "lease_token", "lease_expires_at"])
 
 
 def run_authoring_job(
@@ -457,15 +470,17 @@ def run_authoring_job(
     job = AuthoringJob.objects.select_related("thread", "message").get(pk=job_id)
     if not can_view_authoring_thread(actor, job.thread):
         raise ClassroomError("You do not have permission to use this authoring thread.")
+    execution_token = worker_token or secrets.token_urlsafe(32)
     with transaction.atomic():
         job = AuthoringJob.objects.select_for_update().select_related("thread", "message").get(pk=job_id)
         if job.status == AuthoringJob.Status.QUEUED:
             now = timezone.now()
             job.status = AuthoringJob.Status.RUNNING
             job.started_at = now
+            job.lease_token = execution_token
             job.error_code = ""
-            job.save(update_fields=["status", "started_at", "error_code"])
-        elif not worker_token or job.lease_token != worker_token:
+            job.save(update_fields=["status", "started_at", "lease_token", "error_code"])
+        if job.status != AuthoringJob.Status.RUNNING or job.lease_token != execution_token:
             return job
     try:
         backend = authoring_ai_backends().get(job.backend_key)
@@ -494,6 +509,9 @@ def run_authoring_job(
         if not isinstance(response, AIMessage) or response.role != "assistant" or not isinstance(response.content, str):
             raise AuthoringAIError("The AI backend returned an invalid response.")
         with transaction.atomic():
+            job = AuthoringJob.objects.select_for_update().select_related("thread", "message").get(pk=job_id)
+            if job.status != AuthoringJob.Status.RUNNING or job.lease_token != execution_token:
+                return job
             assistant = AuthoringMessage.objects.create(
                 thread=job.thread,
                 role=AuthoringMessage.Role.ASSISTANT,
@@ -512,14 +530,26 @@ def run_authoring_job(
         job.refresh_from_db()
         return job
     except ClassroomError:
-        _retry_or_fail_job(job=job, error_code="attachment_not_authorized", retry=False)
+        _retry_or_fail_job(
+            job=job, error_code="attachment_not_authorized", retry=False, execution_token=execution_token
+        )
         job.refresh_from_db()
         return job
     except (AuthoringAIError, ProviderError, OSError, TimeoutError):
-        _retry_or_fail_job(job=job, error_code="provider_unavailable", retry=worker_token is not None)
+        _retry_or_fail_job(
+            job=job,
+            error_code="provider_unavailable",
+            retry=worker_token is not None,
+            execution_token=execution_token,
+        )
         job.refresh_from_db()
         return job
     except Exception:
-        _retry_or_fail_job(job=job, error_code="internal_error", retry=worker_token is not None)
+        _retry_or_fail_job(
+            job=job,
+            error_code="internal_error",
+            retry=worker_token is not None,
+            execution_token=execution_token,
+        )
         job.refresh_from_db()
         return job

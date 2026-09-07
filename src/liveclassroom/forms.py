@@ -41,25 +41,16 @@ class CreateSessionForm(forms.ModelForm):
             "course"
         ].queryset.filter(created_by=user)
         self.fields["flow"].queryset = Flow.objects.filter(
-            Q(course__in=self.fields["course"].queryset) | Q(created_by=user)
+            Q(course__in=self.fields["course"].queryset) | Q(created_by=user) | Q(shares__user=user)
         ).distinct()
 
-    def clean(self):
-        cleaned_data = super().clean()
-        course = cleaned_data.get("course")
-        flow = cleaned_data.get("flow")
-        if course and flow and flow.course_id != course.id:
-            self.add_error("flow", _("Choose a flow belonging to the selected course."))
-        return cleaned_data
-
     def save(self, commit=True):
-        instance = super().save(commit=False)
-        instance.teacher = self.user
-        if instance.course_id is None and instance.flow_id and instance.flow.course_id:
-            instance.course = instance.flow.course
-        if commit:
-            instance.save()
-        return instance
+        from .services.plans import create_session
+        if not commit:
+            instance = super().save(commit=False)
+            instance.teacher = self.user
+            return instance
+        return create_session(owner=self.user, **self.cleaned_data)
 
 
 class JoinSessionForm(forms.Form):

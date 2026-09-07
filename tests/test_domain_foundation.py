@@ -196,7 +196,7 @@ def test_activity_and_submission_revisions_preserve_history(teacher):
 
     run_revision = revise_activity(
         activity=activity,
-        definition_snapshot={"kind": "poll", "content": {"options": [{"id": "C"}]}},
+        definition_snapshot={"kind": "poll", "content": {"options": [{"id": "C", "text": "C"}]}},
         actor=teacher,
     )
     submission.refresh_from_db()

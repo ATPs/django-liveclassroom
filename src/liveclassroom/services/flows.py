@@ -12,11 +12,7 @@ from liveclassroom.models import (
     FlowStep,
     LiveSession,
 )
-from liveclassroom.services.classroom import (
-    ClassroomError,
-    can_manage_session,
-    create_activity_definition,
-)
+from liveclassroom.services.classroom import ClassroomError
 from liveclassroom.services.permissions import (
     can_author_course,
     can_edit_flow,
@@ -87,6 +83,7 @@ def update_flow(
     if not can_edit_flow(actor, flow):
         raise ClassroomError("You do not have permission to edit this flow.")
 
+    flow = Flow.objects.select_for_update().get(pk=flow.pk)
     update_fields = ["updated_at"]
     if title is not None:
         if not isinstance(title, str) or not title.strip():
@@ -114,8 +111,6 @@ def add_flow_step(
     if not can_edit_flow(actor, flow):
         raise ClassroomError("You do not have permission to edit this flow.")
 
-    if activity_definition.course_id and flow.course_id and activity_definition.course_id != flow.course_id:
-        raise ClassroomError("The activity must belong to the flow's course.")
     if activity_definition.status == ActivityDefinition.Status.ARCHIVED:
         raise ClassroomError("Archived activities cannot be added to a flow.")
     if not can_use_activity_definition(actor, activity_definition):
@@ -159,7 +154,7 @@ def reorder_flow_steps(
         raise ClassroomError("You do not have permission to edit this flow.")
 
     flow = Flow.objects.select_for_update().get(pk=flow.pk)
-    existing_steps = {step.id: step for step in flow.steps.select_for_update()}
+    existing_steps = {step.id: step for step in flow.steps.select_for_update().order_by("position")}
     if len(step_ids) != len(existing_steps) or set(step_ids) != set(existing_steps.keys()):
         raise ClassroomError("step_ids must contain all step IDs of the flow.")
 
@@ -191,7 +186,7 @@ def remove_flow_step(
         raise ClassroomError("You do not have permission to edit this flow.")
 
     flow = Flow.objects.select_for_update().get(pk=flow.pk)
-    step = flow.steps.select_for_update().filter(pk=step_id).first()
+    step = flow.steps.select_for_update().filter(pk=step_id).order_by("position").first()
     if step is None:
         raise ClassroomError("Flow step not found.")
 
@@ -210,127 +205,12 @@ def remove_flow_step(
 
 
 @transaction.atomic
-def duplicate_flow(
-    *,
-    flow: Flow,
-    creator,
-    title: str | None = None,
-    slug: str | None = None,
-) -> Flow:
-    """Duplicate a flow along with its canonical FlowSteps."""
-    if not getattr(creator, "is_authenticated", False):
-        raise ClassroomError("An authenticated user is required to duplicate a flow.")
-    if not can_edit_flow(creator, flow):
-        raise ClassroomError("You do not have permission to duplicate this flow.")
-
-    new_title = title.strip() if title and title.strip() else f"{flow.title} (Copy)"
-    if slug and str(slug).strip():
-        cleaned_slug = slugify(str(slug).strip())
-        if not cleaned_slug:
-            raise ClassroomError("A valid flow slug is required.")
-        if Flow.objects.filter(course=flow.course, slug=cleaned_slug).exists():
-            raise ClassroomError(f"A flow with slug '{cleaned_slug}' already exists in this course.")
-        new_slug = cleaned_slug
-    else:
-        new_slug = _generate_unique_flow_slug(flow.course, new_title)
-
-    new_flow = Flow.objects.create(
-        course=flow.course,
-        created_by=creator,
-        title=new_title,
-        slug=new_slug,
-        description=flow.description,
-    )
-
-    for step in flow.steps.all().order_by("position"):
-        FlowStep.objects.create(
-            flow=new_flow,
-            position=step.position,
-            activity_definition=step.activity_definition,
-        )
-
-    return new_flow
+def duplicate_flow(*, flow: Flow, creator, title=None, slug=None) -> Flow:
+    from .plans import copy_lesson
+    return copy_lesson(flow=flow, actor=creator, title=title, slug=slug)
 
 
 @transaction.atomic
-def save_session_as_flow(
-    *,
-    session: LiveSession,
-    creator,
-    title: str,
-    slug: str | None = None,
-) -> Flow:
-    """Create a reusable Flow from all activities launched in a live session."""
-    if not can_manage_session(creator, session):
-        raise ClassroomError("You do not have permission to save this session as a flow.")
-
-    if not isinstance(title, str) or not title.strip():
-        raise ClassroomError("Flow title is required.")
-    title = title.strip()
-
-    if slug and str(slug).strip():
-        cleaned_slug = slugify(str(slug).strip())
-        if not cleaned_slug:
-            raise ClassroomError("A valid flow slug is required.")
-        if Flow.objects.filter(course=session.course, slug=cleaned_slug).exists():
-            raise ClassroomError(f"A flow with slug '{cleaned_slug}' already exists in this course.")
-        flow_slug = cleaned_slug
-    else:
-        flow_slug = _generate_unique_flow_slug(session.course, title)
-
-    flow = Flow.objects.create(
-        course=session.course,
-        created_by=creator,
-        title=title,
-        slug=flow_slug,
-        description=f"Saved from session: {session.title}",
-    )
-
-    activities = list(session.activities.all().order_by("sequence"))
-    for position, activity in enumerate(activities, start=1):
-        activity_def = None
-        if activity.current_revision and activity.current_revision.source_revision:
-            activity_def = activity.current_revision.source_revision.definition
-        elif activity.source_step_id and activity.source_step.activity_definition:
-            activity_def = activity.source_step.activity_definition
-        elif activity.definition_snapshot and activity.definition_snapshot.get("activity_definition_id"):
-            activity_def = ActivityDefinition.objects.filter(
-                pk=activity.definition_snapshot["activity_definition_id"]
-            ).first()
-
-        if activity_def is None:
-            # Create a reusable ActivityDefinition from snapshot
-            snapshot = activity.definition_snapshot or {}
-            type_key = snapshot.get("type_key")
-            if not type_key:
-                type_key = f"liveclassroom.{snapshot.get('kind', 'single_choice')}"
-            if "." not in type_key:
-                type_key = f"liveclassroom.{type_key}"
-
-            act_title = snapshot.get("title")
-            if not act_title:
-                act_title = f"Activity {activity.sequence}"
-
-            def_payload = dict(snapshot.get("content") or {})
-            if type_key in (
-                "liveclassroom.single_choice",
-                "liveclassroom.multiple_choice",
-                "liveclassroom.poll",
-            ) and "options" not in def_payload and "choices" not in def_payload:
-                def_payload["options"] = [{"id": "A", "text": "Option A"}]
-
-            activity_def = create_activity_definition(
-                owner=creator,
-                title=act_title,
-                type_key=type_key,
-                definition=def_payload,
-                course=session.course,
-            )
-
-        FlowStep.objects.create(
-            flow=flow,
-            position=position,
-            activity_definition=activity_def,
-        )
-
-    return flow
+def save_session_as_flow(*, session: LiveSession, creator, title: str, slug=None) -> Flow:
+    from .plans import save_lesson
+    return save_lesson(session=session, actor=creator, title=title, slug=slug)

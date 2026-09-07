@@ -73,11 +73,13 @@ class SessionConsumer(AsyncJsonWebsocketConsumer):
 
     @database_sync_to_async
     def _mark_connected(self, participant_id: int, connection_id: str) -> None:
-        participant = Participant.objects.get(pk=participant_id)
+        participant = Participant.objects.select_related("session").get(pk=participant_id)
+        if participant.session.status == LiveSession.Status.ENDED:
+            return
         mark_participant_connected(participant=participant, connection_id=connection_id)
 
     @database_sync_to_async
     def _mark_disconnected(self, participant_id: int, connection_id: str) -> None:
         participant = Participant.objects.filter(pk=participant_id).first()
-        if participant is not None:
+        if participant is not None and participant.session.status != LiveSession.Status.ENDED:
             mark_participant_disconnected(participant=participant, connection_id=connection_id)

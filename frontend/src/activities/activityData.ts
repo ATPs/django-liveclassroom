@@ -92,6 +92,7 @@ export function displayAnswer(value: unknown): string {
 }
 
 export function answerFor(activity: ActivityState, state: SessionState | undefined): Record<string, unknown> {
+  if (state?.current_activity?.id !== activity.id || state?.my_submission?.is_stale) return {};
   return state?.my_submission?.answer ?? {};
 }
 

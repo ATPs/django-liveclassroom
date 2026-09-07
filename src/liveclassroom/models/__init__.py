@@ -3,6 +3,7 @@ from .assets import ClassroomAsset
 from .authoring import AuthoringAttachment, AuthoringJob, AuthoringMessage, AuthoringThread
 from .content import Flow, FlowStep
 from .course import Course, CourseMembership
+from .plans import FlowShare, FlowSnapshot, SessionPlanStep, SnapshotAsset
 from .session import (
     ActivityRunRevision,
     CommandReceipt,
@@ -31,6 +32,10 @@ __all__ = [
     "AuthoringMessage",
     "AuthoringThread",
     "Flow",
+    "FlowSnapshot",
+    "SnapshotAsset",
+    "FlowShare",
+    "SessionPlanStep",
     "FlowStep",
     "ActivityRun",
     "ActivityRunRevision",

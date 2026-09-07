@@ -1,14 +1,28 @@
 """Optional real-browser acceptance checks for package-owned teaching surfaces."""
 
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.db import connections
 from django.test import Client
 from django.urls import reverse
 
 from liveclassroom.services.classroom import create_instant_session, start_session
+
+
+def database_call(function):
+    """Keep synchronous ORM assertions outside Playwright's active event loop."""
+    def run():
+        try:
+            return function()
+        finally:
+            connections.close_all()
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(run).result(timeout=30)
 
 
 def _chromium_or_skip():
@@ -25,6 +39,7 @@ def _chromium_or_skip():
 
 @pytest.mark.django_db(transaction=True)
 def test_student_join_and_teacher_console_render_without_mobile_overflow(live_server):
+    assert live_server.thread.connections_override == {}
     teacher = get_user_model().objects.create_user(username="browser-teacher", password="password")
     session = create_instant_session(owner=teacher, title="Browser classroom")
     start_session(session=session, actor=teacher)
@@ -50,7 +65,15 @@ def test_student_join_and_teacher_console_render_without_mobile_overflow(live_se
         student.wait_for_function("document.querySelector('#student-title')?.textContent === 'Browser classroom'")
         assert student.locator("#student-title").inner_text() == "Browser classroom"
         assert student.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+        language_box = student.locator(".lc-lang-switch").bounding_box()
+        title_box = student.locator(".lc-kicker").bounding_box()
+        assert language_box and title_box
+        assert language_box["y"] + language_box["height"] <= title_box["y"]
         student.screenshot(path="/tmp/liveclassroom-student-mobile.png", full_page=True)
+        student.locator(".lc-lang-switch").click()
+        student.get_by_role("heading", name="\u8bfe\u5802\u8ba8\u8bba", exact=True).wait_for()
+        assert student.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+        student.screenshot(path="/tmp/liveclassroom-student-mobile-zh.png", full_page=True)
 
         teacher_page = browser.new_page(viewport={"width": 1440, "height": 900})
         teacher_page.context.add_cookies(

@@ -1,3 +1,4 @@
+import { ActivityEditor } from "../../activities/ActivityEditor.js";
 import * as React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -38,6 +39,7 @@ export type FlowStep = {
 };
 
 export type FlowDetail = FlowSummary & {
+  token: string;
   steps: FlowStep[];
 };
 
@@ -183,6 +185,7 @@ function StepCard({
   onTogglePreview,
   onDelete,
   onLaunch,
+  onEdit,
 }: {
   step: FlowStep;
   index: number;
@@ -193,6 +196,7 @@ function StepCard({
   onTogglePreview: (id: number) => void;
   onDelete: (step: FlowStep) => void;
   onLaunch: (step: FlowStep) => void;
+  onEdit: (step: FlowStep) => void;
 }) {
   const t = useT();
   const typeKey = step.activity_definition?.type_key || step.kind;
@@ -208,6 +212,7 @@ function StepCard({
           <strong className="lc-step-name">{step.title || step.activity_definition?.title || name}</strong>
         </div>
         <div className="lc-builder-step-actions">
+          <button type="button" onClick={() => onEdit(step)}>{t("edit")}</button>
           <button type="button" className="lc-btn-icon" title={t("moveUp")} disabled={index === 0} onClick={() => onMove(index, -1)}>
             ↑
           </button>
@@ -568,6 +573,7 @@ function FlowBuilder({
   const [flows, setFlows] = useState<FlowSummary[]>([]);
   const [currentFlow, setCurrentFlow] = useState<FlowDetail | null>(null);
   const [previewOpen, setPreviewOpen] = useState<Set<number>>(new Set());
+  const [editingStep, setEditingStep] = useState<FlowStep | null>(null);
   const [addStepOpen, setAddStepOpen] = useState(false);
   const [aiSidebarOpen, setAiSidebarOpen] = useState(true);
   const [status, setStatus] = useState<{ msg: string; error: boolean } | null>(null);
@@ -809,6 +815,12 @@ function FlowBuilder({
                   onSuccess={() => void loadFlow(currentFlow.id)}
                 />
               ) : null}
+              {editingStep?.activity_definition && currentFlow && <ActivityEditor key={editingStep.id}
+                initial={{title:editingStep.activity_definition.title,type_key:editingStep.activity_definition.type_key,content:editingStep.activity_definition.definition}}
+                onCancel={()=>setEditingStep(null)} onSave={async(snapshot)=>{
+                  const updated=await postJson<FlowDetail>(apiUrl(`flows/${currentFlow.id}/steps/${editingStep.id}/edit/`),{token:currentFlow.token,snapshot},crypto.randomUUID());
+                  setCurrentFlow(updated);setEditingStep(null);
+                }}/>}
               <div className="lc-builder-step-list">
                 {currentFlow && currentFlow.steps.length === 0 ? (
                   <p className="lc-empty-notice">{t("noStepsYet")}</p>
@@ -825,6 +837,7 @@ function FlowBuilder({
                       onTogglePreview={togglePreview}
                       onDelete={(s) => void deleteStep(s)}
                       onLaunch={(s) => void launchStep(s)}
+                      onEdit={setEditingStep}
                     />
                   ))
                 )}

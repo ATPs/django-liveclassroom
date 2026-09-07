@@ -142,7 +142,7 @@ def _request_hash(request) -> str:
         ).encode("utf-8")
     except (UnicodeDecodeError, json.JSONDecodeError):
         pass
-    return hashlib.sha256(raw).hexdigest()
+    return hashlib.sha256(request.method.encode() + b"\n" + request.path.encode() + b"\n" + raw).hexdigest()
 
 
 def _replay(request, session: LiveSession, command_type: str):
@@ -156,15 +156,16 @@ def _replay(request, session: LiveSession, command_type: str):
     receipt = CommandReceipt.objects.filter(session=session, idempotency_key=key).first()
     if receipt is None:
         try:
-            CommandReceipt.objects.create(
-                session=session,
-                idempotency_key=key,
-                command_type=command_type,
-                actor=request.user if request.user.is_authenticated else None,
-                request_hash=request_hash,
-                response={"pending": True},
-                status_code=102,
-            )
+            with transaction.atomic():
+                CommandReceipt.objects.create(
+                    session=session,
+                    idempotency_key=key,
+                    command_type=command_type,
+                    actor=request.user if request.user.is_authenticated else None,
+                    request_hash=request_hash,
+                    response={"pending": True},
+                    status_code=102,
+                )
             return None, key
         except IntegrityError:
             receipt = CommandReceipt.objects.filter(session=session, idempotency_key=key).first()
@@ -196,24 +197,25 @@ def _record(session: LiveSession, key: str | None, command_type: str, request, r
         ).delete()
         return response
     try:
-        payload = json.loads(response.content)
-        updated = CommandReceipt.objects.filter(
-            session=session,
-            idempotency_key=key,
-            command_type=command_type,
-            actor=actor,
-            status_code=102,
-        ).update(response=payload, status_code=response.status_code)
-        if not updated:
-            CommandReceipt.objects.create(
+        with transaction.atomic():
+            payload = json.loads(response.content)
+            updated = CommandReceipt.objects.filter(
                 session=session,
                 idempotency_key=key,
                 command_type=command_type,
                 actor=actor,
-                request_hash=_request_hash(request),
-                response=payload,
-                status_code=response.status_code,
-            )
+                status_code=102,
+            ).update(response=payload, status_code=response.status_code)
+            if not updated:
+                CommandReceipt.objects.create(
+                    session=session,
+                    idempotency_key=key,
+                    command_type=command_type,
+                    actor=actor,
+                    request_hash=_request_hash(request),
+                    response=payload,
+                    status_code=response.status_code,
+                )
     except IntegrityError:
         # A completed receipt may have been written by a concurrent retry.
         pass
@@ -232,14 +234,15 @@ def _authoring_replay(request, command_type: str):
     receipt = AuthoringCommandReceipt.objects.filter(owner=request.user, idempotency_key=key).first()
     if receipt is None:
         try:
-            AuthoringCommandReceipt.objects.create(
-                owner=request.user,
-                idempotency_key=key,
-                command_type=command_type,
-                request_hash=request_hash,
-                response={"pending": True},
-                status_code=102,
-            )
+            with transaction.atomic():
+                AuthoringCommandReceipt.objects.create(
+                    owner=request.user,
+                    idempotency_key=key,
+                    command_type=command_type,
+                    request_hash=request_hash,
+                    response={"pending": True},
+                    status_code=102,
+                )
             return None, key
         except IntegrityError:
             receipt = AuthoringCommandReceipt.objects.filter(owner=request.user, idempotency_key=key).first()
@@ -268,22 +271,23 @@ def _record_authoring(request, key: str | None, command_type: str, response: Jso
         ).delete()
         return response
     try:
-        payload = json.loads(response.content)
-        updated = AuthoringCommandReceipt.objects.filter(
-            owner=request.user,
-            idempotency_key=key,
-            command_type=command_type,
-            status_code=102,
-        ).update(response=payload, status_code=response.status_code)
-        if not updated:
-            AuthoringCommandReceipt.objects.create(
+        with transaction.atomic():
+            payload = json.loads(response.content)
+            updated = AuthoringCommandReceipt.objects.filter(
                 owner=request.user,
                 idempotency_key=key,
                 command_type=command_type,
-                request_hash=_request_hash(request),
-                response=payload,
-                status_code=response.status_code,
-            )
+                status_code=102,
+            ).update(response=payload, status_code=response.status_code)
+            if not updated:
+                AuthoringCommandReceipt.objects.create(
+                    owner=request.user,
+                    idempotency_key=key,
+                    command_type=command_type,
+                    request_hash=_request_hash(request),
+                    response=payload,
+                    status_code=response.status_code,
+                )
     except IntegrityError:
         pass
     return response
@@ -420,6 +424,7 @@ def _public_activity(
         "id": activity.id,
         "state": activity.state,
         "revision": revision.revision if revision is not None else 1,
+        "revision_id": revision.id if revision is not None else None,
         "definition": snapshot,
         "frontend_manifest": manifest,
     }
@@ -1065,6 +1070,8 @@ def state(request, session_id: int):
         .first()
     )
     activity = channel_state.current_activity if channel_state and channel_state.current_activity_id else None
+    if not staff_view and session.status == LiveSession.Status.ENDED:
+        activity = None
     submission = None
     if participant and activity:
         submission = activity.submissions.filter(participant=participant).values("id", "answer", "is_stale").first()
@@ -1078,6 +1085,8 @@ def state(request, session_id: int):
         if channel_state
         else []
     )
+    if not staff_view and session.status == LiveSession.Status.ENDED:
+        visible_states = []
     for other_state in visible_states:
         aggregate = (
             public_result_summary(other_state.current_activity)
@@ -1144,54 +1153,7 @@ def state(request, session_id: int):
             ),
             "my_submission": submission if (staff_view or not channel_state or channel_state.show_own_status) else None,
             "aggregate": current_aggregate,
-            "act_as_active": active if acting_as else True,
-        }
-    )
-
-
-@require_GET
-def history(request, session_id: int):
-    """Return reviewable prior activities without exposing hidden answer data."""
-    session = get_object_or_404(LiveSession, pk=session_id)
-    try:
-        participant, _active = _act_as_context(request, session)
-    except ClassroomError as exc:
-        return _error(str(exc), 403)
-    acting_as = participant is not None
-    participant = participant or _participant_for_request(request, session)
-    staff_view = not acting_as and can_view_session(request.user, session)
-    if not participant and not staff_view:
-        return _error("Join the classroom before viewing activity history.", 403)
-    if participant and not staff_view and participant.admission_state != Participant.AdmissionState.ADMITTED:
-        return _error("You are not admitted to this classroom.", 403)
-    activities = session.activities.order_by("sequence")
-    if not staff_view:
-        activities = activities.filter(reviewable=True)
-    participant_channel = session.channel_states.filter(channel=SessionChannelState.Channel.PARTICIPANTS).first()
-    history_channel = None if staff_view else participant_channel
-    return JsonResponse(
-        {
-            "session_id": session.id,
-            "activities": [
-                _public_activity(
-                    activity,
-                    channel_state=history_channel,
-                    request=request,
-                    session=session,
-                    force_show_prompt=True,
-                    force_hide_answer=(
-                        not history_channel.show_answer
-                        if history_channel is not None
-                        else False
-                    ),
-                    force_hide_explanation=(
-                        not history_channel.show_explanation
-                        if history_channel is not None
-                        else False
-                    ),
-                )
-                for activity in activities
-            ],
+            "act_as_active": (active if acting_as else True) and session.status != LiveSession.Status.ENDED,
         }
     )
 
@@ -1225,11 +1187,13 @@ def submit(request, activity_id: int):
             _error("Join the classroom before submitting.", 403),
         )
     try:
+        body = _body(request)
+        revision_id = body.get("activity_revision_id")
+        if isinstance(revision_id, bool) or not isinstance(revision_id, int) or revision_id <= 0:
+            raise ClassroomError("activity_revision_id is required.")
         submission = submit_answer(
-            activity=activity,
-            participant=participant,
-            answer=_body(request).get("answer", {}),
-            actor=request.user,
+            activity=activity, participant=participant, answer=body.get("answer", {}), actor=request.user,
+            activity_revision_id=revision_id, require_published=True,
         )
     except ClassroomError as exc:
         return _record(activity.session, key, "submission.submit", request, _error(str(exc), 409))

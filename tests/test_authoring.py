@@ -16,6 +16,7 @@ from liveclassroom.models import (
     ActivityDefinition,
     AuthoringAttachment,
     AuthoringJob,
+    AuthoringMessage,
     AuthoringThread,
 )
 from liveclassroom.providers import ContentReference
@@ -58,6 +59,19 @@ class DummyProvider:
 
     def describe(self, reference, *, request=None):
         return {"source_fingerprint": "fingerprint"}
+
+
+class FencingAI(DummyAI):
+    def __init__(self, callback, error=None):
+        super().__init__()
+        self.callback = callback
+        self.error = error
+
+    def complete(self, messages, *, model, request=None, attachments=None):
+        self.callback()
+        if self.error is not None:
+            raise self.error
+        return AIMessage("assistant", "A stale draft")
 
 
 def post_json(client, url, payload=None, **headers):
@@ -249,3 +263,106 @@ def test_expired_package_worker_lease_is_requeued_with_a_bounded_attempt():
     claimed = claim_next_authoring_job(worker_token="replacement-worker")
     assert claimed is not None and claimed.id == job.id
     assert claimed.lease_token == "replacement-worker"
+
+
+@pytest.mark.django_db
+def test_stale_worker_success_cannot_overwrite_a_new_lease():
+    owner = get_user_model().objects.create_user(username="stale-success-owner")
+    thread = AuthoringThread.objects.create(owner=owner)
+    prompt = thread.messages.create(role=AuthoringMessage.Role.TEACHER, author=owner, content="Draft this")
+    job = AuthoringJob.objects.create(
+        thread=thread,
+        message=prompt,
+        backend_key="dummy",
+        model_identifier="test-model",
+    )
+    claimed = claim_next_authoring_job(worker_token="expired-worker")
+    assert claimed is not None and claimed.id == job.id
+
+    def replace_lease():
+        AuthoringJob.objects.filter(pk=job.pk).update(
+            status=AuthoringJob.Status.RUNNING,
+            lease_token="replacement-worker",
+            lease_expires_at=timezone.now() + timedelta(minutes=5),
+        )
+
+    backend = FencingAI(replace_lease)
+    with override_settings(LIVECLASSROOM={"AI_BACKENDS": {"dummy": backend}}):
+        result = run_authoring_job(job_id=job.id, actor=owner, worker_token="expired-worker")
+
+    result.refresh_from_db()
+    assert result.status == AuthoringJob.Status.RUNNING
+    assert result.lease_token == "replacement-worker"
+    assert thread.messages.filter(role=AuthoringMessage.Role.ASSISTANT).count() == 0
+
+
+@pytest.mark.django_db
+def test_stale_request_success_cannot_overwrite_a_new_lease():
+    owner = get_user_model().objects.create_user(username="stale-request-owner")
+    thread = AuthoringThread.objects.create(owner=owner)
+    prompt = thread.messages.create(role=AuthoringMessage.Role.TEACHER, author=owner, content="Draft this")
+    job = AuthoringJob.objects.create(
+        thread=thread,
+        message=prompt,
+        backend_key="dummy",
+        model_identifier="test-model",
+    )
+
+    def replace_lease():
+        AuthoringJob.objects.filter(pk=job.pk).update(
+            status=AuthoringJob.Status.RUNNING,
+            lease_token="replacement-worker",
+            lease_expires_at=timezone.now() + timedelta(minutes=5),
+        )
+
+    backend = FencingAI(replace_lease)
+    request = type("Request", (), {})()
+    with override_settings(LIVECLASSROOM={"AI_BACKENDS": {"dummy": backend}}):
+        result = run_authoring_job(job_id=job.id, actor=owner, request=request)
+
+    result.refresh_from_db()
+    assert result.status == AuthoringJob.Status.RUNNING
+    assert result.lease_token == "replacement-worker"
+    assert thread.messages.filter(role=AuthoringMessage.Role.ASSISTANT).count() == 0
+
+
+@pytest.mark.django_db
+def test_stale_worker_failure_cannot_overwrite_a_newer_success():
+    owner = get_user_model().objects.create_user(username="stale-failure-owner")
+    thread = AuthoringThread.objects.create(owner=owner)
+    prompt = thread.messages.create(role=AuthoringMessage.Role.TEACHER, author=owner, content="Draft this")
+    job = AuthoringJob.objects.create(
+        thread=thread,
+        message=prompt,
+        backend_key="dummy",
+        model_identifier="test-model",
+    )
+    claimed = claim_next_authoring_job(worker_token="expired-worker")
+    assert claimed is not None and claimed.id == job.id
+    replacement = None
+
+    def complete_newer_result():
+        nonlocal replacement
+        replacement = thread.messages.create(
+            role=AuthoringMessage.Role.ASSISTANT,
+            content="The newer draft",
+            model_identifier="test-model",
+        )
+        AuthoringJob.objects.filter(pk=job.pk).update(
+            status=AuthoringJob.Status.SUCCEEDED,
+            assistant_message_id=replacement.pk,
+            completed_at=timezone.now(),
+            error_code="",
+            lease_token="",
+            lease_expires_at=None,
+        )
+
+    backend = FencingAI(complete_newer_result, error=RuntimeError("stale backend failure"))
+    with override_settings(LIVECLASSROOM={"AI_BACKENDS": {"dummy": backend}}):
+        result = run_authoring_job(job_id=job.id, actor=owner, worker_token="expired-worker")
+
+    result.refresh_from_db()
+    assert result.status == AuthoringJob.Status.SUCCEEDED
+    assert result.assistant_message_id == replacement.pk
+    assert result.error_code == ""
+    assert thread.messages.filter(role=AuthoringMessage.Role.ASSISTANT).count() == 1

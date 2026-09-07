@@ -13,7 +13,7 @@ from qrcode.image.svg import SvgPathImage
 from .conf import base_template, websocket_path
 from .forms import CreateSessionForm, JoinSessionForm
 from .models import LiveSession
-from .services.classroom import can_manage_session, can_view_display
+from .services.classroom import can_manage_session, can_view_display, can_view_session, session_capabilities
 
 
 class LocaleContextMixin:
@@ -73,7 +73,7 @@ class TeacherConsoleView(LoginRequiredMixin, LocaleContextMixin, TemplateView):
 
     def dispatch(self, request, *args, **kwargs):
         self.session = get_object_or_404(LiveSession.objects.select_related("course", "flow"), pk=kwargs["session_id"])
-        if not can_manage_session(request.user, self.session):
+        if not can_view_session(request.user, self.session):
             raise Http404
         return super().dispatch(request, *args, **kwargs)
 
@@ -81,21 +81,13 @@ class TeacherConsoleView(LoginRequiredMixin, LocaleContextMixin, TemplateView):
         context = super().get_context_data(**kwargs)
         context["session"] = self.session
         context["websocket_url"] = websocket_path(self.session.id)
-        steps = (
-            self.session.flow.steps.select_related("activity_definition").all() if self.session.flow_id else []
-        )
+        steps = self.session.plan_steps.filter(removed=False)
         context["steps"] = steps
-        context["flow_title"] = self.session.flow.title if self.session.flow_id else ""
+        context["flow_title"] = self.session.source_snapshot.title if self.session.source_snapshot_id else ""
+        context["capabilities_json"] = json.dumps(session_capabilities(self.request.user, self.session))
         context["flow_steps_json"] = json.dumps(
-            [
-                {
-                    "id": step.id,
-                    "position": step.position,
-                    "title": step.activity_definition.title,
-                }
-                for step in steps
-            ],
-            ensure_ascii=False,
+            [{"id": step.id, "position": step.position, "title": step.snapshot.get("title", "Activity")}
+             for step in steps], ensure_ascii=False,
         )
         return context
 
@@ -188,9 +180,14 @@ class FlowBuilderView(LoginRequiredMixin, LocaleContextMixin, TemplateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        flow_id = kwargs.get("flow_id")
+        flow_id = kwargs.get("flow_id") or self.request.GET.get("flow_id")
         if flow_id:
-            context["flow_id"] = flow_id
+            from .models import Flow
+            from .services.permissions import can_use_flow
+            flow = get_object_or_404(Flow, pk=flow_id)
+            if not can_use_flow(self.request.user, flow):
+                raise Http404
+            context["flow_id"] = flow.id
         session_id = kwargs.get("session_id") or self.request.GET.get("session_id")
         if session_id:
             try:

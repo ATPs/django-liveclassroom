@@ -3,6 +3,8 @@
 {% block content %}
   <section class="lc-card lc-wide"
     data-liveclassroom-app data-audience="teacher"
+    data-capabilities='{{ capabilities_json }}'
+    data-workspace-url="{% url 'liveclassroom:teacher-dashboard' %}"
     data-session-id="{{ session.id }}"
     data-is-superuser="{{ request.user.is_superuser|yesno:'true,false' }}"
     data-state-url="{% url 'liveclassroom:api-v1-state' session.id %}"

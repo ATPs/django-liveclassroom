@@ -3,10 +3,18 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { readBootstrap, type Bootstrap } from "../../bootstrap.js";
 import { LanguageSwitcher, LocaleProvider, useT } from "../../i18n.js";
-import { apiEndpoint, getJson, postJson, type ActivityState, type ChatState } from "../../protocol.js";
+import {
+  ApiError,
+  apiEndpoint,
+  getJson,
+  postJson,
+  type ActivityState,
+  type ChatState,
+  type SessionState,
+} from "../../protocol.js";
 import { useSessionState } from "../../hooks/useSessionState.js";
 import { ActivityView } from "../../activities/ActivityView.js";
-import { activityTitle, questionPrompt } from "../../activities/activityData.js";
+import { activityKind, activityTitle, answerText, choicesFor, selectedChoices } from "../../activities/activityData.js";
 
 function JoinPrompt({ onJoined }: { onJoined: (name: string) => Promise<void> }) {
   const t = useT();
@@ -112,13 +120,58 @@ function Chat({ stateUrl, stateVersion }: { stateUrl: string; stateVersion: numb
   );
 }
 
-function History({ stateUrl, stateVersion }: { stateUrl: string; stateVersion: number }) {
+type OwnSubmission = { answer: Record<string, unknown>; is_stale: boolean };
+type ReviewActivity = ActivityState & {
+  own_submission?: OwnSubmission | null;
+  reviewable?: boolean;
+  review_visibility?: Record<string, boolean>;
+};
+
+function OwnAnswer({ activity, submission }: { activity: ActivityState; submission: OwnSubmission }) {
   const t = useT();
-  const [activities, setActivities] = useState<ActivityState[] | null>(null);
+  const kind = activityKind(activity);
+  const answer = submission.answer;
+  const labels = new Map(choicesFor(activity).map((choice) => [choice.id, choice.text]));
+  const selected = selectedChoices(answer);
+  const selectedLabels = selected.map((choice) => labels.get(choice) ?? choice);
+  const directAnswer = kind === "numeric"
+    ? answerText(answer, "value")
+    : kind === "rating"
+      ? answerText(answer, "rating")
+      : answerText(answer, "text") || answerText(answer, "value");
+  return (
+    <div data-liveclassroom-own-answer>
+      <h3>{t("answer")}</h3>
+      {kind === "ranking" && selectedLabels.length ? (
+        <ol>
+          {selectedLabels.map((label, index) => <li key={`${index}-${label}`}>{label}</li>)}
+        </ol>
+      ) : selectedLabels.length ? (
+        <p>{selectedLabels.join(", ")}</p>
+      ) : directAnswer ? (
+        <p>{directAnswer}</p>
+      ) : <p>{t("noAnswer")}</p>}
+      {submission.is_stale ? <p>{t("stale")}</p> : null}
+    </div>
+  );
+}
+
+function History({
+  stateUrl,
+  stateVersion,
+  state,
+}: {
+  stateUrl: string;
+  stateVersion: number;
+  state: SessionState | null;
+}) {
+  const t = useT();
+  const [activities, setActivities] = useState<ReviewActivity[] | null>(null);
   const [error, setError] = useState(false);
 
   useEffect(() => {
-    getJson<{ activities: ActivityState[] }>(apiEndpoint(stateUrl, "sessions/history"))
+    setError(false);
+    getJson<{ activities: ReviewActivity[] }>(apiEndpoint(stateUrl, "sessions/history"))
       .then((data) => setActivities(data.activities))
       .catch(() => setError(true));
   }, [stateUrl, stateVersion]);
@@ -132,12 +185,27 @@ function History({ stateUrl, stateVersion }: { stateUrl: string; stateVersion: n
         <p>{t("noHistory")}</p>
       ) : activities ? (
         <ul>
-          {activities.map((activity) => (
-            <li key={activity.id}>
-              <strong>{activityTitle(activity, t("activity"))}</strong>
-              {questionPrompt(activity) ? <span>: {questionPrompt(activity)}</span> : null}
-            </li>
-          ))}
+          {activities.map((activity) => {
+            const readOnlyState = state
+              ? {
+                  ...state,
+                  current_activity: activity,
+                  my_submission: null,
+                  act_as_active: false,
+                }
+              : null;
+            return (
+              <li key={`${activity.id}:${activity.revision_id}`}>
+                <ActivityView
+                  activity={activity}
+                  state={readOnlyState}
+                  stateUrl={stateUrl}
+                  refresh={() => undefined}
+                />
+                {activity.own_submission ? <OwnAnswer activity={activity} submission={activity.own_submission} /> : null}
+              </li>
+            );
+          })}
         </ul>
       ) : null}
     </section>
@@ -156,19 +224,36 @@ function StudentSession({ bootstrap }: { bootstrap: Bootstrap }) {
   useEffect(() => {
     let cancelled = false;
     const join = async (): Promise<void> => {
+      if (joinedRef.current) return;
+      joinedRef.current = true;
       if (!bootstrap.guestJoinUrl && !bootstrap.accountJoinUrl) {
         // Act-as / inspection surface: no join is needed; fetch state directly.
         if (!cancelled) {
-          joinedRef.current = true;
           setJoined(true);
         }
         return;
       }
+
+      let participantState: SessionState | null = null;
+      try {
+        const url = new URL(stateUrl, window.location.href);
+        url.searchParams.set("channel", "participants");
+        participantState = await getJson<SessionState>(url.toString());
+      } catch (error) {
+        if (!(error instanceof ApiError) || error.status !== 403) {
+          if (!cancelled) setJoinError(error instanceof Error ? error.message : t("unavailable"));
+          return;
+        }
+      }
+      if (participantState?.participant) {
+        if (!cancelled) setJoined(true);
+        return;
+      }
+
       if (bootstrap.authenticated && bootstrap.accessMode !== "guest" && bootstrap.accountJoinUrl) {
         try {
           await postJson(bootstrap.accountJoinUrl, {}, `join-account-${bootstrap.sessionId ?? "session"}`);
           if (!cancelled) {
-            joinedRef.current = true;
             setJoined(true);
           }
         } catch (error) {
@@ -181,7 +266,6 @@ function StudentSession({ bootstrap }: { bootstrap: Bootstrap }) {
         try {
           await postJson(bootstrap.guestJoinUrl, { display_name: pendingName }, `join-guest-${bootstrap.sessionId ?? "session"}`);
           if (!cancelled) {
-            joinedRef.current = true;
             setJoined(true);
           }
         } catch (error) {
@@ -234,7 +318,7 @@ function StudentSession({ bootstrap }: { bootstrap: Bootstrap }) {
         {joined ? (
           state?.participant && state.participant.admission_state !== "admitted" ? (
             <p>{t("waitingAdmission")}</p>
-          ) : (
+          ) : state?.session.status === "ended" ? null : (
             <ActivityView activity={state?.current_activity ?? null} state={state} stateUrl={stateUrl} refresh={sync.refresh} />
           )
         ) : needName ? (
@@ -249,7 +333,7 @@ function StudentSession({ bootstrap }: { bootstrap: Bootstrap }) {
       {joined && state?.participant?.admission_state === "admitted" ? (
         <>
           <Chat stateUrl={stateUrl} stateVersion={state?.state_version ?? 0} />
-          <History stateUrl={stateUrl} stateVersion={state?.state_version ?? 0} />
+          <History stateUrl={stateUrl} stateVersion={state?.state_version ?? 0} state={state} />
         </>
       ) : null}
     </>

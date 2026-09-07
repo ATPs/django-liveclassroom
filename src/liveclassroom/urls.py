@@ -1,10 +1,28 @@
 from django.urls import path
 
-from . import api, api_assets, api_authoring, api_flows, views
+from . import api, api_assets, api_authoring, api_flows, api_plans, api_review, views
 
 app_name = "liveclassroom"
 
 urlpatterns = [
+    path("api/v1/activities/<int:activity_id>/review/", api_review.review_settings, name="api-v1-review-settings"),
+    path(
+        "api/v1/flows/<int:flow_id>/steps/<int:step_id>/edit/", api_plans.lesson_step_edit, name="api-v1-flow-step-edit"
+    ),
+    path("api/v1/workspace/", api_plans.workspace, name="api-v1-workspace"),
+    path("api/v1/courses/", api_plans.courses, name="api-v1-courses"),
+    path("api/v1/courses/<int:course_id>/", api_plans.course_detail, name="api-v1-course-detail"),
+    path("api/v1/courses/<int:course_id>/members/", api_plans.course_members, name="api-v1-course-members"),
+    path("api/v1/courses/<int:course_id>/lessons/", api_plans.associate_lesson, name="api-v1-course-lessons"),
+    path("api/v1/flows/<int:flow_id>/shares/", api_plans.shares, name="api-v1-flow-shares"),
+    path("api/v1/sessions/", api_plans.sessions_create, name="api-v1-session-create"),
+    path("api/v1/sessions/<int:session_id>/plan/", api_plans.session_plan, name="api-v1-session-plan"),
+    path("api/v1/sessions/<int:session_id>/plan/reorder/", api_plans.plan_reorder, name="api-v1-plan-reorder"),
+    path("api/v1/sessions/<int:session_id>/plan/compare/", api_plans.plan_comparison, name="api-v1-plan-compare"),
+    path("api/v1/sessions/<int:session_id>/plan/<int:step_id>/", api_plans.plan_step, name="api-v1-plan-step"),
+    path(
+        "api/v1/sessions/<int:session_id>/plan/<int:step_id>/launch/", api_plans.plan_launch, name="api-v1-plan-launch"
+    ),
     path("", views.HomeView.as_view(), name="home"),
     path("teacher/", views.TeacherDashboardView.as_view(), name="teacher-dashboard"),
     path("teacher/builder/", views.FlowBuilderView.as_view(), name="flow-builder"),
@@ -13,7 +31,6 @@ urlpatterns = [
     path("teacher/sessions/<int:session_id>/student-view/", views.StudentView.as_view(), name="student-view"),
     path("teacher/sessions/<int:session_id>/display/", views.ClassroomDisplayView.as_view(), name="classroom-display"),
     path("teacher/sessions/<int:session_id>/join-qr.svg", views.join_qr, name="join-qr"),
-
     path("join/", views.JoinView.as_view(), name="join"),
     path("sessions/<int:session_id>/", views.StudentSessionView.as_view(), name="student-session"),
     path("health/", views.health, name="health"),
@@ -74,7 +91,7 @@ urlpatterns = [
     path("api/v1/sessions/<int:session_id>/staff/", api.staff, name="api-v1-staff"),
     path("api/v1/sessions/<int:session_id>/staff/assign/", api.staff_assign, name="api-v1-staff-assign"),
     path("api/v1/sessions/<int:session_id>/staff/<int:staff_id>/remove/", api.staff_remove, name="api-v1-staff-remove"),
-    path("api/v1/sessions/<int:session_id>/history/", api.history, name="api-v1-history"),
+    path("api/v1/sessions/<int:session_id>/history/", api_review.history, name="api-v1-history"),
     path("api/v1/sessions/<int:session_id>/analytics/", api.analytics, name="api-v1-analytics"),
     path("api/v1/sessions/<int:session_id>/export/", api.export_session, name="api-v1-export"),
     path("api/v1/sessions/<int:session_id>/chat/", api.chat_messages, name="api-v1-chat-messages"),

@@ -125,9 +125,8 @@ def test_launch_markdown_step_does_not_crash(teacher):
         definition={"markdown": "# Welcome to class"},
     )
     step = add_flow_step(flow=flow, actor=teacher, activity_definition=markdown_definition)
-    session = create_instant_session(owner=teacher, title="Markdown session")
-    session.flow = flow
-    session.save(update_fields=["flow"])
+    from liveclassroom.services.plans import create_session
+    session = create_session(owner=teacher, title="Markdown session", flow=flow)
     start_session(session=session, actor=teacher)
 
     activity = launch_item(session=session, item=step, actor=teacher)
