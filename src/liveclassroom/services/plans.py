@@ -29,7 +29,7 @@ from liveclassroom.services.classroom import (
     validate_activity_snapshot,
 )
 from liveclassroom.services.events import notify_session_after_commit
-from liveclassroom.services.permissions import can_author_course, can_use_activity_definition, can_use_flow
+from liveclassroom.services.permissions import can_author_course, can_teach, can_use_activity_definition, can_use_flow
 
 
 def fingerprint(value) -> str:
@@ -106,8 +106,8 @@ def initialize_session_plan(session: LiveSession) -> None:
 def _settings(owner, course, options):
     from liveclassroom.conf import guests_allowed
 
-    if not getattr(owner, "is_authenticated", False):
-        raise ClassroomError("An authenticated teacher is required.")
+    if not can_teach(owner):
+        raise ClassroomError("An authorized teacher is required.")
     if course is not None and not can_author_course(owner, course):
         raise ClassroomError("You do not have permission to use this class.")
     values = {
@@ -132,6 +132,8 @@ def _settings(owner, course, options):
 
 @transaction.atomic
 def create_session(*, owner, title, course=None, flow=None, source=None, **options) -> LiveSession:
+    if not can_teach(owner):
+        raise ClassroomError("An authorized teacher is required to create a classroom.")
     if not isinstance(title, str) or not title.strip() or len(title.strip()) > 200:
         raise ClassroomError("A session title of at most 200 characters is required.")
     if source is not None:

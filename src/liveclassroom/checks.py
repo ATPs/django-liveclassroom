@@ -14,8 +14,10 @@ from .conf import (
     base_template,
     guests_allowed,
     join_code_length,
+    postgres_notify_channel,
     server_file_paths_allowed,
     setting,
+    teacher_authorizer,
     websocket_path,
 )
 from .providers import ProviderError, content_providers
@@ -142,6 +144,8 @@ def check_liveclassroom_settings(app_configs: Any = None, **kwargs: Any) -> list
         ai_job_timeout_seconds()
         asset_max_bytes()
         server_file_paths_allowed()
+        teacher_authorizer()
+        postgres_notify_channel()
     except (KeyError, ValueError) as exc:
         messages.append(Error(str(exc), id="liveclassroom.E004"))
         return messages

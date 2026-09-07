@@ -14,7 +14,7 @@ from django.views.decorators.http import require_GET, require_http_methods, requ
 from .api import _authoring_replay, _body, _error, _record_authoring
 from .models import ActivityDefinition, Course, CourseMembership, Flow, FlowShare, LiveSession, SessionPlanStep
 from .services.classroom import ClassroomError, can_view_session, session_capabilities
-from .services.permissions import can_author_course, can_edit_flow, can_use_flow
+from .services.permissions import can_author_course, can_edit_flow, can_teach, can_use_flow
 from .services.plan_changes import apply_changes, compare_changes
 from .services.plans import (
     add_plan_step,
@@ -30,6 +30,8 @@ def command(view):
     def wrapped(request, *args, **kwargs):
         if not request.user.is_authenticated:
             return _error("Authentication required.", 401)
+        if not can_teach(request.user):
+            return _error("Teacher access is required.", 403)
         if request.method == "GET":
             try:
                 return view(request, *args, **kwargs)
@@ -72,6 +74,8 @@ def accessible_courses(user):
 
 
 def _session(session, user):
+    from .services.demos import is_public_demo_session
+
     return {
         "id": session.id,
         "title": session.title,
@@ -85,6 +89,7 @@ def _session(session, user):
         "console_url": reverse("liveclassroom:teacher-console", args=[session.id]),
         "student_view_url": reverse("liveclassroom:student-view", args=[session.id]),
         "join_code": session.join_code,
+        "demo": is_public_demo_session(session),
     }
 
 
@@ -101,6 +106,10 @@ def workspace(request):
             | Q(course__memberships__user=request.user, course__memberships__role__in=["teacher", "assistant"])
         ).distinct()
     )
+    from .services.demos import public_demo_sessions
+
+    if not request.user.is_superuser:
+        query = query | public_demo_sessions()
     return JsonResponse(
         {
             "courses": [_course(c, request.user) for c in accessible_courses(request.user)],

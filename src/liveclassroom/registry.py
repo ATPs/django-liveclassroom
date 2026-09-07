@@ -1,7 +1,9 @@
 """Small, stable registry for third-party activity types."""
 
 import math
+import posixpath
 import re
+import shlex
 import string
 import uuid
 from collections import Counter
@@ -440,6 +442,213 @@ def _plain_export(answer: dict[str, Any]) -> dict[str, Any]:
     return dict(answer)
 
 
+BASH_SIMULATOR_COMMANDS: frozenset[str] = frozenset(
+    {"pwd", "ls", "cd", "cat", "echo", "help", "clear", "reset"}
+)
+BASH_SIMULATOR_MAX_FILES = 100
+BASH_SIMULATOR_MAX_FILE_BYTES = 16_000
+BASH_SIMULATOR_MAX_TRANSCRIPT_ENTRIES = 100
+BASH_SIMULATOR_MAX_COMMAND_LENGTH = 240
+BASH_SIMULATOR_MAX_OUTPUT_LENGTH = 4_000
+BASH_SIMULATOR_MAX_PATH_LENGTH = 255
+
+_BASH_DEFINITION_KEYS = frozenset(
+    {"prompt", "filesystem", "initial_directory", "completion", "max_transcript_entries"}
+)
+_BASH_COMPLETION_KEYS = frozenset({"required_commands", "required_directory"})
+_BASH_CONTROL_CHARACTERS = frozenset(chr(value) for value in range(0x20)) | {chr(0x7F)}
+
+
+def _bash_path(value: Any, *, field: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{field} must be a non-empty absolute path.")
+    value = value.strip()
+    if (
+        len(value) > BASH_SIMULATOR_MAX_PATH_LENGTH
+        or not value.startswith("/")
+        or value.startswith("//")
+        or "\\" in value
+        or any(character in _BASH_CONTROL_CHARACTERS for character in value)
+    ):
+        raise ValueError(f"{field} must be a safe absolute path.")
+    normalized = posixpath.normpath(value)
+    if normalized != value or normalized == "//" or any(part in {".", ".."} for part in value.split("/")):
+        raise ValueError(f"{field} must be normalized without '.' or '..' segments.")
+    return normalized
+
+
+def _bash_directories(filesystem: dict[str, str]) -> set[str]:
+    directories = {"/"}
+    for path in filesystem:
+        parent = posixpath.dirname(path)
+        while parent and parent != "/":
+            directories.add(parent)
+            parent = posixpath.dirname(parent)
+    return directories
+
+
+def _bash_definition(definition: dict[str, Any]) -> dict[str, Any]:
+    result = _copy_definition(definition)
+    unknown = set(result) - _BASH_DEFINITION_KEYS
+    if unknown:
+        raise ValueError(f"Unsupported bash simulator definition fields: {', '.join(sorted(map(str, unknown)))}.")
+
+    prompt = result.get("prompt")
+    if not isinstance(prompt, str) or not prompt.strip():
+        raise ValueError("A bash simulator prompt must be non-empty text.")
+    if len(prompt.strip()) > BASH_SIMULATOR_MAX_OUTPUT_LENGTH:
+        raise ValueError("A bash simulator prompt is too long.")
+    result["prompt"] = prompt.strip()
+
+    if "filesystem" not in result:
+        raise ValueError("filesystem is required.")
+    raw_filesystem = result.get("filesystem", {})
+    if not isinstance(raw_filesystem, dict):
+        raise ValueError("filesystem must be an object mapping absolute paths to file text.")
+    if len(raw_filesystem) > BASH_SIMULATOR_MAX_FILES:
+        raise ValueError("filesystem has too many files.")
+    filesystem: dict[str, str] = {}
+    for raw_path, content in raw_filesystem.items():
+        path = _bash_path(raw_path, field="filesystem path")
+        if path == "/":
+            raise ValueError("filesystem cannot define the root as a file.")
+        if not isinstance(content, str):
+            raise ValueError("filesystem file contents must be text.")
+        if len(content.encode("utf-8")) > BASH_SIMULATOR_MAX_FILE_BYTES:
+            raise ValueError("filesystem file contents are too large.")
+        filesystem[path] = content
+    if len(filesystem) != len(raw_filesystem):
+        raise ValueError("filesystem paths must be unique after normalization.")
+    if any(directory in filesystem for directory in _bash_directories(filesystem)):
+        raise ValueError("A filesystem file cannot also be a directory.")
+    result["filesystem"] = filesystem
+
+    initial_directory = _bash_path(result.get("initial_directory", "/"), field="initial_directory")
+    if initial_directory not in _bash_directories(filesystem):
+        raise ValueError("initial_directory must exist in the virtual filesystem.")
+    result["initial_directory"] = initial_directory
+
+    completion = result.get("completion", {})
+    if not isinstance(completion, dict):
+        raise ValueError("completion must be an object.")
+    unknown_completion = set(completion) - _BASH_COMPLETION_KEYS
+    if unknown_completion:
+        raise ValueError(
+            f"Unsupported bash simulator completion fields: {', '.join(sorted(map(str, unknown_completion)))}."
+        )
+    normalized_completion: dict[str, Any] = {}
+    required_commands = completion.get("required_commands", [])
+    if not isinstance(required_commands, list) or any(
+        not isinstance(command, str) or command not in BASH_SIMULATOR_COMMANDS for command in required_commands
+    ):
+        raise ValueError("completion.required_commands must contain only supported command names.")
+    if len(required_commands) > len(BASH_SIMULATOR_COMMANDS) or len(set(required_commands)) != len(required_commands):
+        raise ValueError("completion.required_commands must contain unique supported commands.")
+    normalized_completion["required_commands"] = list(required_commands)
+    if "required_directory" in completion:
+        required_directory = _bash_path(completion["required_directory"], field="completion.required_directory")
+        if required_directory not in _bash_directories(filesystem):
+            raise ValueError("completion.required_directory must exist in the virtual filesystem.")
+        normalized_completion["required_directory"] = required_directory
+    result["completion"] = normalized_completion
+
+    max_entries = result.get("max_transcript_entries", BASH_SIMULATOR_MAX_TRANSCRIPT_ENTRIES)
+    if isinstance(max_entries, bool) or not isinstance(max_entries, int):
+        raise ValueError("max_transcript_entries must be an integer.")
+    if max_entries < 1 or max_entries > BASH_SIMULATOR_MAX_TRANSCRIPT_ENTRIES:
+        raise ValueError("max_transcript_entries must be from 1 to 100.")
+    result["max_transcript_entries"] = max_entries
+    return result
+
+
+def _bash_command_parts(command: str) -> list[str]:
+    if (
+        not isinstance(command, str)
+        or not command.strip()
+        or len(command) > BASH_SIMULATOR_MAX_COMMAND_LENGTH
+        or any(character in _BASH_CONTROL_CHARACTERS for character in command)
+        or any(character in command for character in ";&|<>$`\\")
+    ):
+        raise ValueError("Transcript commands must be one safe supported command per line.")
+    try:
+        parts = shlex.split(command, posix=True)
+    except ValueError as exc:
+        raise ValueError("Transcript commands must use valid shell-style quoting.") from exc
+    if not parts or parts[0] not in BASH_SIMULATOR_COMMANDS:
+        raise ValueError("Transcript contains an unsupported command.")
+    return parts
+
+
+def _normalize_bash_submission(submission: dict[str, Any]) -> dict[str, Any]:
+    result = _copy_definition(submission)
+    if set(result) != {"completed", "transcript"}:
+        raise ValueError("A bash simulator answer must contain only completed and transcript.")
+    if result.get("completed") is not True:
+        raise ValueError("A bash simulator answer requires explicit completion.")
+    transcript = result.get("transcript")
+    if (
+        not isinstance(transcript, list)
+        or not transcript
+        or len(transcript) > BASH_SIMULATOR_MAX_TRANSCRIPT_ENTRIES
+    ):
+        raise ValueError("A bash simulator transcript must contain from 1 to 100 entries.")
+    normalized: list[dict[str, str]] = []
+    for entry in transcript:
+        if not isinstance(entry, dict) or set(entry) != {"command", "output", "cwd"}:
+            raise ValueError("Each bash simulator transcript entry needs command, output, and cwd.")
+        command = entry["command"]
+        _bash_command_parts(command)
+        cwd = _bash_path(entry["cwd"], field="transcript cwd")
+        output = entry["output"]
+        if not isinstance(output, str) or len(output) > BASH_SIMULATOR_MAX_OUTPUT_LENGTH:
+            raise ValueError("Transcript output must be text of at most 4000 characters.")
+        if "\x00" in output:
+            raise ValueError("Transcript output cannot contain NUL bytes.")
+        normalized.append({"command": command.strip(), "output": output, "cwd": cwd})
+    result["completed"] = True
+    result["transcript"] = normalized
+    return result
+
+
+def _validate_bash_submission(submission: dict[str, Any], definition: dict[str, Any]) -> dict[str, Any]:
+    filesystem = definition.get("filesystem", {})
+    directories = _bash_directories(filesystem)
+    for entry in submission["transcript"]:
+        if entry["cwd"] not in directories:
+            raise ValueError("Transcript cwd must exist in the virtual filesystem.")
+    completion = definition.get("completion", {})
+    command_names = {_bash_command_parts(entry["command"])[0] for entry in submission["transcript"]}
+    missing = set(completion.get("required_commands", [])) - command_names
+    if missing:
+        raise ValueError(f"Completion is missing required commands: {', '.join(sorted(missing))}.")
+    required_directory = completion.get("required_directory")
+    if required_directory is not None and (
+        not submission["transcript"] or submission["transcript"][-1]["cwd"] != required_directory
+    ):
+        raise ValueError("Completion must finish in the required directory.")
+    max_entries = definition.get("max_transcript_entries", BASH_SIMULATOR_MAX_TRANSCRIPT_ENTRIES)
+    if len(submission["transcript"]) > max_entries:
+        raise ValueError("The transcript exceeds this activity's entry limit.")
+    return submission
+
+
+def _aggregate_bash_submissions(answers: Iterable[dict[str, Any]], definition=None) -> dict[str, Any]:
+    completed_count = 0
+    submission_count = 0
+    for answer in answers:
+        if not isinstance(answer, dict):
+            continue
+        submission_count += 1
+        if answer.get("completed") is True:
+            completed_count += 1
+    return {"submission_count": submission_count, "completed_count": completed_count}
+
+
+def _export_bash_submission(answer: dict[str, Any]) -> dict[str, Any]:
+    normalized = _normalize_bash_submission(answer)
+    return {"completed": True, "transcript": normalized["transcript"]}
+
+
 VALID_MEDIA_TYPES: frozenset[str] = frozenset({"image", "video", "audio", "iframe"})
 DEFAULT_STOP_WORDS: frozenset[str] = frozenset(
     {
@@ -846,6 +1055,22 @@ for _activity_type in (
         export_submission=_plain_export,
         capabilities=frozenset({"text", "aggregate"}),
         frontend_manifest=_manifest("word_cloud"),
+    ),
+    ActivityType(
+        "liveclassroom.bash_simulator",
+        validate_definition=_bash_definition,
+        normalize_submission=_normalize_bash_submission,
+        validate_submission=_validate_bash_submission,
+        aggregate_submissions=_aggregate_bash_submissions,
+        aggregate_public_submissions=_aggregate_bash_submissions,
+        export_submission=_export_bash_submission,
+        capabilities=frozenset({"aggregate"}),
+        frontend_manifest={
+            "editor": "liveclassroom/plugins/editor.v1.js",
+            "student_renderer": "liveclassroom/plugins/bash_simulator.v1.js",
+            "display_renderer": "liveclassroom/plugins/bash_simulator.v1.js",
+            "analytics": "liveclassroom/plugins/analytics.v1.js",
+        },
     ),
     ActivityType(
         "liveclassroom.markdown",

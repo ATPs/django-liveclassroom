@@ -1,7 +1,23 @@
 {% extends liveclassroom_base_template %}
 {% block title %}Flow Builder · LiveClassroom{% endblock %}
 {% block content %}
-  <div class="lc-card lc-wide" data-liveclassroom-builder data-flow-id="{{ flow_id|default:'' }}" data-session-id="{{ session_id|default:'' }}" data-api-v1-url="{% url 'liveclassroom:api-v1-flows' %}" data-is-superuser="{{ request.user.is_superuser|yesno:'true,false' }}" data-locale="{{ active_lang|default:'en' }}">
-    <button type="button" class="lc-lang-switch" aria-label="Switch language / 切换语言">EN / 中文</button>
+  <div class="lc-page-stack">
+    <aside class="lc-card lc-context-help" aria-labelledby="builder-guidance-title">
+      {% if active_lang == "zh-Hans" %}
+        <p class="lc-context-kicker">编辑教案时</p>
+        <h2 id="builder-guidance-title">先检查，再用于课堂</h2>
+        <p>这里编辑的是可复用教案。添加或删除步骤、导入内容和调整顺序都会改变以后使用的教案；已经创建的课堂不会自动跟着改变。</p>
+        <p class="lc-guidance-risk"><strong>操作提示：</strong>发布前查看实时预览，确认步骤顺序、活动类型和答案或解析。删除步骤会从这份教案中移除它，请在保存前再次确认。</p>
+      {% else %}
+        <p class="lc-context-kicker">While editing a lesson</p>
+        <h2 id="builder-guidance-title">Check before you use it in class</h2>
+        <p>This page edits a reusable lesson. Adding or removing steps, importing content, and changing order affect future use of the lesson; classrooms that already exist do not change automatically.</p>
+        <p class="lc-guidance-risk"><strong>Action check:</strong> Use the live preview to confirm step order, activity types, answers, and explanations before publishing. Removing a step removes it from this lesson, so review once more before saving.</p>
+      {% endif %}
+      <p class="lc-context-help-link">{% include "liveclassroom/_help_link.html" %}</p>
+    </aside>
+    <div class="lc-card lc-wide" data-liveclassroom-builder data-flow-id="{{ flow_id|default:'' }}" data-session-id="{{ session_id|default:'' }}" data-api-v1-url="{% url 'liveclassroom:api-v1-flows' %}" data-is-superuser="{{ request.user.is_superuser|yesno:'true,false' }}" data-locale="{{ active_lang|default:'en' }}">
+      <button type="button" class="lc-lang-switch" aria-label="Switch language / 切换语言">EN / 中文</button>
+    </div>
   </div>
 {% endblock %}

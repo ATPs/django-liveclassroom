@@ -2,6 +2,7 @@ import * as React from "react";
 import { useEffect, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import { useLocale, useT } from "../i18n.js";
+import { postJson } from "../protocol.js";
 import { mountPluginActivity } from "../plugin_runtime.js";
 import type { ActivityState, Audience, SessionState } from "../protocol.js";
 import {
@@ -12,6 +13,7 @@ import {
   displayAnswer,
   questionPrompt,
   stringValue,
+  submitUrl,
 } from "./activityData.js";
 import { MarkdownView } from "./MarkdownView.js";
 import { FileActivity } from "./FileActivity.js";
@@ -184,12 +186,14 @@ export function PluginActivityView({
   state,
   stateUrl,
   audience,
+  refresh,
   fallback,
 }: {
   activity: ActivityState;
   state: SessionState | null;
   stateUrl: string | null;
   audience: Audience;
+  refresh?: () => void;
   fallback: React.ReactNode;
 }) {
   const locale = useLocale();
@@ -208,6 +212,17 @@ export function PluginActivityView({
       aggregate: state?.aggregate ?? null,
       locale,
       manifest: activity.frontend_manifest,
+      submit: audience === "student" && stateUrl && refresh
+        ? async (answer) => {
+            const key = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+            await postJson(
+              submitUrl(stateUrl, activity),
+              { answer, activity_revision_id: activity.revision_id },
+              `submission-${key}`,
+            );
+            refresh?.();
+          }
+        : undefined,
       fallback: (el) => {
         innerRoot = createRoot(el);
         innerRoot.render(fallback);
@@ -217,7 +232,7 @@ export function PluginActivityView({
       unmount();
       innerRoot?.unmount();
     };
-  }, [activity.id, activity.revision, activity.frontend_manifest, audience, fallback, locale, state?.state_version, stateUrl]);
+  }, [activity.id, activity.revision, activity.frontend_manifest, audience, fallback, locale, refresh, state?.state_version, stateUrl]);
 
   return <div ref={host} />;
 }
@@ -246,6 +261,7 @@ export function ActivityView({
       state={state}
       stateUrl={stateUrl}
       audience="student"
+      refresh={refresh}
       fallback={<BuiltinActivityView activity={activity} state={state} stateUrl={stateUrl} refresh={refresh} />}
     />
   );

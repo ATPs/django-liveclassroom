@@ -40,6 +40,8 @@ export type FlowStep = {
 
 export type FlowDetail = FlowSummary & {
   token: string;
+  demo?: boolean;
+  can_edit?: boolean;
   steps: FlowStep[];
 };
 
@@ -55,6 +57,7 @@ export type ActivityTypeInfo = {
     | "rating"
     | "ranking"
     | "wordCloud"
+    | "bashSimulator"
     | "timer"
     | "markdownContent"
     | "mediaContent";
@@ -70,6 +73,7 @@ const ACTIVITY_TYPES: ActivityTypeInfo[] = [
   { type_key: "liveclassroom.rating", labelKey: "rating" },
   { type_key: "liveclassroom.ranking", labelKey: "ranking" },
   { type_key: "liveclassroom.word_cloud", labelKey: "wordCloud" },
+  { type_key: "liveclassroom.bash_simulator", labelKey: "bashSimulator" },
   { type_key: "liveclassroom.timer", labelKey: "timer" },
   { type_key: "liveclassroom.markdown", labelKey: "markdownContent" },
   { type_key: "liveclassroom.media", labelKey: "mediaContent" },
@@ -152,6 +156,10 @@ function StepPreview({ step }: { step: FlowStep }) {
             </button>
           ))}
         </div>
+      ) : typeKey === "liveclassroom.bash_simulator" ? (
+        <div className="lc-preview-bash-simulator">
+          <code>pwd · ls · cd · cat · echo · help · clear · reset</code>
+        </div>
       ) : typeKey === "liveclassroom.timer" ? (
         <div className="lc-preview-timer-box">
           ⏱ {(definition.label as string) || t("timer")}: {String(definition.duration_seconds ?? 60)}
@@ -181,6 +189,7 @@ function StepCard({
   total,
   previewOpen,
   sessionId,
+  editable,
   onMove,
   onTogglePreview,
   onDelete,
@@ -192,6 +201,7 @@ function StepCard({
   total: number;
   previewOpen: boolean;
   sessionId: number | null;
+  editable: boolean;
   onMove: (index: number, direction: -1 | 1) => void;
   onTogglePreview: (id: number) => void;
   onDelete: (step: FlowStep) => void;
@@ -212,24 +222,26 @@ function StepCard({
           <strong className="lc-step-name">{step.title || step.activity_definition?.title || name}</strong>
         </div>
         <div className="lc-builder-step-actions">
-          <button type="button" onClick={() => onEdit(step)}>{t("edit")}</button>
-          <button type="button" className="lc-btn-icon" title={t("moveUp")} disabled={index === 0} onClick={() => onMove(index, -1)}>
-            ↑
-          </button>
-          <button type="button" className="lc-btn-icon" title={t("moveDown")} disabled={index === total - 1} onClick={() => onMove(index, 1)}>
-            ↓
-          </button>
+          {editable ? <>
+            <button type="button" onClick={() => onEdit(step)}>{t("edit")}</button>
+            <button type="button" className="lc-btn-icon" title={t("moveUp")} disabled={index === 0} onClick={() => onMove(index, -1)}>
+              ↑
+            </button>
+            <button type="button" className="lc-btn-icon" title={t("moveDown")} disabled={index === total - 1} onClick={() => onMove(index, 1)}>
+              ↓
+            </button>
+          </> : null}
           <button type="button" className={`lc-btn-sm ${previewOpen ? "lc-btn-primary" : "lc-btn-outline"}`} onClick={() => onTogglePreview(step.id)}>
             {previewOpen ? t("hidePreview") : t("showPreview")}
           </button>
-          {sessionId ? (
+          {sessionId && editable ? (
             <button type="button" className="lc-btn-sm lc-btn-secondary" onClick={() => onLaunch(step)}>
               🚀 {t("launchToClassroom")}
             </button>
           ) : null}
-          <button type="button" className="lc-btn-sm lc-btn-danger" onClick={() => onDelete(step)}>
+          {editable ? <button type="button" className="lc-btn-sm lc-btn-danger" onClick={() => onDelete(step)}>
             {t("removeStep")}
-          </button>
+          </button> : null}
         </div>
       </div>
       {previewOpen ? <StepPreview step={step} /> : null}
@@ -271,8 +283,9 @@ function AddStepForm({
     const isChoice = ["liveclassroom.single_choice", "liveclassroom.multiple_choice", "liveclassroom.poll", "liveclassroom.ranking"].includes(type);
     const isText = ["liveclassroom.short_text", "liveclassroom.word_cloud"].includes(type);
     const isNum = type === "liveclassroom.numeric" || type === "liveclassroom.rating";
+    const isBashSimulator = type === "liveclassroom.bash_simulator";
 
-    if ((isChoice || isText || isNum || type === "liveclassroom.true_false") && !prompt && !title) {
+    if ((isChoice || isText || isNum || isBashSimulator || type === "liveclassroom.true_false") && !prompt && !title) {
       setError(t("validationError"));
       return;
     }
@@ -320,6 +333,27 @@ function AddStepForm({
       const definition: Record<string, unknown> = { prompt: prompt || title };
       if (fields.min) definition.minimum = parseFloat(fields.min);
       if (fields.max) definition.maximum = parseFloat(fields.max);
+      payload = { kind: "activity", title: title || prompt, activity_definition: { title: title || prompt, type_key: type, definition } };
+    } else if (isBashSimulator) {
+      let filesystem: unknown;
+      let completion: unknown;
+      try {
+        filesystem = JSON.parse(fields.filesystem || "{}");
+        completion = JSON.parse(fields.completion || "{}");
+      } catch {
+        setError(t("bashSimulatorJsonError"));
+        return;
+      }
+      if (!filesystem || typeof filesystem !== "object" || Array.isArray(filesystem) || !completion || typeof completion !== "object" || Array.isArray(completion)) {
+        setError(t("bashSimulatorJsonError"));
+        return;
+      }
+      const definition = {
+        prompt: prompt || title,
+        filesystem,
+        initial_directory: (fields.initialDirectory ?? "").trim() || "/",
+        completion,
+      };
       payload = { kind: "activity", title: title || prompt, activity_definition: { title: title || prompt, type_key: type, definition } };
     } else if (type === "liveclassroom.timer") {
       const dur = parseFloat(fields.duration || "0");
@@ -455,6 +489,25 @@ function AddStepForm({
                 <label>{t("numericMaxLabel")}: </label>
                 <input type="number" className="lc-input" value={fields.max ?? (type === "liveclassroom.rating" ? "5" : "")} onChange={(e) => set("max", e.target.value)} />
               </div>
+            </div>
+          </>
+        ) : type === "liveclassroom.bash_simulator" ? (
+          <>
+            <div className="lc-form-group">
+              <label>{t("promptLabel")}: </label>
+              {area("prompt", 2, "Guide the learner through the virtual shell")}
+            </div>
+            <div className="lc-form-group">
+              <label>{t("bashSimulatorFilesystemLabel")}: </label>
+              {area("filesystem", 8, '{"/README.txt":"Read this file"}')}
+            </div>
+            <div className="lc-form-group">
+              <label>{t("bashSimulatorInitialDirectoryLabel")}: </label>
+              {input("initialDirectory", { placeholder: "/" })}
+            </div>
+            <div className="lc-form-group">
+              <label>{t("bashSimulatorCompletionLabel")}: </label>
+              {area("completion", 4, '{"required_commands":["pwd"]}')}
             </div>
           </>
         ) : type === "liveclassroom.timer" ? (
@@ -732,6 +785,7 @@ function FlowBuilder({
   };
 
   const activeFlowId = currentFlow?.id ?? initialFlowId;
+  const editable = currentFlow?.can_edit !== false;
 
   return (
     <>
@@ -765,7 +819,7 @@ function FlowBuilder({
               <div className="lc-builder-actions">
                 <button type="button" className="lc-btn-sm" onClick={() => void createFlow()}>+ {t("createFlow")}</button>
                 <button type="button" className="lc-btn-sm lc-btn-outline" onClick={() => void duplicateFlow()}>{t("duplicateFlow")}</button>
-                <button type="button" className="lc-btn-sm lc-btn-outline" onClick={() => setImportOpen(true)}>{t("importContent")}</button>
+                {editable ? <button type="button" className="lc-btn-sm lc-btn-outline" onClick={() => setImportOpen(true)}>{t("importContent")}</button> : null}
                 {sessionId ? (
                   <button type="button" className="lc-btn-sm lc-btn-outline" onClick={() => void saveSessionAsFlow()}>{t("saveSessionAsFlow")}</button>
                 ) : null}
@@ -783,6 +837,7 @@ function FlowBuilder({
                   <div className="lc-builder-flow-meta">
                     <span className="lc-badge">{currentFlow.steps.length} {t("steps")}</span>
                   </div>
+                  {!editable ? <p className="lc-guidance-risk">{locale.startsWith("zh") ? "这是只读公共示例。请在教师工作区选择“使用此示例”，创建自己的可编辑课堂。" : "This is a read-only public demo. Use “Use this demo” in the teacher workspace to create your own editable classroom."}</p> : null}
                 </div>
               ) : (
                 <p className="lc-empty-notice">{t("selectFlow")}</p>
@@ -791,9 +846,9 @@ function FlowBuilder({
             <section className="lc-builder-steps-section">
               <div className="lc-builder-steps-header">
                 <h3>{t("steps")}</h3>
-                <button type="button" className="lc-btn-sm lc-btn-primary" onClick={() => setAddStepOpen((v) => !v)}>+ {t("addStep")}</button>
+                {editable ? <button type="button" className="lc-btn-sm lc-btn-primary" onClick={() => setAddStepOpen((v) => !v)}>+ {t("addStep")}</button> : null}
               </div>
-              {addStepOpen && currentFlow ? (
+              {editable && addStepOpen && currentFlow ? (
                 <AddStepForm
                   flowId={currentFlow.id}
                   apiUrl={apiUrl}
@@ -807,7 +862,7 @@ function FlowBuilder({
                   onCancel={() => setAddStepOpen(false)}
                 />
               ) : null}
-              {currentFlow ? (
+              {editable && currentFlow ? (
                 <FilePicker
                   endpoint={apiUrl(`flows/${currentFlow.id}/files/`)}
                   isSuperuser={isSuperuser}
@@ -815,7 +870,7 @@ function FlowBuilder({
                   onSuccess={() => void loadFlow(currentFlow.id)}
                 />
               ) : null}
-              {editingStep?.activity_definition && currentFlow && <ActivityEditor key={editingStep.id}
+              {editable && editingStep?.activity_definition && currentFlow && <ActivityEditor key={editingStep.id}
                 initial={{title:editingStep.activity_definition.title,type_key:editingStep.activity_definition.type_key,content:editingStep.activity_definition.definition}}
                 onCancel={()=>setEditingStep(null)} onSave={async(snapshot)=>{
                   const updated=await postJson<FlowDetail>(apiUrl(`flows/${currentFlow.id}/steps/${editingStep.id}/edit/`),{token:currentFlow.token,snapshot},crypto.randomUUID());
@@ -833,6 +888,7 @@ function FlowBuilder({
                       total={currentFlow.steps.length}
                       previewOpen={previewOpen.has(step.id)}
                       sessionId={sessionId}
+                      editable={editable}
                       onMove={(i, d) => void moveStep(i, d)}
                       onTogglePreview={togglePreview}
                       onDelete={(s) => void deleteStep(s)}

@@ -2,12 +2,28 @@
 {% load i18n %}
 {% block title %}{% translate "Teacher" %} · LiveClassroom{% endblock %}
 {% block content %}
-<section class="lc-card lc-wide" data-teacher-workspace
- data-api-root="{% url 'liveclassroom:api-v1-workspace' %}"
- data-builder-url="{% url 'liveclassroom:flow-builder' %}"
- data-locale="{{ active_lang|default:'en' }}">
- <h1>{% translate "Start a live classroom" %}</h1>
- <h2>{% translate "Your sessions" %}</h2>
- <a href="{% url 'liveclassroom:flow-builder' %}">{% translate "Flow Builder" %}</a>
-</section>
+<div class="lc-page-stack">
+  <aside class="lc-card lc-context-help" aria-labelledby="workspace-guidance-title">
+    {% if active_lang == "zh-Hans" %}
+      <p class="lc-context-kicker">开始之前</p>
+      <h2 id="workspace-guidance-title">先选择合适的起点</h2>
+      <p>工作区用于管理可复用教案和课堂。编辑教案会影响以后使用它的课堂；从教案创建课堂后，这堂课拥有独立的计划。</p>
+      <p class="lc-guidance-risk"><strong>操作提示：</strong>需要临时授课时选择“即时课堂”；准备好的内容才选择教案。创建课堂前确认教案和班级，避免从错误的内容开始。</p>
+    {% else %}
+      <p class="lc-context-kicker">Before you start</p>
+      <h2 id="workspace-guidance-title">Choose the right starting point</h2>
+      <p>The workspace manages reusable lessons and classrooms. Editing a lesson affects future classrooms; once a classroom is created from it, that class has an independent plan.</p>
+      <p class="lc-guidance-risk"><strong>Action check:</strong> Choose Instant classroom for an improvised lesson and a lesson when content is prepared. Confirm the lesson and class before creating the classroom so you do not start from the wrong content.</p>
+    {% endif %}
+    <p class="lc-context-help-link">{% include "liveclassroom/_help_link.html" %}</p>
+  </aside>
+  <section class="lc-card lc-wide" data-teacher-workspace
+   data-api-root="{% url 'liveclassroom:api-v1-workspace' %}"
+   data-builder-url="{% url 'liveclassroom:flow-builder' %}?lang={{ active_lang|urlencode }}"
+   data-locale="{{ active_lang|default:'en' }}">
+   <h1>{% translate "Start a live classroom" %}</h1>
+   <h2>{% translate "Your sessions" %}</h2>
+   <a href="{% url 'liveclassroom:flow-builder' %}?lang={{ active_lang|urlencode }}">{% translate "Flow Builder" %}</a>
+  </section>
+</div>
 {% endblock %}

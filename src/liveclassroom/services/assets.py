@@ -14,6 +14,7 @@ from liveclassroom.conf import asset_max_bytes, server_file_paths_allowed
 from liveclassroom.models import ClassroomAsset
 
 from .classroom import ClassroomError
+from .permissions import can_teach
 
 _FORMAT_DETAILS = {
     ".md": (ClassroomAsset.Kind.MARKDOWN, "text/markdown; charset=utf-8"),
@@ -124,7 +125,7 @@ def _sha256(handle: BinaryIO) -> str:
 
 
 def create_uploaded_asset(*, owner, uploaded_file: UploadedFile) -> ClassroomAsset:
-    if not getattr(owner, "is_authenticated", False):
+    if not can_teach(owner):
         raise ClassroomError("An authenticated teacher is required to upload a file.")
     name = Path(uploaded_file.name or "").name
     if not name:

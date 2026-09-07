@@ -1,0 +1,136 @@
+{% extends liveclassroom_base_template %}
+{% load i18n %}
+{% block title %}{% if active_lang == "zh-Hans" %}帮助 · LiveClassroom{% else %}Help · LiveClassroom{% endif %}{% endblock %}
+{% block content %}
+  <div class="lc-page-stack">
+    <section class="lc-card lc-wide lc-help-page">
+      <nav class="lc-help-nav" aria-label="{% if active_lang == 'zh-Hans' %}语言和页面导航{% else %}Language and page navigation{% endif %}">
+        <a href="{% url 'liveclassroom:home' %}?lang={{ active_lang|urlencode }}">{% if active_lang == "zh-Hans" %}首页{% else %}Home{% endif %}</a>
+        <span aria-hidden="true">·</span>
+        <a href="{% url 'liveclassroom:help' %}?lang=en">English</a>
+        <span aria-hidden="true">/</span>
+        <a href="{% url 'liveclassroom:help' %}?lang=zh-Hans">简体中文</a>
+      </nav>
+
+      {% if active_lang == "zh-Hans" %}
+        <p class="lc-kicker">使用指南</p>
+        <h1>LiveClassroom 帮助</h1>
+        <p class="lc-help-lead">按任务了解教师工作区、教案编辑器和课堂控制台，并在发布或结束课堂前完成必要检查。</p>
+
+        <h2>三个页面分别做什么</h2>
+        <div class="lc-help-grid">
+          <article class="lc-help-card">
+            <h3>教师工作区</h3>
+            <p>集中管理可复用教案、共享教案、班级和最近课堂。这里决定你要从哪份内容开始一堂新课。</p>
+          </article>
+          <article class="lc-help-card">
+            <h3>教案编辑器</h3>
+            <p>创建和调整可复用教案，添加活动、调整顺序、导入内容，并用实时预览检查学生将看到的内容。</p>
+          </article>
+          <article class="lc-help-card">
+            <h3>教师控制台</h3>
+            <p>课堂开始后使用这里启动、暂停和结束课堂，发布活动，管理准入，查看回答，并分别控制大屏和学生端。</p>
+          </article>
+        </div>
+
+        <h2>开始一堂课的安全顺序</h2>
+        <ol class="lc-help-steps">
+          <li><strong>准备：</strong>在工作区选择已有教案，或进入编辑器创建教案。临时想法也可以直接创建即时课堂。</li>
+          <li><strong>检查：</strong>在编辑器中确认每一步的类型、内容和顺序。保存教案不会自动改变已经存在的课堂。</li>
+          <li><strong>创建：</strong>从教案开始会为这堂课建立独立的课堂计划；之后对教案的修改不会悄悄改动这堂课。</li>
+          <li><strong>授课：</strong>在控制台先开始课堂，再选择要推送的活动和目标频道。大屏和学生端可以显示不同内容。</li>
+          <li><strong>复盘：</strong>结束课堂后可以查看历史、导出数据或归档。需要永久删除时，先确认课堂已经归档。</li>
+        </ol>
+
+        <aside class="lc-help-warning" role="note">
+          <h2>发布、共享和结束前请确认</h2>
+          <ul>
+            <li>发布是按频道进行的：发布到“大屏”不会自动发布到“学生端”，反之亦然。公开答案或解析前，先检查当前频道的可见性设置。</li>
+            <li>共享教案会把访问权限授予指定账号。只分享你愿意让对方使用的教案，并在需要时移除访问权限。</li>
+            <li>结束课堂会关闭新的作答和课堂聊天；归档保留课堂记录，删除已归档课堂会永久移除它及其记录。</li>
+          </ul>
+        </aside>
+
+        <h2>常见任务</h2>
+        <div class="lc-help-tasks">
+          <details open>
+            <summary>创建可复用教案</summary>
+            <p>打开教案编辑器，创建教案标题，添加活动步骤或导入 Markdown / YAML、JSON。保存后回到工作区，从这份教案开始课堂。</p>
+          </details>
+          <details>
+            <summary>创建即时课堂</summary>
+            <p>在工作区选择“即时课堂”，填写课堂信息并创建。进入控制台后检查加入码、准入方式和频道，再开始课堂。</p>
+          </details>
+          <details>
+            <summary>只让目标受众看到内容</summary>
+            <p>在控制台选择活动，分别使用“大屏”和“学生端”频道的发布和可见性设置。发布后仍可单独调整是否显示题目、统计结果、答案或解析。</p>
+          </details>
+          <details>
+            <summary>查看学生视角</summary>
+            <p>在控制台打开学生视图，选择已有学生进行查看。查看不会新增出勤；只有明确启用代为操作后，操作才会写入该学生的真实课堂记录。</p>
+          </details>
+        </div>
+      {% else %}
+        <p class="lc-kicker">Task guide</p>
+        <h1>LiveClassroom help</h1>
+        <p class="lc-help-lead">Use this guide to understand the teacher workspace, lesson builder, and classroom console, then check the high impact actions before you publish or end a class.</p>
+
+        <h2>What each surface is for</h2>
+        <div class="lc-help-grid">
+          <article class="lc-help-card">
+            <h3>Teacher workspace</h3>
+            <p>Manage reusable lessons, shared lessons, classes, and recent classrooms. This is where you choose what a new class should start from.</p>
+          </article>
+          <article class="lc-help-card">
+            <h3>Lesson builder</h3>
+            <p>Create and edit reusable lessons, add activities, reorder steps, import content, and use the live preview to check what learners will receive.</p>
+          </article>
+          <article class="lc-help-card">
+            <h3>Teacher console</h3>
+            <p>Once class is ready, start, pause, or end it here; publish activities; manage admission; review responses; and control the display and student channels separately.</p>
+          </article>
+        </div>
+
+        <h2>A safe sequence for starting class</h2>
+        <ol class="lc-help-steps">
+          <li><strong>Prepare:</strong> Choose an existing lesson in the workspace, or open the builder to create one. You can also create an instant classroom for an improvised lesson.</li>
+          <li><strong>Check:</strong> Confirm each step's type, content, and order in the builder. Saving a lesson does not silently change classrooms that already exist.</li>
+          <li><strong>Create:</strong> Starting from a lesson creates an independent classroom plan for this class. Later lesson edits do not silently change it.</li>
+          <li><strong>Teach:</strong> Start the class in the console, then choose the activity and its target channel. The display and student channels can show different content.</li>
+          <li><strong>Review:</strong> After ending class, review history, export data, or archive the classroom. Confirm it is archived before permanently deleting it.</li>
+        </ol>
+
+        <aside class="lc-help-warning" role="note">
+          <h2>Check before publishing, sharing, or ending</h2>
+          <ul>
+            <li>Publishing is channel-specific: publishing to the display does not publish to students, and vice versa. Check the current channel's visibility settings before revealing answers or explanations.</li>
+            <li>Sharing a lesson grants access to the selected account. Share only the lesson you intend to make available, and remove access when it is no longer needed.</li>
+            <li>Ending a classroom closes new responses and class chat; archiving keeps its record, while deleting an archived classroom permanently removes it and its records.</li>
+          </ul>
+        </aside>
+
+        <h2>Common tasks</h2>
+        <div class="lc-help-tasks">
+          <details open>
+            <summary>Create a reusable lesson</summary>
+            <p>Open the lesson builder, set a title, and add activity steps or import Markdown / YAML or JSON. Save the lesson, then return to the workspace to start a classroom from it.</p>
+          </details>
+          <details>
+            <summary>Create an instant classroom</summary>
+            <p>Choose “Instant classroom” in the workspace, enter the classroom details, and create it. In the console, check the join code, admission mode, and channels before starting.</p>
+          </details>
+          <details>
+            <summary>Show content only to the intended audience</summary>
+            <p>In the console, select an activity and use the Display and Students channel controls separately. After publishing, you can still choose whether to show the prompt, aggregate results, answer, or explanation.</p>
+          </details>
+          <details>
+            <summary>Inspect the student view</summary>
+            <p>Open Student view from the console and select an existing participant. Inspection does not create attendance; actions affect the participant's real classroom record only after you explicitly activate act-as mode.</p>
+          </details>
+        </div>
+      {% endif %}
+
+      <p class="lc-help-footer">{% include "liveclassroom/_help_link.html" %}</p>
+    </section>
+  </div>
+{% endblock %}

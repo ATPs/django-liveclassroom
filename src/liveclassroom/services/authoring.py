@@ -26,17 +26,17 @@ from liveclassroom.models import (
 from liveclassroom.providers import ContentReference, ProviderError, content_providers
 
 from .classroom import ClassroomError
-from .permissions import can_author_course
+from .permissions import can_author_course, can_teach
 
 
 def can_view_authoring_thread(actor, thread: AuthoringThread) -> bool:
     """Keep every authoring conversation private to its owner."""
-    return bool(getattr(actor, "is_authenticated", False) and actor.pk == thread.owner_id)
+    return bool(can_teach(actor) and actor.pk == thread.owner_id)
 
 
 def create_authoring_thread(*, owner, title: str = "New authoring conversation") -> AuthoringThread:
     """Create a teacher-owned conversation."""
-    if not getattr(owner, "is_authenticated", False):
+    if not can_teach(owner):
         raise ClassroomError("An authenticated teacher is required.")
     if not isinstance(title, str) or not title.strip():
         raise ClassroomError("A thread title is required.")

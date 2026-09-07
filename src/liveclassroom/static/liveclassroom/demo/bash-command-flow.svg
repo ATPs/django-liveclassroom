@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="300" viewBox="0 0 960 300" role="img" aria-labelledby="title desc">
+  <title id="title">Bash command flow</title><desc id="desc">Read a command, run it only in the browser simulator, inspect its output, then decide the next safe command.</desc>
+  <rect width="960" height="300" rx="24" fill="#102a43"/>
+  <g fill="#e8f1fb" font-family="system-ui, sans-serif" text-anchor="middle"><text x="150" y="76" font-size="25">1. Read</text><text x="390" y="76" font-size="25">2. Simulate</text><text x="630" y="76" font-size="25">3. Inspect</text><text x="850" y="76" font-size="25">4. Decide</text></g>
+  <g stroke="#7dd3fc" stroke-width="7" fill="none"><path d="M218 142h104l-20-20m20 20-20 20"/><path d="M458 142h104l-20-20m20 20-20 20"/><path d="M698 142h74l-20-20m20 20-20 20"/></g>
+  <g fill="#d9f99d" font-family="ui-monospace, monospace" text-anchor="middle" font-size="22"><text x="150" y="190">pwd</text><text x="390" y="190">browser only</text><text x="630" y="190">/home/student</text><text x="850" y="190">ls</text></g>
+  <text x="480" y="258" fill="#bfdbfe" font-family="system-ui, sans-serif" font-size="18" text-anchor="middle">No server shell. No local files. A fixed learning exercise.</text>
+</svg>

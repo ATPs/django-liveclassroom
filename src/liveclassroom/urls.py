@@ -24,6 +24,7 @@ urlpatterns = [
         "api/v1/sessions/<int:session_id>/plan/<int:step_id>/launch/", api_plans.plan_launch, name="api-v1-plan-launch"
     ),
     path("", views.HomeView.as_view(), name="home"),
+    path("help/", views.HelpView.as_view(), name="help"),
     path("teacher/", views.TeacherDashboardView.as_view(), name="teacher-dashboard"),
     path("teacher/builder/", views.FlowBuilderView.as_view(), name="flow-builder"),
     path("teacher/flows/<int:flow_id>/builder/", views.FlowBuilderView.as_view(), name="flow-builder-detail"),

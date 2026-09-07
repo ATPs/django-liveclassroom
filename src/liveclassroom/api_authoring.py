@@ -11,14 +11,14 @@ from .models import ActivityDefinition, AuthoringJob, AuthoringMessage, Authorin
 from .registry import activity_registry
 from .services.authoring import can_view_authoring_thread, create_authoring_request, create_authoring_thread
 from .services.classroom import ClassroomError, create_activity_definition, revise_activity_definition
-from .services.permissions import can_author_course
+from .services.permissions import can_author_course, can_teach
 
 
 @require_http_methods(["GET", "POST"])
 @transaction.atomic
 def activity_definitions(request):
     """List or create reusable activities for the authenticated teacher."""
-    if not getattr(request.user, "is_authenticated", False):
+    if not can_teach(request.user):
         return _error("An authenticated teacher is required.", 403)
     if request.method == "POST":
         return create_activity(request)
@@ -31,7 +31,7 @@ def activity_definitions(request):
 @require_GET
 def activity_types(request):
     """Expose the installed activity manifest to authenticated authoring clients."""
-    if not getattr(request.user, "is_authenticated", False):
+    if not can_teach(request.user):
         return _error("An authenticated teacher is required.", 403)
     return JsonResponse(
         {
@@ -91,7 +91,7 @@ def _authoring_job_payload(job: AuthoringJob) -> dict:
 @transaction.atomic
 def authoring_threads(request):
     """List or create private teacher authoring conversations."""
-    if not getattr(request.user, "is_authenticated", False):
+    if not can_teach(request.user):
         return _error("An authenticated teacher is required.", 403)
     if request.method == "POST":
         replay, key = _authoring_replay(request, "authoring.thread.create")
@@ -118,7 +118,7 @@ def authoring_threads(request):
 @require_GET
 def authoring_models(request):
     """Expose only safe model metadata from configured AI backends."""
-    if not getattr(request.user, "is_authenticated", False):
+    if not can_teach(request.user):
         return _error("An authenticated teacher is required.", 403)
     backend_key = request.GET.get("backend")
     try:
@@ -199,7 +199,7 @@ def authoring_job(request, job_id: int):
 @transaction.atomic
 def create_activity(request):
     """Create one validated reusable activity through the registry contract."""
-    if not getattr(request.user, "is_authenticated", False):
+    if not can_teach(request.user):
         return _error("An authenticated teacher is required.", 403)
     replay, key = _authoring_replay(request, "activity.create")
     if replay is not None:

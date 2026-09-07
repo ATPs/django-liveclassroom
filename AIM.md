@@ -50,6 +50,7 @@ the view must not create attendance, presence, connections, or participants.
 
 - Reuse the host project's `AUTH_USER_MODEL`; never define a separate account system.
 - Teachers and teaching staff authenticate through Django.
+- A host may supply a teacher-authorization callback. The reusable default permits authenticated users; a host can require a group or its own staff policy without preventing ineligible accounts from joining as students.
 - A session has an owner and may have co-hosts, assistants, and read-only observers with explicit capabilities.
 - Classes and prepared lessons are optional. A teacher may start an instant session, add content during class, and later save it for reuse.
 - Student access is selected per session: guest entry, Django login, or both.
@@ -60,8 +61,9 @@ the view must not create attendance, presence, connections, or participants.
 
 - Provide a visual web builder as the normal authoring experience. Django admin remains a diagnostic and maintenance interface.
 - Support reusable flows and reusable activity definitions without requiring a course.
+- Hosts may seed public, read-only demonstration lessons. A qualified teacher can inspect a demo or use it to create a private independent classroom, but cannot edit the common source or its sample records.
 - Support Markdown/YAML and JSON import through the same canonical validation layer used by the visual builder.
-- Fully support single choice, multiple choice, true/false, polls, short text, numeric response, ratings, rankings, word clouds, Markdown/media, and timers.
+- Fully support single choice, multiple choice, true/false, polls, short text, numeric response, ratings, rankings, word clouds, Markdown/media, timers, and a fixed browser-only Bash simulation.
 - Allow third-party Django projects to register additional activity types through stable backend and frontend plugin contracts.
 - Let students revise responses until an activity is closed.
 - Let teachers control, separately for students and the classroom display, whether to reveal prompts, aggregate results, correct answers, explanations, and response status.
@@ -139,12 +141,12 @@ Use the neighboring projects as design references, not runtime dependencies:
   do not retain unversioned compatibility aliases.
 - Use packaged React and TypeScript islands for the builder, teacher console, display, student interactions, analytics, and AI chat; do not require a separate frontend deployment.
 - Support Django 5.2 and 6.0, SQLite for standalone development, and PostgreSQL for multi-worker production.
-- Provide host settings for base templates, content providers, activity plugins, AI backends, retention, and realtime configuration.
+- Provide host settings for base templates, teacher authorization, content providers, activity plugins, AI backends, retention, and realtime configuration.
 - Ship complete English and Simplified Chinese interface strings.
 
 ## Explicitly deferred
 
-Formal exams, anti-cheat controls, question randomization, a course gradebook, code execution, file responses, video meetings, whiteboards, private messaging, AI grading, SCORM, LTI, QTI, certificates, marketplaces, and direct RELATE runtime or format compatibility are outside the first strong release.
+Formal exams, anti-cheat controls, question randomization, a course gradebook, server or local shell-code execution, file responses, video meetings, whiteboards, private messaging, AI grading, SCORM, LTI, QTI, certificates, marketplaces, and direct RELATE runtime or format compatibility are outside the first strong release. The Bash activity is a bounded, fixed browser simulation only.
 
 ## Success criteria
 
@@ -163,6 +165,6 @@ The first strong release is complete when:
 
 ## Implementation and verification status
 
-The package includes reusable authoring, automatic lesson snapshots, independent classroom plans, optional cohort workspaces, named-account lesson sharing, selective improvement review, prepared/instant/reused classrooms, revisioned responses, independent audience channels, teacher-controlled student review, private teaching files, queued AI authoring, exports, and packaged bilingual React surfaces.
+The package includes reusable authoring, automatic lesson snapshots, independent classroom plans, optional cohort workspaces, named-account lesson sharing, selective improvement review, prepared/instant/reused classrooms, revisioned responses, independent audience channels, teacher-controlled student review, private teaching files, queued AI authoring, exports, packaged bilingual React surfaces, task-focused help, host-configurable teacher authorization, and common read-only Bash-for-beginners demos.
 
 Implemented capabilities must be accompanied by executable workflow evidence in the implementation record. A passing unit suite alone does not establish browser, 100-student or multi-worker acceptance. Host-specific VaultPub participant grants, production xcWebServer installation and provider-specific AI adapters remain separate integration work. External references remain live rather than historically frozen.
