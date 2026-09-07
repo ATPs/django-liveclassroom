@@ -154,7 +154,7 @@ def test_frontend_bundle_contains_all_renderers_and_locales():
     assert "student-content" in content
     assert "display-content" in content
     assert "lc-join-qr" in content
-    assert "lc-item" in content
+    assert "data-session-plan" in content
     assert "data-liveclassroom-chat" in content
     assert "data-liveclassroom-history" in content
 

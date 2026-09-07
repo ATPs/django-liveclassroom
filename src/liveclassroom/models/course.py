@@ -11,6 +11,7 @@ class Course(models.Model):
         on_delete=models.PROTECT,
         related_name="liveclassroom_courses_created",
     )
+    session_defaults = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

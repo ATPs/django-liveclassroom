@@ -1,3 +1,4 @@
+import { mountTeacherWorkspace } from "./surfaces/workspace/TeacherWorkspace.js";
 import { mountAiChat } from "./ai_chat.js";
 import { mountBuilder } from "./surfaces/builder/FlowBuilder.js";
 import { mountLanguageSwitcher } from "./locales.js";
@@ -7,6 +8,7 @@ import { mountTeacherConsole } from "./surfaces/teacher/TeacherConsole.js";
 import { mountStudentView } from "./surfaces/teacher/StudentView.js";
 
 if (typeof document !== "undefined") {
+  for (const el of document.querySelectorAll<HTMLElement>("[data-teacher-workspace]")) mountTeacherWorkspace(el);
   for (const element of document.querySelectorAll<HTMLElement>("[data-liveclassroom-app]")) {
     const audience = element.dataset.audience;
     if (audience === "student" && element.dataset.stateUrl) mountStudentSession(element);

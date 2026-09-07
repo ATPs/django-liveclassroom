@@ -52,6 +52,13 @@ class SubmissionRevision(models.Model):
         on_delete=models.SET_NULL,
         related_name="submission_revisions",
     )
+    performed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="liveclassroom_submission_revision_performed",
+    )
     answer = models.JSONField(default=dict)
     score = models.DecimalField(max_digits=8, decimal_places=2, null=True, blank=True)
     is_correct = models.BooleanField(null=True, blank=True)

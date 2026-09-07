@@ -28,7 +28,7 @@ from liveclassroom.models import (
 from liveclassroom.registry import activity_registry
 
 from .events import notify_session_after_commit
-from .permissions import can_author_course, can_edit_flow, can_use_activity_definition
+from .permissions import can_author_course
 
 
 class ClassroomError(Exception):
@@ -92,7 +92,8 @@ def safe_activity_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
 def can_manage_session(user, session: LiveSession) -> bool:
     if not user.is_authenticated:
         return False
-    if user.pk == session.teacher_id or user.is_superuser:
+    if (user.pk == session.teacher_id or user.is_superuser
+            or (session.course_id and session.course.created_by_id == user.pk)):
         return True
     if SessionStaff.objects.filter(
         session=session,
@@ -113,7 +114,8 @@ def can_manage_session(user, session: LiveSession) -> bool:
 def can_manage_admission(user, session: LiveSession) -> bool:
     if not user.is_authenticated:
         return False
-    if user.pk == session.teacher_id or user.is_superuser:
+    if (user.pk == session.teacher_id or user.is_superuser
+            or (session.course_id and session.course.created_by_id == user.pk)):
         return True
     if SessionStaff.objects.filter(
         session=session,
@@ -134,9 +136,10 @@ def can_manage_admission(user, session: LiveSession) -> bool:
 def can_view_session(user, session: LiveSession) -> bool:
     if not user.is_authenticated:
         return False
-    if user.pk == session.teacher_id or user.is_superuser:
+    if (user.pk == session.teacher_id or user.is_superuser
+            or (session.course_id and session.course.created_by_id == user.pk)):
         return True
-    if can_manage_session(user, session):
+    if can_manage_admission(user, session):
         return True
     return SessionStaff.objects.filter(session=session, user=user).exists()
 
@@ -222,30 +225,6 @@ def activity_snapshot(item: FlowStep | ActivityDefinition) -> dict[str, Any]:
     }
 
 
-def _validate_launch_source(*, session: LiveSession, item, actor) -> None:
-    """Prevent a session controller from launching unrelated private content."""
-    flow = getattr(item, "flow", None)
-    if flow is not None:
-        if session.flow_id and flow.pk != session.flow_id:
-            raise ClassroomError("The selected item does not belong to this session's flow.")
-        if session.course_id and flow.course_id not in {None, session.course_id}:
-            raise ClassroomError("The selected item does not belong to this session's course.")
-        # The session's own flow is always launchable by a session manager;
-        # otherwise require the same edit rights as flow authoring.
-        if session.flow_id != flow.pk and not can_edit_flow(actor, flow):
-            raise ClassroomError("You do not have permission to use this flow.")
-
-    definition = item if isinstance(item, ActivityDefinition) else getattr(item, "activity_definition", None)
-    if definition is None:
-        return
-    if definition.status == ActivityDefinition.Status.ARCHIVED:
-        raise ClassroomError("Archived activities cannot be launched.")
-    if definition.course_id and session.course_id != definition.course_id:
-        raise ClassroomError("The selected activity does not belong to this session's course.")
-    if not can_use_activity_definition(actor, definition):
-        raise ClassroomError("You do not have permission to use this activity.")
-
-
 def _ensure_run_revision(activity: LiveActivity, actor=None, source_revision=None) -> ActivityRunRevision:
     locked_activity = LiveActivity.objects.select_for_update().get(pk=activity.pk)
     revision = locked_activity.current_revision
@@ -308,34 +287,10 @@ def create_instant_session(
     access_mode: str | None = None,
     admission_mode: str = LiveSession.AdmissionMode.OPEN,
 ) -> LiveSession:
-    """Create a session without requiring a course or prepared flow."""
-    if not getattr(owner, "is_authenticated", False):
-        raise ClassroomError("An authenticated teacher is required to create a session.")
-    if not isinstance(title, str):
-        raise ClassroomError("A session title is required.")
-    title = title.strip()
-    if not title:
-        raise ClassroomError("A session title is required.")
-    from liveclassroom.conf import guests_allowed
+    """Use the same creation defaults, provenance and validation as prepared sessions."""
+    from .plans import create_session
 
-    if access_mode is None:
-        access_mode = LiveSession.AccessMode.GUEST if guests_allowed() else LiveSession.AccessMode.AUTHENTICATED
-    if not guests_allowed() and access_mode in {LiveSession.AccessMode.GUEST, LiveSession.AccessMode.BOTH}:
-        raise ClassroomError("Guest classroom entry is disabled by this host.")
-    if access_mode not in LiveSession.AccessMode.values:
-        raise ClassroomError("Unsupported student access mode.")
-    if admission_mode not in LiveSession.AdmissionMode.values:
-        raise ClassroomError("Unsupported admission mode.")
-    session = LiveSession.objects.create(
-        title=title,
-        teacher=owner,
-        access_mode=access_mode,
-        admission_mode=admission_mode,
-    )
-    ensure_channel_states(session)
-    _advance_version(session)
-    _append_event(session, "session.created", owner)
-    return session
+    return create_session(owner=owner, title=title, access_mode=access_mode, admission_mode=admission_mode)
 
 
 @transaction.atomic
@@ -414,6 +369,11 @@ def revise_activity_definition(
         definition = activity_registry.get(activity.type_key).validate(definition)
     except (KeyError, ValueError) as exc:
         raise ClassroomError(str(exc)) from exc
+    from liveclassroom.models import Flow
+    list(Flow.objects.select_for_update().filter(
+        pk__in=activity.flow_steps.values("flow_id")
+    ).order_by("pk"))
+    activity = ActivityDefinition.objects.select_for_update().get(pk=activity.pk)
     latest = activity.revisions.order_by("-revision").first()
     revision = activity.revisions.create(
         revision=(latest.revision if latest else 0) + 1,
@@ -516,6 +476,12 @@ def end_session(*, session: LiveSession, actor) -> LiveSession:
     locked.ended_at = locked.ended_at or now
     locked.chat_enabled = False
     locked.save(update_fields=["status", "ended_at", "chat_enabled", "updated_at"])
+    ParticipantConnection.objects.filter(
+        participant__session=locked, disconnected_at__isnull=True
+    ).update(disconnected_at=now)
+    Participant.objects.filter(
+        session=locked, connected_at__isnull=False, disconnected_at__isnull=True
+    ).update(disconnected_at=now)
     session.status = locked.status
     session.ended_at = locked.ended_at
     version = _advance_version(locked)
@@ -601,80 +567,9 @@ def purge_expired_sessions(*, days: int | None = None) -> int:
 
 
 @transaction.atomic
-def launch_item(
-    *,
-    session: LiveSession,
-    item: FlowStep | ActivityDefinition,
-    actor,
-    channel: str = SessionChannelState.Channel.DISPLAY,
-) -> LiveActivity:
-    """Open an activity and publish it to one channel.
-
-    Teacher-paced sessions default to the classroom display. Publishing to the
-    participant channel is a separate command so opening new display content
-    cannot replace what students are answering.
-    """
-    if not can_manage_session(actor, session):
-        raise ClassroomError("You do not have permission to control this session.")
-    locked_session = LiveSession.objects.select_for_update().get(pk=session.pk)
-    # Callers may hold a stale instance after another command advanced the version.
-    session.state_version = locked_session.state_version
-    session.status = locked_session.status
-    if locked_session.status != LiveSession.Status.LIVE:
-        raise ClassroomError("Start the session before publishing an item.")
-    if channel not in SessionChannelState.Channel.values:
-        raise ClassroomError("Unsupported session channel.")
-    _validate_launch_source(session=session, item=item, actor=actor)
-    try:
-        snapshot = validate_activity_snapshot(activity_snapshot(item))
-    except (KeyError, TypeError, ValueError) as exc:
-        raise ClassroomError("The selected activity contains invalid or unsafe content.") from exc
-    definition = item if isinstance(item, ActivityDefinition) else getattr(item, "activity_definition", None)
-
-    sequence = (session.activities.order_by("-sequence").values_list("sequence", flat=True).first() or 0) + 1
-    activity = LiveActivity.objects.create(
-        session=session,
-        sequence=sequence,
-        kind=definition.type_key.rsplit(".", 1)[-1],
-        source_step=item if isinstance(item, FlowStep) else None,
-        definition_snapshot=snapshot,
-    )
-    run_revision = _ensure_run_revision(
-        activity,
-        actor,
-        source_revision=definition.current_revision if definition is not None else None,
-    )
-    session.save(update_fields=["updated_at"])
-    channel_state, _ = SessionChannelState.objects.get_or_create(session=session, channel=channel)
-    channel_state.current_activity = activity
-    channel_state.current_revision = run_revision
-    version = _advance_version(session)
-    channel_state.version = version
-    channel_state.document_page = 1
-    channel_state.document_navigation = SessionChannelState.DocumentNavigation.FOLLOW
-    channel_state.save(
-        update_fields=[
-            "current_activity",
-            "current_revision",
-            "version",
-            "document_page",
-            "document_navigation",
-            "updated_at",
-        ]
-    )
-    event_id = _append_event(session, "activity.opened", actor, {"activity_id": activity.id})
-    notify_session_after_commit(
-        session.id,
-        {
-            "protocol": 1,
-            "session_id": session.id,
-            "version": version,
-            "event_id": event_id,
-            "type": "activity.opened",
-            "payload": {"activity_id": activity.id},
-        },
-    )
-    return activity
+def launch_item(*, session: LiveSession, item, actor, channel="display") -> LiveActivity:
+    from .plans import launch_source
+    return launch_source(session=session, item=item, actor=actor, channel=channel)
 
 
 @transaction.atomic
@@ -690,6 +585,9 @@ def publish_activity_to_channel(
         raise ClassroomError("Unsupported session channel.")
     if allow_review is not None and not isinstance(allow_review, bool):
         raise ClassroomError("allow_review must be a boolean.")
+    session = LiveSession.objects.select_for_update().get(pk=session.pk)
+    if session.status == LiveSession.Status.ENDED:
+        raise ClassroomError("An ended classroom cannot publish activities.")
     revision = _ensure_run_revision(activity, actor)
     state, _ = SessionChannelState.objects.get_or_create(session=session, channel=channel)
     state.current_activity = activity
@@ -733,6 +631,9 @@ def update_channel_visibility(*, session: LiveSession, channel: str, actor, **ch
         raise ClassroomError("You do not have permission to control this session.")
     if not isinstance(channel, str) or channel not in SessionChannelState.Channel.values:
         raise ClassroomError("Unsupported session channel.")
+    session = LiveSession.objects.select_for_update().get(pk=session.pk)
+    if session.status == LiveSession.Status.ENDED:
+        raise ClassroomError("Use review settings for an ended classroom.")
     allowed = {
         "show_prompt",
         "show_aggregate",
@@ -788,12 +689,26 @@ def revise_activity(
     """Create a new run revision while preserving every prior submission revision."""
     if not can_manage_session(actor, activity.session):
         raise ClassroomError("You do not have permission to edit this activity.")
+    LiveSession.objects.select_for_update().get(pk=activity.session_id)
     activity = LiveActivity.objects.select_for_update().get(pk=activity.pk)
+    if activity.session.status not in {LiveSession.Status.LIVE, LiveSession.Status.PAUSED}:
+        raise ClassroomError("An ended classroom cannot change teaching content.")
     if activity.state != LiveActivity.State.OPEN:
         raise ClassroomError("Only an open activity can be edited.")
     if not isinstance(definition_snapshot, dict):
         raise ClassroomError("An activity definition must be an object.")
+    try:
+        definition_snapshot = validate_activity_snapshot(definition_snapshot)
+    except (KeyError, ValueError, TypeError) as exc:
+        raise ClassroomError(str(exc)) from exc
     type_key = definition_snapshot.get("type_key")
+    previous_type = activity.definition_snapshot.get("type_key")
+    if type_key != previous_type:
+        raise ClassroomError("Create a new activity to change its response type.")
+    if type_key == "liveclassroom.file":
+        asset = activity.current_revision.asset if activity.current_revision_id else None
+        if asset is None or definition_snapshot["content"].get("asset_id") != str(asset.public_id):
+            raise ClassroomError("The file reference cannot be changed here.")
     if type_key:
         try:
             activity_registry.get(type_key).validate(definition_snapshot.get("content", definition_snapshot))
@@ -812,6 +727,11 @@ def revise_activity(
     activity.definition_snapshot = definition_snapshot
     activity.current_revision = revision
     activity.save(update_fields=["definition_snapshot", "current_revision"])
+    if activity.plan_step_id:
+        from .plans import plan_changed
+        activity.plan_step.snapshot = definition_snapshot
+        activity.plan_step.save(update_fields=["snapshot"])
+        plan_changed(activity.session, actor)
     activity.submissions.filter(is_stale=False).update(is_stale=True)
     version = _advance_version(activity.session)
     activity.session.channel_states.filter(current_activity=activity).update(
@@ -853,8 +773,10 @@ def update_document_presentation(
     if navigation is not None and navigation not in SessionChannelState.DocumentNavigation.values:
         raise ClassroomError("Unsupported student document navigation mode.")
     locked = LiveSession.objects.select_for_update().get(pk=session.pk)
+    if locked.status == LiveSession.Status.ENDED:
+        raise ClassroomError("An ended classroom cannot change presentation state.")
     states = list(
-        locked.channel_states.select_for_update()
+        locked.channel_states.select_for_update(of=("self",))
         .select_related("current_activity", "current_revision", "current_revision__asset")
         .filter(channel__in=channels)
     )
@@ -906,6 +828,10 @@ def update_document_presentation(
 def set_activity_state(*, activity: LiveActivity, state: str, actor) -> LiveActivity:
     if not can_manage_session(actor, activity.session):
         raise ClassroomError("You do not have permission to control this session.")
+    LiveSession.objects.select_for_update().get(pk=activity.session_id)
+    activity.refresh_from_db()
+    if activity.session.status == LiveSession.Status.ENDED:
+        raise ClassroomError("An ended classroom cannot change teaching content.")
     if state not in {LiveActivity.State.CLOSED, LiveActivity.State.REVEALED}:
         raise ClassroomError("Unsupported activity state.")
     if activity.state == state:
@@ -1181,7 +1107,9 @@ def remove_session_staff(*, session: LiveSession, assignment: SessionStaff, acto
 
 
 @transaction.atomic
-def submit_answer(*, activity: LiveActivity, participant: Participant, answer: dict, actor=None) -> Submission:
+def submit_answer(*, activity: LiveActivity, participant: Participant, answer: dict, actor=None,
+                  activity_revision_id=None, require_published=False) -> Submission:
+    LiveSession.objects.select_for_update().get(pk=activity.session_id)
     activity = LiveActivity.objects.select_for_update().select_related("session").get(pk=activity.pk)
     participant = Participant.objects.select_for_update().get(pk=participant.pk)
     if participant.session_id != activity.session_id:
@@ -1192,6 +1120,15 @@ def submit_answer(*, activity: LiveActivity, participant: Participant, answer: d
         raise ClassroomError("This classroom is not accepting answers right now.")
     if activity.state != LiveActivity.State.OPEN:
         raise ClassroomError("This activity is no longer accepting answers.")
+    if activity_revision_id is not None and activity_revision_id != activity.current_revision_id:
+        raise ClassroomError("The activity revision changed; refresh before submitting.")
+    if require_published:
+        channel = activity.session.channel_states.filter(channel="participants").first()
+        visible = channel and channel.current_activity_id == activity.pk and channel.show_prompt
+        if (channel and channel.current_activity_id == activity.pk and not channel.show_prompt) or (
+            not visible and not activity.reviewable
+        ):
+            raise ClassroomError("This activity is not published for participant responses.")
     if not isinstance(answer, dict):
         raise ClassroomError("A submission must be an object.")
     try:
@@ -1238,6 +1175,7 @@ def submit_answer(*, activity: LiveActivity, participant: Participant, answer: d
         score=score_data.get("score"),
         is_correct=score_data.get("is_correct"),
         response_ms=submission.response_ms,
+        performed_by=performed_by,
     )
     submission.answer = answer
     submission.current_revision = submission_revision
@@ -1411,6 +1349,9 @@ def set_chat_enabled(*, session: LiveSession, enabled: bool, actor) -> LiveSessi
 @transaction.atomic
 def mark_participant_connected(*, participant: Participant, connection_id: str | None = None) -> Participant:
     """Record a participant connection without creating a chat or classroom event."""
+    session = LiveSession.objects.select_for_update().get(pk=participant.session_id)
+    if session.status == LiveSession.Status.ENDED:
+        return participant
     now = timezone.now()
     participant = Participant.objects.select_for_update().get(pk=participant.pk)
     if connection_id:
@@ -1428,6 +1369,9 @@ def mark_participant_connected(*, participant: Participant, connection_id: str |
 @transaction.atomic
 def mark_participant_disconnected(*, participant: Participant, connection_id: str | None = None) -> Participant:
     """Record a participant disconnect while retaining their durable identity."""
+    session = LiveSession.objects.select_for_update().get(pk=participant.session_id)
+    if session.status == LiveSession.Status.ENDED:
+        return participant
     participant = Participant.objects.select_for_update().get(pk=participant.pk)
     now = timezone.now()
     if connection_id:

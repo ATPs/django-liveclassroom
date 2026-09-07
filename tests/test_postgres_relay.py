@@ -30,7 +30,8 @@ def test_notification_rejects_missing_version():
         _notification_from_message(7, {"type": "state.changed"})
 
 
-def test_sqlite_does_not_publish_postgres_notification():
+def test_sqlite_does_not_publish_postgres_notification(monkeypatch):
+    monkeypatch.setattr(connection, "vendor", "sqlite")
     assert publish_notification(7, {"version": 12}) is False
     assert NOTIFY_CHANNEL == "liveclassroom_events"
 

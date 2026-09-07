@@ -11,6 +11,24 @@ The same Django models, services, APIs, migrations, WebSocket protocol, template
 - installation inside an existing Django project, especially `xcWebServer`;
 - the thin standalone project used for development, demonstration, and small deployments.
 
+## Lessons, classes, and classroom occurrences
+
+The teacher workflow is **prepare and save a lesson → create a classroom → teach → review → save selected improvements or teach again**.
+
+- A **lesson** is the editable reusable Flow in a teacher's library. It contains ordered activities and presentation materials. Teachers do not manage image tags, release labels, or deployment concepts.
+- Creating a classroom automatically captures a complete immutable **lesson snapshot**, including unused steps, typed definitions and asset references. A classroom owns its independently editable plan and all runtime/student data.
+- An optional **Class** represents one cohort or term, using the existing Course model. It organizes lessons, staff, an optional authenticated roster, entry/chat defaults and session history. Lessons can be used across classes without moving or changing their ownership.
+- Class defaults are resolved when a classroom is created. Explicit classroom settings take precedence, subject to host policy. New classrooms start with empty audience channels and fresh admission, answers, chat, presentation progress and temporary grants.
+- Editing a reusable lesson never changes existing classrooms automatically. Teachers may explicitly compare and import changes to steps that have not been launched. A running activity is edited separately through its revisioned classroom record.
+- **Teach again** creates a new classroom from the prior classroom's complete final plan, including unused steps and live changes. It retains provenance and never resets or clears the historical session.
+- **Save improvements to lesson** presents a simple selectable change list. Changes to the source after comparison require a fresh comparison; conflicting content needs explicit selection. Instant classrooms can be saved as personal lessons.
+- A lesson owner may share with named existing Django accounts. Recipients can inspect, use or save independent copies, but cannot edit the original or see its author's classroom records or AI conversations. Revoking sharing prevents further source access; existing copies and classrooms remain independent.
+- The library contains personal lessons, activities and materials plus lessons shared with the teacher. Sharing grants access only to materials actually referenced by the shared lesson, never to an entire private library.
+- Uploaded files retain stable asset references. VaultPub, external URLs and authorized server-path materials remain live external references: history records their references, not a reproducible copy of external bytes. Access is checked at use; a lesson share does not grant unrelated external permissions.
+- Ending a classroom closes responses and chat. Existing admitted participants may return to teacher-approved, read-only review content and their own answers. Reviewing does not create new attendance. Teachers may change review access, archive, export or delete retained sessions without rewriting teaching content.
+
+The architectural analogy is **reusable lesson snapshot → independent classroom instance → retained history**. It describes content isolation, not a requirement to use Docker or to add a container-management interface.
+
 ## Primary experience
 
 LiveClassroom has three coordinated but distinct surfaces:
@@ -33,7 +51,7 @@ the view must not create attendance, presence, connections, or participants.
 - Reuse the host project's `AUTH_USER_MODEL`; never define a separate account system.
 - Teachers and teaching staff authenticate through Django.
 - A session has an owner and may have co-hosts, assistants, and read-only observers with explicit capabilities.
-- Courses and prepared lesson flows are optional. A teacher may start an instant session, add content during class, and later save it for reuse.
+- Classes and prepared lessons are optional. A teacher may start an instant session, add content during class, and later save it for reuse.
 - Student access is selected per session: guest entry, Django login, or both.
 - Admission is selected per session: open entry, teacher-approved waiting room, or authenticated roster only.
 - Guest entry uses a join code or QR code and requires a display name. Responses are always identifiable to the teacher and in exports.
@@ -52,10 +70,12 @@ the view must not create attendance, presence, connections, or participants.
 
 ## Live editing and trustworthy history
 
-Teachers may edit a flow or the currently published activity during a session. A substantive edit creates a new activity revision rather than rewriting history:
+Teachers may edit their reusable lesson or the classroom-local plan during a session. These are separate operations; reusable edits require explicit import into unused classroom steps. They may also edit the currently published activity. A substantive edit creates a new activity revision rather than rewriting history:
 
 - earlier submissions remain attached to the exact revision that was answered;
 - students are notified that the activity changed and may resubmit against the new revision;
+- submissions carry the exact activity revision the student saw; stale screens cannot submit against a replacement prompt;
+- the server accepts student responses only to permitted participant-published activities;
 - current analytics use the latest revision by default while preserving older revisions for audit and comparison;
 - every accepted command and response update is idempotent and auditable.
 
@@ -141,25 +161,8 @@ The first strong release is complete when:
 - realtime delivery and recovery work across PostgreSQL-backed ASGI workers without an external message broker;
 - 100-student load tests, focused security tests, and end-to-end browser workflows pass.
 
-## Current status
+## Implementation and verification status
 
-The repository provides the reusable app and standalone project, canonical
-course/flow/activity-definition/flow-step authoring, instant and prepared
-sessions, guest/authenticated entry, admission controls, pause/end lifecycle
-controls, revisioned activities and submissions, independent audience channels,
-named chat, idempotent versioned HTTP commands, reusable activity authoring
-APIs, built-in activity validation and manifests, Markdown/YAML import, private
-teacher-uploaded Markdown/PDF/PowerPoint/MP4/WebM presentation files with
-session-scoped delivery and optional superuser live server-path references,
-private AI authoring threads with explicit attachments and durable queued jobs,
-staff-only session analytics, an audited staff Student view for inspecting and
-explicitly acting as admitted participants, a restricted display route,
-authenticated Channels routing, archive/CSV export, and host-neutral plus
-`xcWebServer` VaultPub Slide View adapters. The teacher console, classroom
-display, student surfaces, visual builder, and AI chat are all packaged React
-19 islands with a scoped, token-driven stylesheet (neutral + teal, automatic
-dark mode), a presentation-focused full-viewport display, and complete
-EN/zh-Hans coverage including the server-rendered pages. Richer
-browser-oriented analytics, provider-specific AI adapters, host-specific
-VaultPub participant grants, and production `xcWebServer` installation remain
-planned work.
+The package includes reusable authoring, automatic lesson snapshots, independent classroom plans, optional cohort workspaces, named-account lesson sharing, selective improvement review, prepared/instant/reused classrooms, revisioned responses, independent audience channels, teacher-controlled student review, private teaching files, queued AI authoring, exports, and packaged bilingual React surfaces.
+
+Implemented capabilities must be accompanied by executable workflow evidence in the implementation record. A passing unit suite alone does not establish browser, 100-student or multi-worker acceptance. Host-specific VaultPub participant grants, production xcWebServer installation and provider-specific AI adapters remain separate integration work. External references remain live rather than historically frozen.

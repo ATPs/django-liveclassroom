@@ -15,6 +15,7 @@ def _revision_payload(revision) -> dict[str, Any]:
         "id": revision.id,
         "revision": revision.revision,
         "activity_revision_id": revision.activity_revision_id,
+        "performed_by_id": revision.performed_by_id,
         "answer": revision.answer,
         "is_correct": revision.is_correct,
         "score": revision.score,
@@ -36,6 +37,7 @@ def _submission_payload(submission: Submission) -> dict[str, Any]:
         "updated_at": submission.updated_at,
         "revision": current_revision.revision if current_revision else None,
         "activity_revision_id": current_revision.activity_revision_id if current_revision else None,
+        "performed_by_id": submission.performed_by_id,
         "revisions": [_revision_payload(revision) for revision in submission.revisions.all()],
     }
 
@@ -54,7 +56,7 @@ def session_analytics(session: LiveSession) -> dict[str, Any]:
     chat_messages = list(
         session.messages.filter(deleted_at__isnull=True)
         .order_by("created_at", "id")
-        .values("id", "display_name", "body", "created_at")
+        .values("id", "author_id", "participant_id", "display_name", "body", "created_at")
     )
 
     submission_queryset = (
@@ -94,6 +96,7 @@ def session_analytics(session: LiveSession) -> dict[str, Any]:
                         "updated_at": submission.updated_at,
                         "revision": response["revision"],
                         "activity_revision_id": response["activity_revision_id"],
+                        "performed_by_id": response["performed_by_id"],
                         "revision_count": len(response["revisions"]),
                     }
                 )

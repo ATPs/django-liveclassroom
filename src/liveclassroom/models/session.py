@@ -44,6 +44,14 @@ class LiveSession(models.Model):
         on_delete=models.PROTECT,
         related_name="liveclassroom_sessions_hosted",
     )
+    source_snapshot = models.ForeignKey(
+        "liveclassroom.FlowSnapshot", null=True, blank=True, on_delete=models.PROTECT, related_name="sessions"
+    )
+    source_session = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.SET_NULL, related_name="reused_sessions"
+    )
+    creation_settings = models.JSONField(default=dict, blank=True)
+    plan_version = models.PositiveIntegerField(default=0)
     join_code = models.CharField(max_length=12, unique=True, default=make_join_code)
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.DRAFT)
     access_mode = models.CharField(max_length=20, choices=AccessMode.choices, default=AccessMode.GUEST)
@@ -58,10 +66,6 @@ class LiveSession(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
-
-    def clean(self) -> None:
-        if self.flow_id and self.course_id and self.flow.course_id and self.flow.course_id != self.course_id:
-            raise ValidationError({"flow": "The selected flow must belong to the selected course."})
 
     def __str__(self) -> str:
         return f"{self.title} ({self.join_code})"
@@ -152,6 +156,9 @@ class LiveActivity(models.Model):
         on_delete=models.SET_NULL,
         related_name="live_activities",
     )
+    plan_step = models.ForeignKey(
+        "liveclassroom.SessionPlanStep", null=True, blank=True, on_delete=models.SET_NULL, related_name="runs"
+    )
     definition_snapshot = models.JSONField(default=dict)
     current_revision = models.ForeignKey(
         "ActivityRunRevision",
@@ -161,6 +168,7 @@ class LiveActivity(models.Model):
         related_name="current_for_activities",
     )
     reviewable = models.BooleanField(default=False)
+    review_visibility = models.JSONField(default=dict, blank=True)
     state = models.CharField(max_length=16, choices=State.choices, default=State.OPEN)
     opened_at = models.DateTimeField(auto_now_add=True)
     closed_at = models.DateTimeField(null=True, blank=True)
@@ -363,3 +371,11 @@ class CommandReceipt(models.Model):
             )
         ]
         ordering = ["session", "created_at", "id"]
+
+
+@receiver(post_save, sender=LiveSession)
+def capture_prepared_lesson(sender, instance, created, **kwargs):
+    if created and instance.flow_id and not instance.source_snapshot_id:
+        from liveclassroom.services.plans import initialize_session_plan
+
+        initialize_session_plan(instance)

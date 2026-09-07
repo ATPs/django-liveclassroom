@@ -162,7 +162,17 @@ function BuiltinActivityView({
       {heading}
       <Prompt activity={activity} />
       {admitted && actAsActive && state && stateUrl ? (
-        <ResponseForm activity={activity} state={state} stateUrl={stateUrl} refresh={refresh} />
+        <ResponseForm
+          key={`${activity.id}:${activity.revision}:${activity.revision_id}`}
+          activity={activity}
+          state={state}
+          stateUrl={stateUrl}
+          refresh={refresh}
+        />
+      ) : admitted && choicesFor(activity).length ? (
+        <ul data-liveclassroom-readonly-choices>
+          {choicesFor(activity).map((choice) => <li key={choice.id}>{choice.text}</li>)}
+        </ul>
       ) : null}
       {admitted ? <RevealedFeedback activity={activity} /> : null}
     </>

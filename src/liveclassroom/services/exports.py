@@ -24,17 +24,21 @@ def _encode(value: Any) -> str:
     return json.dumps(value, cls=DjangoJSONEncoder, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
 
 
-def _type_key(activity: LiveActivity) -> str:
-    snapshot = (
-        activity.current_revision.definition_snapshot if activity.current_revision_id else activity.definition_snapshot
-    )
+def _type_key(activity: LiveActivity, snapshot: dict | None = None) -> str:
+    if snapshot is None:
+        snapshot = (
+            activity.current_revision.definition_snapshot
+            if activity.current_revision_id
+            else activity.definition_snapshot
+        )
     key = snapshot.get("type_key") if isinstance(snapshot, dict) else None
     return key if isinstance(key, str) and key else f"liveclassroom.{activity.kind}"
 
 
-def _answer(activity: LiveActivity, answer: dict) -> dict:
+def _answer(activity: LiveActivity, answer: dict, *, activity_revision=None) -> dict:
+    snapshot = getattr(activity_revision, "definition_snapshot", None)
     try:
-        return activity_registry.get(_type_key(activity)).export(answer)
+        return activity_registry.get(_type_key(activity, snapshot)).export(answer)
     except (KeyError, TypeError, ValueError):
         # A removed historical plugin must not prevent retained data export.
         return answer
@@ -42,7 +46,7 @@ def _answer(activity: LiveActivity, answer: dict) -> dict:
 
 def _participants(session: LiveSession):
     return session.participants.order_by("joined_at", "id").values(
-        "id", "display_name", "user_id", "role", "admission_state", "joined_at", "last_seen_at", "connected_at",
+        "id", "display_name", "user_id", "admission_state", "joined_at", "last_seen_at", "connected_at",
         "disconnected_at", "removed_at",
     ).iterator(chunk_size=200)
 
@@ -53,7 +57,7 @@ def _activities(session: LiveSession):
 
 def _submissions(session: LiveSession):
     return Submission.objects.filter(activity__session=session).select_related(
-        "activity", "participant", "current_revision"
+        "activity", "participant", "current_revision", "current_revision__activity_revision"
     ).order_by("activity__sequence", "participant_id", "id").iterator(chunk_size=200)
 
 
@@ -67,7 +71,14 @@ def _submission_row(submission: Submission) -> dict:
         "submission_id": submission.id,
         "participant_id": submission.participant_id,
         "display_name": submission.participant.display_name,
-        "answer": _answer(submission.activity, submission.answer),
+        "performed_by_id": submission.performed_by_id,
+        "answer": _answer(
+            submission.activity,
+            submission.answer,
+            activity_revision=(
+                submission.current_revision.activity_revision if submission.current_revision_id else None
+            ),
+        ),
         "is_stale": submission.is_stale,
         "is_correct": submission.is_correct,
         "score": submission.score,
@@ -77,7 +88,8 @@ def _submission_row(submission: Submission) -> dict:
                 "id": revision.id,
                 "revision": revision.revision,
                 "activity_revision_id": revision.activity_revision_id,
-                "answer": _answer(submission.activity, revision.answer),
+                "performed_by_id": revision.performed_by_id,
+                "answer": _answer(submission.activity, revision.answer, activity_revision=revision.activity_revision),
                 "is_correct": revision.is_correct,
                 "score": revision.score,
                 "created_at": revision.created_at,
@@ -128,11 +140,11 @@ def json_archive(session: LiveSession) -> Iterator[str]:
     yield from _array(_submission_row(submission) for submission in _submissions(session))
     yield ',"chat":'
     yield from _array(session.messages.filter(deleted_at__isnull=True).order_by("created_at", "id").values(
-        "id", "display_name", "body", "created_at"
+        "id", "author_id", "participant_id", "display_name", "body", "created_at"
     ).iterator(chunk_size=200))
     yield ',"events":'
     yield from _array(session.events.order_by("sequence", "id").values(
-        "sequence", "event_type", "payload", "created_at"
+        "sequence", "event_type", "actor_id", "participant_id", "payload", "created_at"
     ).iterator(chunk_size=200))
     yield "}"
 
@@ -140,10 +152,11 @@ def json_archive(session: LiveSession) -> Iterator[str]:
 _FIELDS = {
     "summary": ["activity_id", "sequence", "kind", "state", "submission_count", "stale_submission_count", "choices"],
     "responses": ["activity_id", "activity_sequence", "activity_revision", "submission_id", "participant_id",
-                  "display_name", "answer", "is_stale", "is_correct", "score", "submitted_at", "revisions"],
-    "participants": ["id", "display_name", "user_id", "role", "admission_state", "joined_at", "last_seen_at",
+                  "display_name", "performed_by_id", "answer", "is_stale", "is_correct", "score", "submitted_at",
+                  "revisions"],
+    "participants": ["id", "display_name", "user_id", "admission_state", "joined_at", "last_seen_at",
                      "connected_at", "disconnected_at", "removed_at"],
-    "chat": ["id", "display_name", "body", "created_at"],
+    "chat": ["id", "author_id", "participant_id", "display_name", "body", "created_at"],
 }
 
 
@@ -163,7 +176,7 @@ def _csv_rows(session: LiveSession, dataset: str) -> Iterable[dict]:
         yield from _participants(session)
     elif dataset == "chat":
         yield from session.messages.filter(deleted_at__isnull=True).order_by("created_at", "id").values(
-            "id", "display_name", "body", "created_at"
+            "id", "author_id", "participant_id", "display_name", "body", "created_at"
         ).iterator(chunk_size=200)
     else:
         raise ValueError("Unsupported CSV dataset.")

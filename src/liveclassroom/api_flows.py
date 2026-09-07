@@ -7,6 +7,7 @@ from typing import Any
 from django.db import models, transaction
 from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404
+from django.urls import reverse
 from django.views.decorators.http import require_http_methods, require_POST
 
 from .api import _authoring_replay, _body, _error, _record, _record_authoring, _replay
@@ -24,7 +25,7 @@ from .services.flows import (
     save_session_as_flow,
     update_flow,
 )
-from .services.permissions import can_use_activity_definition
+from .services.permissions import can_use_activity_definition, can_use_flow
 
 
 def _serialize_flow(flow: Flow) -> dict[str, Any]:
@@ -54,6 +55,10 @@ def _serialize_step(step: FlowStep) -> dict[str, Any]:
         "schema_version": step.activity_definition.schema_version,
         "status": step.activity_definition.status,
         "definition": step.activity_definition.definition,
+        "asset_url": (
+            reverse("liveclassroom:api-v1-asset-content", args=[step.activity_definition.asset.public_id])
+            if step.activity_definition.asset_id else None
+        ),
     }
     return {
         "id": step.id,
@@ -66,7 +71,9 @@ def _serialize_step(step: FlowStep) -> dict[str, Any]:
 
 
 def _serialize_flow_with_steps(flow: Flow) -> dict[str, Any]:
+    from .services.plans import lesson_token
     payload = _serialize_flow(flow)
+    payload["token"] = lesson_token(flow)
     payload["steps"] = [
         _serialize_step(step)
         for step in flow.steps.select_related("activity_definition").order_by("position")
@@ -134,10 +141,13 @@ def flows_collection(request):
             models.Q(created_by=request.user)
             | models.Q(course__created_by=request.user)
             | models.Q(course_id__in=course_ids)
+            | models.Q(shares__user=request.user)
         ).distinct()
 
     flows = flows.select_related("course", "created_by").order_by("-updated_at")
-    return JsonResponse({"flows": [_serialize_flow_summary(f) for f in flows]})
+    return JsonResponse({"flows": [{**_serialize_flow_summary(f), "can_edit": can_edit_flow(request.user, f),
+        "shared": not can_edit_flow(request.user, f), "can_share": f.created_by_id == request.user.pk,
+        "course_ids": list(f.associated_courses.values_list("id", flat=True))} for f in flows]})
 
 
 @require_http_methods(["GET", "PATCH", "PUT"])
@@ -147,7 +157,7 @@ def flow_detail(request, flow_id: int):
     flow = get_object_or_404(Flow, pk=flow_id)
     if not getattr(request.user, "is_authenticated", False):
         return _error("Authentication required.", 401)
-    if not can_edit_flow(request.user, flow):
+    if not (can_use_flow(request.user, flow) if request.method == "GET" else can_edit_flow(request.user, flow)):
         return _error("You do not have permission to access this flow.", 403)
 
     if request.method == "GET":
@@ -185,7 +195,7 @@ def duplicate_flow_api(request, flow_id: int):
     flow = get_object_or_404(Flow, pk=flow_id)
     if not getattr(request.user, "is_authenticated", False):
         return _error("Authentication required.", 401)
-    if not can_edit_flow(request.user, flow):
+    if not can_use_flow(request.user, flow):
         return _error("You do not have permission to duplicate this flow.", 403)
 
     command_type = f"flow.duplicate.{flow_id}"

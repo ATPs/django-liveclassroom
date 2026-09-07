@@ -144,6 +144,40 @@
   width: min(100%, 68rem);
 }
 
+#liveclassroom-root .lc-workspace-root .lc-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
+}
+
+#liveclassroom-root .lc-workspace-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 1rem 0;
+  border-bottom: 1px solid var(--lc-border);
+}
+
+#liveclassroom-root :is(.lc-plan-section, .lc-workspace-composer, .lc-workspace-create-class) {
+  padding: 1rem 0;
+  width: 100%;
+  min-width: 0;
+}
+
+#liveclassroom-root .lc-plan-step {
+  padding: 1rem 0;
+  border-top: 1px solid var(--lc-border);
+  overflow-wrap: anywhere;
+}
+
+#liveclassroom-root :is(.lc-plan-section, .lc-workspace-root) :is(input, select, textarea, fieldset) {
+  max-width: 100%;
+  min-width: 0;
+}
+
+#liveclassroom-root :is(.lc-plan-section, .lc-workspace-root) :is(h2, h3, h4, button) {
+  overflow-wrap: anywhere;
+  letter-spacing: 0;
+}
+
 /* Full-viewport presentation surface for the classroom display. */
 #liveclassroom-root .lc-display-shell {
   position: relative;
@@ -1428,6 +1462,13 @@
  * Responsive tweaks
  * ------------------------------------------------------------------------- */
 @media (max-width: 44rem) {
+  #liveclassroom-root .lc-lang-switch {
+    position: static;
+    display: flex;
+    width: max-content;
+    margin: 0 0 1rem auto;
+  }
+
   #liveclassroom-root .lc-analytics-header {
     align-items: flex-start;
     flex-direction: column;
