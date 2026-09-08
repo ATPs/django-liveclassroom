@@ -91,6 +91,14 @@ class Participant(models.Model):
         on_delete=models.SET_NULL,
         related_name="liveclassroom_participations",
     )
+    test_owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="liveclassroom_test_participants",
+    )
+    is_test = models.BooleanField(default=False)
     guest_id = models.CharField(max_length=128, blank=True)
     display_name = models.CharField(max_length=100)
     admission_state = models.CharField(max_length=16, choices=AdmissionState.choices, default=AdmissionState.ADMITTED)
@@ -112,11 +120,20 @@ class Participant(models.Model):
                 condition=~models.Q(guest_id=""),
                 name="lc_one_guest_participant_per_session",
             ),
+            models.UniqueConstraint(
+                fields=["session", "test_owner"],
+                condition=models.Q(is_test=True),
+                name="lc_one_test_participant_per_owner_session",
+            ),
         ]
 
     def clean(self) -> None:
         if not self.user_id and not self.guest_id:
             raise ValidationError("A participant needs an account or a guest identity.")
+        if self.is_test and not self.test_owner_id:
+            raise ValidationError("A test participant needs its staff owner.")
+        if not self.is_test and self.test_owner_id:
+            raise ValidationError("Only test participants can have a test owner.")
 
     def __str__(self) -> str:
         return self.display_name
@@ -169,6 +186,7 @@ class LiveActivity(models.Model):
     )
     reviewable = models.BooleanField(default=False)
     review_visibility = models.JSONField(default=dict, blank=True)
+    runtime_state = models.JSONField(default=dict, blank=True)
     state = models.CharField(max_length=16, choices=State.choices, default=State.OPEN)
     opened_at = models.DateTimeField(auto_now_add=True)
     closed_at = models.DateTimeField(null=True, blank=True)

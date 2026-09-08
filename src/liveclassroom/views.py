@@ -16,6 +16,7 @@ from .forms import CreateSessionForm, JoinSessionForm
 from .models import LiveSession
 from .services.classroom import can_manage_session, can_view_display, can_view_session, session_capabilities
 from .services.permissions import can_teach
+from .services.presentation import presentation_title
 
 
 class LocaleContextMixin:
@@ -115,8 +116,15 @@ class TeacherConsoleView(TeacherRequiredMixin, LocaleContextMixin, TemplateView)
         context["flow_title"] = self.session.source_snapshot.title if self.session.source_snapshot_id else ""
         context["capabilities_json"] = json.dumps(session_capabilities(self.request.user, self.session))
         context["flow_steps_json"] = json.dumps(
-            [{"id": step.id, "position": step.position, "title": step.snapshot.get("title", "Activity")}
-             for step in steps], ensure_ascii=False,
+            [
+                {
+                    "id": step.id,
+                    "position": step.position,
+                    "title": presentation_title(step.snapshot.get("title", "Activity")),
+                }
+                for step in steps
+            ],
+            ensure_ascii=False,
         )
         return context
 

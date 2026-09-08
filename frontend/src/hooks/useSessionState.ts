@@ -39,7 +39,6 @@ export function useSessionState({ stateUrl, websocketPath, channel, enabled }: O
     if (scopeRef.current === scopeKey) return;
     scopeRef.current = scopeKey;
     versionRef.current = -1;
-    setState(null);
     setError("");
     setReconnecting(false);
   }, [scopeKey]);

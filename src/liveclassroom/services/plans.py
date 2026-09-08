@@ -308,17 +308,22 @@ def reorder_plan(*, session, actor, keys, expected_version):
 
 @transaction.atomic
 def launch_plan_step(*, session, step, actor, channel="display", restart=False):
-    from .classroom import publish_activity_to_channel
+    from .classroom import initialize_timer_runtime, publish_activity_to_audiences, publish_activity_to_channel
 
     session = lock_plan(session, actor)
     if session.status != LiveSession.Status.LIVE:
         raise ClassroomError("Start the session before publishing an item.")
-    if channel not in SessionChannelState.Channel.values:
+    if channel not in {*SessionChannelState.Channel.values, "both"}:
         raise ClassroomError("Unsupported session channel.")
     step = SessionPlanStep.objects.select_for_update().get(pk=step.pk, session=session, removed=False)
     existing = step.runs.order_by("-sequence").first()
     if existing and not restart:
-        publish_activity_to_channel(session=session, activity=existing, channel=channel, actor=actor)
+        if channel == "both":
+            publish_activity_to_audiences(
+                session=session, activity=existing, channels=["display", "participants"], actor=actor,
+            )
+        else:
+            publish_activity_to_channel(session=session, activity=existing, channel=channel, actor=actor)
         return existing
     snapshot = validate_activity_snapshot(deepcopy(step.snapshot))
     activity = LiveActivity.objects.create(
@@ -336,7 +341,13 @@ def launch_plan_step(*, session, step, actor, channel="display", restart=False):
     revision = _ensure_run_revision(activity, actor, source_revision=source_revision)
     revision.asset = step.asset
     revision.save(update_fields=["asset"])
-    publish_activity_to_channel(session=session, activity=activity, channel=channel, actor=actor)
+    initialize_timer_runtime(activity)
+    if channel == "both":
+        publish_activity_to_audiences(
+            session=session, activity=activity, channels=["display", "participants"], actor=actor,
+        )
+    else:
+        publish_activity_to_channel(session=session, activity=activity, channel=channel, actor=actor)
     _append_event(session, "activity.opened", actor, {"activity_id": activity.id, "plan_step_id": step.id})
     return activity
 

@@ -64,8 +64,7 @@ def test_teacher_surfaces_show_contextual_guidance_and_help_links(client):
     assert "Check before you use it in class" in builder_content
     assert "Action check:" in builder_content
     assert 'href="/help/?lang=en"' in builder_content
-    assert "Confirm the target channel before publishing" in console_content
-    assert "High impact check:" in console_content
+    assert "Confirm the target channel before publishing" not in console_content
     assert 'href="/help/?lang=en"' in console_content
 
 

@@ -249,3 +249,60 @@ def test_unhandled_command_failure_rolls_back_its_idempotency_reservation():
             )
 
     assert not CommandReceipt.objects.filter(session=session, idempotency_key="roll-back-reservation").exists()
+
+
+@pytest.mark.django_db
+def test_session_command_responses_return_current_state_version():
+    teacher = get_user_model().objects.create_user(username="session-version-teacher")
+    client = Client()
+    client.force_login(teacher)
+    activity_definition = create_activity_definition(
+        owner=teacher,
+        title="Versioned prompt",
+        type_key="liveclassroom.single_choice",
+        definition={"options": [{"id": "A", "text": "One"}]},
+    )
+
+    def live_session(title):
+        session = create_instant_session(owner=teacher, title=title)
+        response = client.post(
+            reverse("liveclassroom:api-v1-start", args=[session.id]),
+            data="{}",
+            content_type="application/json",
+        )
+        assert response.status_code == 200
+        return session
+
+    def assert_current_version(response, session, status_code=200):
+        assert response.status_code == status_code
+        session.refresh_from_db(fields=["state_version"])
+        assert response.json()["version"] == session.state_version
+
+    launch_session = live_session("Launch version")
+    launched = client.post(
+        reverse("liveclassroom:api-v1-launch", args=[launch_session.id]),
+        data=json.dumps({"activity_definition_id": activity_definition.id}),
+        content_type="application/json",
+    )
+    assert_current_version(launched, launch_session, status_code=201)
+
+    paused_session = live_session("Pause version")
+    assert_current_version(
+        client.post(reverse("liveclassroom:api-v1-pause", args=[paused_session.id])), paused_session
+    )
+
+    ended_session = live_session("End version")
+    assert_current_version(client.post(reverse("liveclassroom:api-v1-end", args=[ended_session.id])), ended_session)
+
+    archived_session = live_session("Archive version")
+    assert_current_version(
+        client.post(reverse("liveclassroom:api-v1-end", args=[archived_session.id])), archived_session
+    )
+    assert_current_version(
+        client.post(
+            reverse("liveclassroom:api-v1-archive", args=[archived_session.id]),
+            data="{}",
+            content_type="application/json",
+        ),
+        archived_session,
+    )

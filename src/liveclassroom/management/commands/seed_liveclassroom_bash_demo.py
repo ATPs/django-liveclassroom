@@ -4,11 +4,13 @@
 from __future__ import annotations
 
 import hashlib
+import uuid
 from copy import deepcopy
 
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from django.core.management.base import BaseCommand
+from django.templatetags.static import static
 from django.utils import timezone
 
 from liveclassroom.models import (
@@ -25,9 +27,15 @@ from liveclassroom.models import (
     Submission,
     SubmissionRevision,
 )
+from liveclassroom.services.classroom import revise_activity_definition
 
 _DEMO_SLUG = "bash-for-linux-beginners"
 _DEMO_USERNAME = "liveclassroom-demo"
+
+
+def _step_key(language: str, key: str) -> uuid.UUID:
+    """Keep demo matching independent from the title shown to teachers."""
+    return uuid.uuid5(uuid.NAMESPACE_URL, f"liveclassroom:{_DEMO_SLUG}:{language}:{key}")
 
 
 def _copy(*, en: str, zh: str) -> dict[str, str]:
@@ -99,7 +107,13 @@ def _lesson_steps(language: str, asset: ClassroomAsset) -> list[tuple[str, str, 
             text("What do you want to do with Linux? (1 min)", "你想用 Linux 做什么？（1 分钟）"),
             {
                 "type_key": "liveclassroom.word_cloud",
-                "definition": {"prompt": text("One or two words", "写一到两个词"), "max_length": 80},
+                "definition": {
+                    "prompt": text(
+                        "What would you like to do with Linux? Write one or two words.",
+                        "你想用 Linux 做什么？写一到两个词。",
+                    ),
+                    "max_length": 80,
+                },
             },
         ),
         (
@@ -108,7 +122,10 @@ def _lesson_steps(language: str, asset: ClassroomAsset) -> list[tuple[str, str, 
             {
                 "type_key": "liveclassroom.media",
                 "definition": {
-                    "url": "/static/liveclassroom/demo/bash-command-flow.svg",
+                    "url": static(
+                        "liveclassroom/demo/bash-command-flow-zh-Hans.svg"
+                        if zh else "liveclassroom/demo/bash-command-flow.svg"
+                    ),
                     "media_type": "image",
                     "caption": text(
                         "A command has a program name and optional arguments. In this class every command stays inside the simulator.",
@@ -164,9 +181,12 @@ def _lesson_steps(language: str, asset: ClassroomAsset) -> list[tuple[str, str, 
             {
                 "type_key": "liveclassroom.true_false",
                 "definition": {
-                    "prompt": text("The simulator runs commands on the teaching server.", "模拟器会在教学服务器上运行命令。"),
+                    "prompt": text("pwd changes the current folder.", "pwd 会改变当前文件夹。"),
                     "answer": "false",
-                    "explanation": text("False. It is a fixed browser-only simulation.", "错误。它是固定的、仅在浏览器中的模拟。"),
+                    "explanation": text(
+                        "False. pwd prints the current folder; cd changes folders.",
+                        "错误。pwd 显示当前文件夹；cd 才会切换文件夹。",
+                    ),
                 },
             },
         ),
@@ -178,10 +198,10 @@ def _lesson_steps(language: str, asset: ClassroomAsset) -> list[tuple[str, str, 
                 "definition": {
                     "prompt": text("Which commands are available in this beginner simulator?", "初学者模拟器中可以使用哪些命令？"),
                     "options": [
-                        {"id": "pwd", "text": "pwd"},
-                        {"id": "ls", "text": "ls"},
-                        {"id": "rm", "text": "rm"},
-                        {"id": "cat", "text": "cat"},
+                        {"id": "pwd", "text": text("pwd — print the current directory", "pwd — 显示当前目录")},
+                        {"id": "ls", "text": text("ls — list files and folders", "ls — 列出文件和文件夹")},
+                        {"id": "rm", "text": text("rm — remove files (not available here)", "rm — 删除文件（此处不可用）")},
+                        {"id": "cat", "text": text("cat — read a text file", "cat — 读取文本文件")},
                     ],
                     "answer": ["pwd", "ls", "cat"],
                 },
@@ -194,7 +214,11 @@ def _lesson_steps(language: str, asset: ClassroomAsset) -> list[tuple[str, str, 
                 "type_key": "liveclassroom.single_choice",
                 "definition": {
                     "prompt": text("Which command prints the current directory?", "哪条命令会显示当前目录？"),
-                    "options": [{"id": "pwd", "text": "pwd"}, {"id": "ls", "text": "ls"}, {"id": "cat", "text": "cat"}],
+                    "options": [
+                        {"id": "pwd", "text": text("pwd — print the current directory", "pwd — 显示当前目录")},
+                        {"id": "ls", "text": text("ls — list files and folders", "ls — 列出文件和文件夹")},
+                        {"id": "cat", "text": text("cat — read a text file", "cat — 读取文本文件")},
+                    ],
                     "answer": "pwd",
                 },
             },
@@ -204,7 +228,7 @@ def _lesson_steps(language: str, asset: ClassroomAsset) -> list[tuple[str, str, 
             text("Estimate the practice steps (1 min)", "估计练习步骤数（1 分钟）"),
             {
                 "type_key": "liveclassroom.numeric",
-                "definition": {"prompt": text("How many command names did the guided task require?", "引导任务要求了几种命令？"), "minimum": 0, "maximum": 10, "step": 1},
+                "definition": {"prompt": text("How many command names did the guided task require?", "引导任务要求了几种命令？"), "label": text("Number of command names", "命令名称数量"), "minimum": 0, "maximum": 10, "step": 1},
             },
         ),
         (
@@ -212,7 +236,7 @@ def _lesson_steps(language: str, asset: ClassroomAsset) -> list[tuple[str, str, 
             text("Rate your confidence (1 min)", "评价你的信心（1 分钟）"),
             {
                 "type_key": "liveclassroom.rating",
-                "definition": {"prompt": text("Rate your confidence using pwd and ls", "请评价你使用 pwd 和 ls 的信心"), "minimum": 1, "maximum": 5, "step": 1},
+                "definition": {"prompt": text("Rate your confidence using pwd and ls", "请评价你使用 pwd 和 ls 的信心"), "minimum": 1, "maximum": 5, "step": 1, "minimum_label": text("Not confident yet", "还不太有信心"), "maximum_label": text("Very confident", "非常有信心")},
             },
         ),
         (
@@ -223,9 +247,9 @@ def _lesson_steps(language: str, asset: ClassroomAsset) -> list[tuple[str, str, 
                 "definition": {
                     "prompt": text("Order the steps for exploring a new folder.", "请排列探索新文件夹的步骤。"),
                     "options": [
-                        {"id": "pwd", "text": "pwd — see where you are"},
-                        {"id": "ls", "text": "ls — see what is here"},
-                        {"id": "cd", "text": "cd folder — move deliberately"},
+                        {"id": "pwd", "text": text("pwd — see where you are", "pwd — 查看当前位置")},
+                        {"id": "ls", "text": text("ls — see what is here", "ls — 查看这里有什么")},
+                        {"id": "cd", "text": text("cd folder — move deliberately", "cd 文件夹 — 有意识地进入文件夹")},
                     ],
                 },
             },
@@ -274,6 +298,16 @@ class Command(BaseCommand):
                 "created_by": owner,
             },
         )
+        course_changed = []
+        for field, value in {
+            "title": _TEXT["course"][language],
+            "description": _TEXT["course_description"][language],
+        }.items():
+            if getattr(course, field) != value:
+                setattr(course, field, value)
+                course_changed.append(field)
+        if course_changed:
+            course.save(update_fields=[*course_changed, "updated_at"])
         asset = self._asset(owner, language)
         flow, _ = Flow.objects.get_or_create(
             course=course,
@@ -284,23 +318,67 @@ class Command(BaseCommand):
                 "description": _TEXT["description"][language],
             },
         )
+        flow_changed = []
+        for field, value in {"title": _TEXT["lesson"][language], "description": _TEXT["description"][language]}.items():
+            if getattr(flow, field) != value:
+                setattr(flow, field, value)
+                flow_changed.append(field)
+        if flow_changed:
+            flow.save(update_fields=[*flow_changed, "updated_at"])
         definitions = []
         for key, title, content in _lesson_steps(language, asset):
-            activity, _ = ActivityDefinition.objects.get_or_create(
-                owner=owner,
-                title=f"[bash-demo:{language}:{key}] {title}",
-                defaults={
-                    "course": course,
-                    "type_key": content["type_key"],
-                    "definition": content["definition"],
-                    "asset": content.get("asset"),
-                    "status": ActivityDefinition.Status.READY,
-                },
-            )
-            definitions.append(activity)
-        if not flow.steps.exists():
-            for position, definition in enumerate(definitions, 1):
-                FlowStep.objects.create(flow=flow, position=position, activity_definition=definition)
+            machine_key = _step_key(language, key)
+            step = flow.steps.filter(key=machine_key).select_related("activity_definition").first()
+            if step is None:
+                # One-time legacy matching is deliberately constrained to the
+                # known demo owner, flow, language, and recognized step key.
+                legacy_title = f"[bash-demo:{language}:{key}] {title}"
+                step = flow.steps.filter(activity_definition__owner=owner, activity_definition__title=legacy_title).first()
+                if step is not None:
+                    step.key = machine_key
+                    step.save(update_fields=["key", "updated_at"])
+            if step is None:
+                activity = ActivityDefinition.objects.create(
+                    owner=owner,
+                    course=course,
+                    title=title,
+                    type_key=content["type_key"],
+                    definition=content["definition"],
+                    asset=content.get("asset"),
+                    status=ActivityDefinition.Status.READY,
+                )
+                step = FlowStep.objects.create(
+                    flow=flow,
+                    key=machine_key,
+                    position=len(definitions) + 1,
+                    activity_definition=activity,
+                )
+            else:
+                activity = step.activity_definition
+                changed = []
+                if activity.title != title:
+                    activity.title = title
+                    changed.append("title")
+                if activity.asset_id != getattr(content.get("asset"), "id", None):
+                    activity.asset = content.get("asset")
+                    changed.append("asset")
+                if changed:
+                    activity.save(update_fields=[*changed, "updated_at"])
+                # Revisions keep the reusable definition's old payload intact;
+                # existing classroom snapshots deliberately remain untouched.
+                if activity.definition != content["definition"]:
+                    revise_activity_definition(
+                        activity=activity,
+                        definition=content["definition"],
+                        actor=owner,
+                        change_note="Refresh Bash demo content",
+                    )
+                    activity.refresh_from_db()
+            definitions.append(step.activity_definition)
+            expected_position = len(definitions)
+            if step.position != expected_position:
+                step.position = expected_position
+                step.save(update_fields=["position", "updated_at"])
 
         ready = self._session(owner, flow, language, "ready", LiveSession.Status.DRAFT)
         live = self._session(owner, flow, language, "live", LiveSession.Status.LIVE)
@@ -324,15 +402,22 @@ class Command(BaseCommand):
 
     def _asset(self, owner, language: str) -> ClassroomAsset:
         filename = f"bash-starter-cheatsheet-{language.lower().replace('-', '')}.md"
-        existing = ClassroomAsset.objects.filter(owner=owner, original_name=filename).first()
-        if existing:
-            return existing
         body = (
             "# Bash starter cheat sheet\n\n- `pwd`: print the current directory\n- `ls`: list a directory\n- `cd folder`: enter a folder\n- `cat file`: read a text file\n- `echo text`: print text\n"
             if language == "en"
             else "# Bash 入门速查表\n\n- `pwd`：显示当前目录\n- `ls`：列出目录内容\n- `cd 文件夹`：进入文件夹\n- `cat 文件`：读取文本文件\n- `echo 文本`：输出文本\n"
         )
         data = body.encode("utf-8")
+        digest = hashlib.sha256(data).hexdigest()
+        existing = ClassroomAsset.objects.filter(owner=owner, original_name=filename).first()
+        if existing:
+            if existing.sha256 != digest:
+                existing.content_file.save(filename, ContentFile(data), save=False)
+                existing.content_type = "text/markdown; charset=utf-8"
+                existing.byte_size = len(data)
+                existing.sha256 = digest
+                existing.save(update_fields=["content_file", "content_type", "byte_size", "sha256", "updated_at"])
+            return existing
         asset = ClassroomAsset(
             owner=owner,
             source=ClassroomAsset.Source.UPLOAD,
@@ -340,7 +425,7 @@ class Command(BaseCommand):
             kind=ClassroomAsset.Kind.MARKDOWN,
             content_type="text/markdown; charset=utf-8",
             byte_size=len(data),
-            sha256=hashlib.sha256(data).hexdigest(),
+            sha256=digest,
         )
         asset.content_file.save(filename, ContentFile(data), save=False)
         asset.save()

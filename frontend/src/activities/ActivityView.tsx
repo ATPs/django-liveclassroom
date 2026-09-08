@@ -1,5 +1,5 @@
 import * as React from "react";
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import { useLocale, useT } from "../i18n.js";
 import { postJson } from "../protocol.js";
@@ -59,7 +59,11 @@ export function Prompt({ activity }: { activity: ActivityState }) {
 export function RevealedFeedback({ activity }: { activity: ActivityState }) {
   const t = useT();
   const content = activityContent(activity);
-  const answer = displayAnswer(content.answer ?? content.correct_answer ?? activity.definition.answer);
+  const rawAnswer = content.answer ?? content.correct_answer ?? activity.definition.answer;
+  const labels = new Map(choicesFor(activity).map((choice) => [choice.id, choice.text]));
+  const answer = Array.isArray(rawAnswer)
+    ? rawAnswer.map((value) => labels.get(String(value)) ?? String(value)).join(", ")
+    : labels.get(String(rawAnswer)) ?? displayAnswer(rawAnswer);
   const explanation = stringValue(content.explanation_markdown, stringValue(content.explanation));
   return (
     <>
@@ -120,6 +124,7 @@ function BuiltinActivityView({
   const kind = activityKind(activity);
   const admitted = state?.participant?.admission_state === "admitted";
   const actAsActive = state?.act_as_active !== false;
+  const passivePreview = state?.act_as_active === false;
 
   const heading = <h2>{activityTitle(activity, t("activity"))}</h2>;
 
@@ -127,7 +132,7 @@ function BuiltinActivityView({
     return (
       <>
         {heading}
-        <TimerDisplay activity={activity} />
+        <TimerDisplay activity={activity} state={state} />
       </>
     );
   }
@@ -163,7 +168,7 @@ function BuiltinActivityView({
     <>
       {heading}
       <Prompt activity={activity} />
-      {admitted && actAsActive && state && stateUrl ? (
+      {(admitted && actAsActive || passivePreview) && state && stateUrl ? (
         <ResponseForm
           key={`${activity.id}:${activity.revision}:${activity.revision_id}`}
           activity={activity}
@@ -176,7 +181,7 @@ function BuiltinActivityView({
           {choicesFor(activity).map((choice) => <li key={choice.id}>{choice.text}</li>)}
         </ul>
       ) : null}
-      {admitted ? <RevealedFeedback activity={activity} /> : null}
+      {admitted || passivePreview ? <RevealedFeedback activity={activity} /> : null}
     </>
   );
 }
@@ -198,41 +203,59 @@ export function PluginActivityView({
 }) {
   const locale = useLocale();
   const host = useRef<HTMLDivElement>(null);
+  const mounted = useRef<ReturnType<typeof mountPluginActivity> | null>(null);
+  const innerRoot = useRef<ReturnType<typeof createRoot> | undefined>(undefined);
+  const canSubmit = audience === "student" && Boolean(stateUrl) && Boolean(refresh)
+    && state?.session.status === "live"
+    && state?.participant?.admission_state === "admitted"
+    && state?.act_as_active !== false
+    && activity.state === "open";
+  const rendererPath = audience === "student"
+    ? activity.frontend_manifest?.student_renderer
+    : activity.frontend_manifest?.display_renderer;
+
+  const options = useMemo(() => ({
+    parent: host.current!,
+    activity,
+    audience,
+    state: state ?? undefined,
+    stateUrl: stateUrl ?? undefined,
+    aggregate: state?.aggregate ?? null,
+    locale,
+    manifest: activity.frontend_manifest,
+    readOnly: !canSubmit,
+    submit: canSubmit && stateUrl && refresh
+      ? async (answer: Record<string, unknown>) => {
+          const key = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+          await postJson(
+            submitUrl(stateUrl, activity),
+            { answer, activity_revision_id: activity.revision_id },
+            `submission-${key}`,
+          );
+          refresh?.();
+        }
+      : undefined,
+    fallback: (el: HTMLElement) => {
+      innerRoot.current = createRoot(el);
+      innerRoot.current.render(fallback);
+    },
+  }), [activity, audience, canSubmit, fallback, locale, refresh, state, stateUrl]);
 
   useEffect(() => {
     const container = host.current;
     if (!container) return undefined;
-    let innerRoot: ReturnType<typeof createRoot> | undefined;
-    const unmount = mountPluginActivity({
-      parent: container,
-      activity,
-      audience,
-      state: state ?? undefined,
-      stateUrl: stateUrl ?? undefined,
-      aggregate: state?.aggregate ?? null,
-      locale,
-      manifest: activity.frontend_manifest,
-      submit: audience === "student" && stateUrl && refresh
-        ? async (answer) => {
-            const key = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-            await postJson(
-              submitUrl(stateUrl, activity),
-              { answer, activity_revision_id: activity.revision_id },
-              `submission-${key}`,
-            );
-            refresh?.();
-          }
-        : undefined,
-      fallback: (el) => {
-        innerRoot = createRoot(el);
-        innerRoot.render(fallback);
-      },
-    });
+    mounted.current = mountPluginActivity({ ...options, parent: container });
     return () => {
-      unmount();
-      innerRoot?.unmount();
+      mounted.current?.unmount();
+      mounted.current = null;
+      innerRoot.current?.unmount();
+      innerRoot.current = undefined;
     };
-  }, [activity.id, activity.revision, activity.frontend_manifest, audience, fallback, locale, refresh, state?.state_version, stateUrl]);
+  }, [activity.id, activity.revision, audience, canSubmit, locale, rendererPath]);
+
+  useEffect(() => {
+    if (host.current && mounted.current) mounted.current.update({ ...options, parent: host.current });
+  }, [options]);
 
   return <div ref={host} />;
 }

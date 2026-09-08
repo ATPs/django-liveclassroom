@@ -14,7 +14,7 @@ import {
 } from "../../protocol.js";
 import { useSessionState } from "../../hooks/useSessionState.js";
 import { ActivityView } from "../../activities/ActivityView.js";
-import { activityKind, activityTitle, answerText, choicesFor, selectedChoices } from "../../activities/activityData.js";
+import { activityKind, answerText, choicesFor, selectedChoices } from "../../activities/activityData.js";
 
 function JoinPrompt({ onJoined }: { onJoined: (name: string) => Promise<void> }) {
   const t = useT();
@@ -82,9 +82,10 @@ function Chat({ stateUrl, stateVersion }: { stateUrl: string; stateVersion: numb
       .finally(() => setSending(false));
   };
 
+  if (chat && !chat.enabled && !chat.messages.length && !status) return null;
   return (
-    <section className="lc-chat" data-liveclassroom-chat aria-labelledby="student-chat-heading">
-      <h2 id="student-chat-heading">{t("chat")}</h2>
+    <details className="lc-chat" data-liveclassroom-chat>
+      <summary id="student-chat-heading">{t("chat")}</summary>
       <p data-liveclassroom-chat-status aria-live="polite">
         {chat ? (chat.enabled ? "" : t("chatDisabled")) : status}
       </p>
@@ -116,7 +117,7 @@ function Chat({ stateUrl, stateVersion }: { stateUrl: string; stateVersion: numb
           </button>
         </form>
       ) : null}
-    </section>
+    </details>
   );
 }
 
@@ -139,10 +140,19 @@ function OwnAnswer({ activity, submission }: { activity: ActivityState; submissi
     : kind === "rating"
       ? answerText(answer, "rating")
       : answerText(answer, "text") || answerText(answer, "value");
+  const transcript = Array.isArray(answer.transcript)
+    ? answer.transcript.filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === "object")
+    : [];
+  const finalDirectory = transcript.length ? answerText(transcript[transcript.length - 1], "cwd") : "";
   return (
     <div data-liveclassroom-own-answer>
       <h3>{t("answer")}</h3>
-      {kind === "ranking" && selectedLabels.length ? (
+      {answer.completed === true && transcript.length ? (
+        <>
+          <p>{t("saved")}{finalDirectory ? ` · ${finalDirectory}` : ""}</p>
+          <pre>{transcript.map((entry) => `$ ${answerText(entry, "command")}\n${answerText(entry, "output")}`).join("\n")}</pre>
+        </>
+      ) : kind === "ranking" && selectedLabels.length ? (
         <ol>
           {selectedLabels.map((label, index) => <li key={`${index}-${label}`}>{label}</li>)}
         </ol>
@@ -176,13 +186,13 @@ function History({
       .catch(() => setError(true));
   }, [stateUrl, stateVersion]);
 
+  if (activities && !activities.length && !error) return null;
   return (
-    <section data-liveclassroom-history aria-live="polite">
-      <h2>{t("history")}</h2>
+    <details data-liveclassroom-history>
+      <summary>{t("history")}</summary>
+      <div aria-live="polite">
       {error ? (
         <p>{t("historyUnavailable")}</p>
-      ) : activities && !activities.length ? (
-        <p>{t("noHistory")}</p>
       ) : activities ? (
         <ul>
           {activities.map((activity) => {
@@ -208,18 +218,28 @@ function History({
           })}
         </ul>
       ) : null}
-    </section>
+      </div>
+    </details>
   );
 }
 
 function StudentSession({ bootstrap }: { bootstrap: Bootstrap }) {
   const t = useT();
-  const stateUrl = bootstrap.stateUrl!;
+  const [stateUrl, setStateUrl] = useState(bootstrap.stateUrl!);
   const [joined, setJoined] = useState(false);
   const [needName, setNeedName] = useState(false);
   const [signInRequired, setSignInRequired] = useState(false);
   const [joinError, setJoinError] = useState("");
   const joinedRef = useRef(false);
+
+  useEffect(() => {
+    const updateStateUrl = (event: Event) => {
+      const next = (event as CustomEvent<{ stateUrl?: string }>).detail?.stateUrl;
+      if (next) setStateUrl(next);
+    };
+    window.addEventListener("liveclassroom:update-state-url", updateStateUrl);
+    return () => window.removeEventListener("liveclassroom:update-state-url", updateStateUrl);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -307,19 +327,33 @@ function StudentSession({ bootstrap }: { bootstrap: Bootstrap }) {
   });
   const state = sync.state;
 
-  const title = state?.current_activity ? activityTitle(state.current_activity, state.session.title) : state?.session.title ?? "…";
+  const title = state?.session.title ?? "…";
+  const stateMessage = state?.session.status === "paused"
+    ? t("studentClassPaused")
+    : state?.session.status === "ended"
+      ? t("classEnded")
+      : "";
 
   return (
     <>
       <LanguageSwitcher />
-      <p className="lc-kicker">{state?.session.title ?? ""}</p>
       <h1 id="student-title">{title}</h1>
       <div id="student-content" data-liveclassroom-content>
         {joined ? (
           state?.participant && state.participant.admission_state !== "admitted" ? (
             <p>{t("waitingAdmission")}</p>
-          ) : state?.session.status === "ended" ? null : bootstrap.preview ? (
-            <ActivityView activity={state?.current_activity ?? null} state={state ? { ...state, act_as_active: false } : null} stateUrl={stateUrl} refresh={sync.refresh} />
+          ) : state?.session.status === "ended" ? (
+            <p role="status">{t("classEnded")}</p>
+          ) : state?.session.status === "paused" ? (
+            <>
+              <p role="status">{t("studentClassPaused")}</p>
+              <ActivityView activity={state?.current_activity ?? null} state={state} stateUrl={stateUrl} refresh={sync.refresh} />
+            </>
+          ) : bootstrap.preview ? (
+            <>
+              <p role="status">{t("participantPreview")}: {t("responsesDisabled")}</p>
+              <ActivityView activity={state?.current_activity ?? null} state={state ? { ...state, act_as_active: false } : null} stateUrl={stateUrl} refresh={sync.refresh} />
+            </>
           ) : (
             <ActivityView activity={state?.current_activity ?? null} state={state} stateUrl={stateUrl} refresh={sync.refresh} />
           )
@@ -330,7 +364,7 @@ function StudentSession({ bootstrap }: { bootstrap: Bootstrap }) {
         ) : null}
       </div>
       <p data-liveclassroom-status aria-live="polite">
-        {joinError || sync.error || (state ? state.session.status : "")}
+        {joinError || sync.error || (sync.reconnecting ? t("reconnecting") : "") || stateMessage}
       </p>
       {joined && state?.participant?.admission_state === "admitted" ? (
         <>

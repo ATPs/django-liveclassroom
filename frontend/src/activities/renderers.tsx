@@ -2,35 +2,25 @@ import * as React from "react";
 import { useEffect, useRef, useState } from "react";
 import { useLocale, useT } from "../i18n.js";
 import { apiEndpoint, postJson, type ActivityState, type AggregateState, type Audience, type SessionState } from "../protocol.js";
-import { activityContent, numberValue, stringValue } from "./activityData.js";
+import { activityContent, choicesFor, numberValue, stringValue } from "./activityData.js";
 
-const activeTimerStartTimes = new Map<string, number>();
-
-export function TimerDisplay({ activity }: { activity: ActivityState }) {
+export function TimerDisplay({ activity, state = null }: { activity: ActivityState; state?: SessionState | null }) {
   const t = useT();
   const content = activityContent(activity);
   const duration = numberValue(content.duration_seconds) ?? numberValue(activity.definition.duration_seconds) ?? 60;
   const label = stringValue(content.label, stringValue(activity.definition.label, t("timer")));
-  const timerKey = `timer_${activity.id}_${activity.revision}`;
-  const startRef = useRef<number>(0);
+  const runtime = activity.runtime;
+  const timerKey = `timer_${activity.id}_${activity.revision}:${runtime?.deadline ?? ""}:${runtime?.status ?? "idle"}`;
+  const serverOffset = useRef(0);
   const [remaining, setRemaining] = useState(duration);
 
   useEffect(() => {
-    let startTime = activeTimerStartTimes.get(timerKey);
-    if (!startTime) {
-      startTime = Date.now();
-      activeTimerStartTimes.set(timerKey, startTime);
-    }
-    startRef.current = startTime;
+    if (typeof state?.server_time === "number") serverOffset.current = Date.now() / 1000 - state.server_time;
 
     const tick = (): boolean => {
-      let rem = 0;
-      if (activity.state === "open") {
-        rem = Math.max(0, duration - Math.floor((Date.now() - startRef.current) / 1000));
-      } else if (activity.state === "closed") {
-        rem = 0;
-      } else {
-        rem = duration;
+      let rem = Math.max(0, runtime?.remaining_seconds ?? duration);
+      if (runtime?.status === "running" && typeof runtime.deadline === "number") {
+        rem = Math.max(0, runtime.deadline - (Date.now() / 1000 - serverOffset.current));
       }
       setRemaining(rem);
       return rem > 0;
@@ -38,7 +28,7 @@ export function TimerDisplay({ activity }: { activity: ActivityState }) {
 
     const keep = tick();
     let interval: number | undefined;
-    if (activity.state === "open" && keep) {
+    if (runtime?.status === "running" && keep) {
       interval = window.setInterval(() => {
         if (!tick()) window.clearInterval(interval);
       }, 1000);
@@ -46,11 +36,11 @@ export function TimerDisplay({ activity }: { activity: ActivityState }) {
     return () => {
       if (interval !== undefined) window.clearInterval(interval);
     };
-  }, [timerKey, duration, activity.state]);
+  }, [timerKey, duration, runtime?.remaining_seconds, runtime?.status, state?.server_time]);
 
   const mm = String(Math.floor(remaining / 60)).padStart(2, "0");
   const ss = String(remaining % 60).padStart(2, "0");
-  const ended = remaining <= 0;
+  const ended = runtime?.status === "expired" || (runtime?.status === "running" && remaining <= 0);
   return (
     <div className="lc-timer-display">
       {label ? <div className="lc-timer-label">{label}</div> : null}
@@ -58,7 +48,7 @@ export function TimerDisplay({ activity }: { activity: ActivityState }) {
         {ended ? "00:00" : `${mm}:${ss}`}
       </div>
       <div className={ended ? "lc-timer-subtext lc-timer-ended-text" : "lc-timer-subtext"}>
-        {ended ? t("timerFinished") : `${t("timerRemaining")} (${duration}${t("seconds")})`}
+        {ended ? t("timerFinished") : runtime?.status === "idle" ? t("startTimer") : `${t("timerRemaining")} (${duration}${t("seconds")})`}
       </div>
     </div>
   );
@@ -253,7 +243,7 @@ export function WordCloud({ aggregate, isTeacher = false }: { aggregate: Aggrega
   );
 }
 
-export function AggregateView({ aggregate }: { aggregate: AggregateState | null }) {
+export function AggregateView({ aggregate, activity }: { aggregate: AggregateState | null; activity?: ActivityState }) {
   const t = useT();
   const locale = useLocale();
   if (!aggregate) return null;
@@ -266,7 +256,7 @@ export function AggregateView({ aggregate }: { aggregate: AggregateState | null 
   return (
     <>
       <p>{summary}</p>
-      {aggregate.choices ? <ChoiceBars choices={aggregate.choices} /> : null}
+      {aggregate.choices ? <ChoiceBars choices={aggregate.choices} activity={activity} /> : null}
       {aggregate.words || aggregate.word_frequencies ? <WordCloud aggregate={aggregate} /> : null}
       {aggregate.values?.length && !aggregate.words && !aggregate.word_frequencies ? (
         <ul>
@@ -279,12 +269,13 @@ export function AggregateView({ aggregate }: { aggregate: AggregateState | null 
   );
 }
 
-export function ChoiceBars({ choices }: { choices: Record<string, number> }) {
+export function ChoiceBars({ choices, activity }: { choices: Record<string, number>; activity?: ActivityState }) {
   const t = useT();
   const locale = useLocale();
   const entries = Object.entries(choices);
   let totalVotes = 0;
   for (const [, v] of entries) totalVotes += Number(v) || 0;
+  const labels = new Map<string, string>(activity ? choicesFor(activity).map((option) => [option.id, option.text]) : []);
 
   return (
     <div className="lc-choice-bars">
@@ -294,7 +285,7 @@ export function ChoiceBars({ choices }: { choices: Record<string, number> }) {
         return (
           <div key={choice} className="lc-choice-bar-row">
             <div className="lc-choice-bar-header">
-              <strong>{choice}</strong>
+              <strong>{labels.get(choice) ?? choice}</strong>
               <span>
                 {pct}% ({voteCount} {voteCount === 1 ? t("vote") : t("votes")})
               </span>

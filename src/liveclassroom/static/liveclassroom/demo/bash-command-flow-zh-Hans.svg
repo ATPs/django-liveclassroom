@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="230" viewBox="0 0 760 230" role="img" aria-labelledby="title desc">
+  <title id="title">Bash 命令的组成</title>
+  <desc id="desc">cat README.txt 中，cat 是命令，README.txt 是参数。</desc>
+  <rect width="760" height="230" rx="16" fill="#f3f8f5"/>
+  <text x="42" y="55" font-family="sans-serif" font-size="25" fill="#174a3d">先读懂一条命令</text>
+  <rect x="42" y="85" width="676" height="68" rx="10" fill="#173d35"/>
+  <text x="72" y="129" font-family="monospace" font-size="29" fill="#f7fbf8">cat README.txt</text>
+  <path d="M93 165v22M93 187h150" stroke="#29765f" stroke-width="3" fill="none"/>
+  <path d="M246 165v22M246 187h300" stroke="#29765f" stroke-width="3" fill="none"/>
+  <text x="95" y="215" font-family="sans-serif" font-size="18" fill="#174a3d">命令：读取文件</text>
+  <text x="310" y="215" font-family="sans-serif" font-size="18" fill="#174a3d">参数：要读取的文件名</text>
+</svg>

@@ -1,5 +1,5 @@
 import * as React from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { readBootstrap, type Bootstrap } from "../../bootstrap.js";
 import { LanguageSwitcher, LocaleProvider, useT } from "../../i18n.js";
@@ -23,9 +23,9 @@ function ChoiceList({ activity }: { activity: ActivityState }) {
   if (!choices.length) return null;
   return (
     <ul>
-      {choices.map((option) => (
+      {choices.map((option, index) => (
         <li key={option.id}>
-          {option.id}. {option.text}
+          {index + 1}. {option.text}
         </li>
       ))}
     </ul>
@@ -78,7 +78,7 @@ function BuiltinDisplayActivity({
     return (
       <>
         {heading}
-        <TimerDisplay activity={activity} />
+        <TimerDisplay activity={activity} state={state} />
       </>
     );
   }
@@ -116,7 +116,7 @@ function BuiltinDisplayActivity({
       <Prompt activity={activity} />
       {kind === "word_cloud" ? <WordCloud aggregate={aggregate} /> : <ChoiceList activity={activity} />}
       <RevealedFeedback activity={activity} />
-      {kind !== "word_cloud" ? <AggregateView aggregate={aggregate} /> : null}
+      {kind !== "word_cloud" ? <AggregateView aggregate={aggregate} activity={activity} /> : null}
     </>
   );
 }
@@ -134,13 +134,19 @@ function ClassroomDisplay({ bootstrap }: { bootstrap: Bootstrap }) {
   const state = sync.state;
   const activity = state?.current_activity ?? null;
 
+  useEffect(() => {
+    const syncFullscreen = () => setFullscreen(Boolean(document.fullscreenElement));
+    document.addEventListener("fullscreenchange", syncFullscreen);
+    syncFullscreen();
+    return () => document.removeEventListener("fullscreenchange", syncFullscreen);
+  }, []);
+
   const toggleFullscreen = () => {
     if (document.fullscreenElement) {
-      void document.exitFullscreen();
+      void document.exitFullscreen().catch(() => undefined);
     } else {
-      void document.documentElement.requestFullscreen();
+      void document.documentElement.requestFullscreen().catch(() => undefined);
     }
-    setFullscreen(!fullscreen);
   };
 
   return (
@@ -151,12 +157,12 @@ function ClassroomDisplay({ bootstrap }: { bootstrap: Bootstrap }) {
           {fullscreen ? t("exitFullscreen") : t("fullscreen")}
         </button>
       </div>
-      <h1 id="display-title">{activity ? activityTitle(activity, state?.session.title ?? "") : state?.session.title ?? "…"}</h1>
+      <h1 id="display-title">{state?.session.title ?? "…"}</h1>
       <div id="display-content" data-liveclassroom-content>
         <DisplayActivity activity={activity} aggregate={state?.aggregate ?? null} state={state} stateUrl={stateUrl} />
       </div>
       <p id="display-status" data-liveclassroom-status aria-live="polite">
-        {sync.error || (state ? state.session.status : "")}
+        {sync.error || (sync.reconnecting ? t("reconnecting") : "") || (state?.session.status === "paused" ? t("studentClassPaused") : state?.session.status === "ended" ? t("classEnded") : "")}
       </p>
     </>
   );

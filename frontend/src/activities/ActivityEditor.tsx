@@ -100,7 +100,7 @@ export function ActivityEditor({ initial, onSave, onCancel }: {
   };
   return <form className="lc-form" onSubmit={event => void submit(event)}>
     {!initial && <label>{tr("Activity type", "活动类型")}<select value={kind} onChange={e => setKind(e.target.value)}>{kinds.map(([key,en,zh]) => <option key={key} value={`liveclassroom.${key}`}>{tr(en,zh)}</option>)}</select></label>}
-    <label>{tr("Title", "标题")}<input value={title} maxLength={200} onChange={e => setTitle(e.target.value)} /></label>
+    <label>{tr("Title", "标题")}<input aria-label={tr("Title", "标题")} value={title} maxLength={200} onChange={e => setTitle(e.target.value)} /></label>
     <label>{tr("Prompt", "题干")}<textarea aria-label={tr("Prompt", "题干")} value={prompt} onChange={e => setPrompt(e.target.value)} /></label>
     {choice && <label>{tr("Options (one ID: text per line)", "选项（每行一个 编号: 内容）")}<textarea aria-label={tr("Options", "选项")} value={options} onChange={e => setOptions(e.target.value)} /></label>}
     {(choice || numeric) && <label>{tr("Correct answer (optional)", "正确答案（可选）")}<input value={answer} onChange={e => setAnswer(e.target.value)} /></label>}

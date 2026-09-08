@@ -81,7 +81,7 @@ function runCommand(parsed, cwd, files, directories, initialDirectory) {
   if (name === "echo") return { cwd, output: args.join(" ") };
   if (name === "clear") return { cwd, output: "", clear: true };
   if (name === "reset") return { cwd: initialDirectory, output: `Reset to ${initialDirectory}.` };
-  if (name === "ls") return listDirectory(pathFor(args[0] || cwd, cwd), files, directories);
+  if (name === "ls") return { cwd, ...listDirectory(pathFor(args[0] || cwd, cwd), files, directories) };
   if (name === "cd") {
     const target = pathFor(args[0] || "/", cwd);
     if (files[target] !== undefined) return { cwd, output: `cd: ${target}: Not a directory` };
@@ -133,6 +133,49 @@ function completedAnswer(state) {
   return answer;
 }
 
+function draftKey(context, activity) {
+  const participant = context.state && context.state.participant;
+  const identity = participant && participant.id ? participant.id : "preview";
+  return `liveclassroom.bash.v1:${identity}:${activity.id || "activity"}:${activity.revision || "revision"}`;
+}
+
+function loadDraft(key, directories, initialDirectory, limit) {
+  try {
+    const saved = JSON.parse(window.sessionStorage.getItem(key) || "null");
+    if (!saved || !Array.isArray(saved.transcript) || !Array.isArray(saved.visibleTranscript)) return null;
+    const cwd = text(saved.cwd, initialDirectory);
+    if (!directories.has(cwd)) return null;
+    return {
+      cwd,
+      transcript: saved.transcript.slice(0, limit),
+      visibleTranscript: saved.visibleTranscript.slice(0, limit),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function saveDraft(key, draft) {
+  try {
+    window.sessionStorage.setItem(key, JSON.stringify(draft));
+  } catch {
+    // Storage can be unavailable in a privacy-restricted tab; the terminal
+    // remains usable and server completion is still authoritative.
+  }
+}
+
+function requirementsFor(content, transcript, cwd) {
+  const completion = content.completion && typeof content.completion === "object" ? content.completion : {};
+  const required = Array.isArray(completion.required_commands) ? completion.required_commands : [];
+  const seen = new Set(transcript.map((entry) => parseCommand(text(entry.command)).name));
+  return {
+    required,
+    steps: required.map((command) => ({ command, done: seen.has(command) })),
+    directory: text(completion.required_directory),
+    directoryDone: !text(completion.required_directory) || cwd === completion.required_directory,
+  };
+}
+
 export function render(context) {
   const activity = context.activity || {};
   const content = contentFor(activity);
@@ -149,18 +192,24 @@ export function render(context) {
   const chinese = text(context.locale).startsWith("zh");
   const labels = chinese ? {
     run: "运行", completed: "已完成", complete: "完成练习", saving: "正在保存…",
-    saved: "已完成并保存。", failed: "无法保存完成记录。", limit: "已达到记录上限。",
-    directory: "当前目录：", fixed: "学生只会在固定的浏览器虚拟文件系统中练习。",
+    saved: "已完成并保存。", failed: "无法保存完成记录。", limit: "已达到记录上限。", resetAttempt: "重新开始练习", tryCommands: "试用命令",
+    directory: "当前目录：", command: "命令", fixed: "学生只会在固定的浏览器虚拟文件系统中练习。",
   } : {
     run: "Run", completed: "Completed", complete: "Complete activity", saving: "Saving…",
-    saved: "Completed and saved.", failed: "Could not save completion.", limit: "Transcript limit reached.",
-    directory: "Working directory: ", fixed: "Students interact with a fixed browser virtual filesystem.",
+    saved: "Completed and saved.", failed: "Could not save completion.", limit: "Transcript limit reached.", resetAttempt: "Reset practice", tryCommands: "Try commands",
+    directory: "Working directory: ", command: "Command", fixed: "Students interact with a fixed browser virtual filesystem.",
   };
-  const history = previous ? previous.transcript.slice(0, transcriptLimit) : [];
-  let cwd = history.length ? history[history.length - 1].cwd : initialDirectory;
+  const key = draftKey(context, activity);
+  const draft = previous ? null : loadDraft(key, directories, initialDirectory, transcriptLimit);
+  const history = previous ? previous.transcript.slice(0, transcriptLimit) : (draft ? draft.transcript : []);
+  let cwd = draft ? draft.cwd : (history.length ? history[history.length - 1].cwd : initialDirectory);
   if (!directories.has(cwd)) cwd = initialDirectory;
   let transcript = history;
-  let visibleTranscript = history;
+  let visibleTranscript = draft ? draft.visibleTranscript : history;
+  let currentContext = context;
+  let saved = Boolean(previous);
+  let saving = false;
+  let limitReached = !saved && transcript.length >= transcriptLimit;
 
   const heading = document.createElement("h3");
   heading.textContent = text(activity.definition && activity.definition.title, "Bash simulator");
@@ -169,15 +218,43 @@ export function render(context) {
   prompt.textContent = text(content.prompt);
   context.container.append(prompt);
 
+  if (context.readOnly && context.audience === "student") {
+    const readOnlyNote = document.createElement("p");
+    readOnlyNote.textContent = chinese
+      ? "这是只读学生预览。以测试学生身份打开后才能运行命令和保存练习。"
+      : "This is a read-only student preview. Open it as a test student to run commands and save practice.";
+    context.container.append(readOnlyNote);
+  }
+
   if (context.audience !== "student") {
-    const note = document.createElement("p");
-    note.textContent = labels.fixed;
-    context.container.append(note);
+    const examples = document.createElement("ul");
+    const required = requirementsFor(content, [], initialDirectory).required;
+    for (const command of required) {
+      const item = document.createElement("li");
+      item.textContent = command;
+      examples.append(item);
+    }
+    if (required.length) context.container.append(examples);
+    if (context.audience === "teacher") {
+      const note = document.createElement("p");
+      note.textContent = chinese ? "可私下试用命令；这不会保存学生作答。" : "Try commands privately; this never saves a student response.";
+      const tryButton = document.createElement("button");
+      tryButton.type = "button";
+      tryButton.textContent = labels.tryCommands;
+      tryButton.addEventListener("click", () => {
+        context.container.replaceChildren();
+        render({ ...context, audience: "student", readOnly: false, submit: undefined });
+      });
+      context.container.append(note, tryButton);
+    }
     return true;
   }
 
   const terminal = document.createElement("section");
   terminal.className = "lc-bash-simulator";
+  const directory = document.createElement("p");
+  directory.className = "lc-bash-simulator-directory";
+  terminal.append(directory);
   const output = document.createElement("div");
   output.className = "lc-bash-simulator-output";
   output.setAttribute("aria-live", "polite");
@@ -188,11 +265,15 @@ export function render(context) {
   input.type = "text";
   input.autocomplete = "off";
   input.maxLength = MAX_COMMAND_LENGTH;
-  input.setAttribute("aria-label", "Bash command");
+  input.id = `lc-bash-command-${activity.id || "activity"}-${activity.revision || "revision"}`;
+  const inputLabel = document.createElement("label");
+  inputLabel.htmlFor = input.id;
+  inputLabel.textContent = labels.command;
+  input.placeholder = chinese ? "输入 pwd 后按 Enter" : "Type pwd and press Enter";
   const run = document.createElement("button");
   run.type = "submit";
   run.textContent = labels.run;
-  form.append(input, run);
+  form.append(inputLabel, input, run);
   terminal.append(form);
   const actions = document.createElement("div");
   const complete = document.createElement("button");
@@ -202,15 +283,47 @@ export function render(context) {
   status.setAttribute("role", "status");
   actions.append(complete, status);
   terminal.append(actions);
+  const checklist = document.createElement("ol");
+  checklist.className = "lc-bash-simulator-checklist";
+  terminal.append(checklist);
   context.container.append(terminal);
   renderTranscript(output, visibleTranscript);
 
-  const setDisabled = (value) => {
-    input.disabled = value;
-    run.disabled = value;
-    complete.disabled = value || !context.submit;
+  const refreshChecklist = () => {
+    const requirements = requirementsFor(content, transcript, cwd);
+    checklist.replaceChildren();
+    for (const step of requirements.steps) {
+      const item = document.createElement("li");
+      item.textContent = `${step.done ? "✓" : "○"} ${step.command}`;
+      checklist.append(item);
+    }
+    if (requirements.directory) {
+      const item = document.createElement("li");
+      item.textContent = `${requirements.directoryDone ? "✓" : "○"} ${requirements.directory}`;
+      checklist.append(item);
+    }
+    const writable = !currentContext.readOnly && Boolean(currentContext.submit) && !saved && !saving;
+    input.disabled = !writable || limitReached;
+    run.disabled = !writable || limitReached;
+    complete.disabled = !writable || !requirements.steps.every((step) => step.done) || !requirements.directoryDone;
+    if (!saved && complete.disabled && requirements.required.length && !limitReached && !saving) {
+      status.textContent = chinese ? "完成清单中的步骤后可提交。" : "Complete every listed step before submitting.";
+    }
+    directory.textContent = `${labels.directory}${cwd}`;
   };
-  setDisabled(Boolean(previous));
+  refreshChecklist();
+
+  const resetAttempt = () => {
+    cwd = initialDirectory;
+    transcript = [];
+    visibleTranscript = [];
+    limitReached = false;
+    saveDraft(key, { cwd, transcript, visibleTranscript });
+    renderTranscript(output, visibleTranscript);
+    status.textContent = "";
+    refreshChecklist();
+    if (!input.disabled) input.focus();
+  };
 
   form.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -225,23 +338,45 @@ export function render(context) {
     transcript = appendEntry(transcript, entry, transcriptLimit);
     visibleTranscript = result.clear ? [] : appendEntry(visibleTranscript, entry, transcriptLimit);
     renderTranscript(output, visibleTranscript);
+    saveDraft(key, { cwd, transcript, visibleTranscript });
+    refreshChecklist();
     input.value = "";
-    if (transcript.length >= transcriptLimit) status.textContent = labels.limit;
+    input.focus();
+    if (transcript.length >= transcriptLimit) {
+      limitReached = true;
+      status.replaceChildren(document.createTextNode(labels.limit), document.createTextNode(" "));
+      const reset = document.createElement("button");
+      reset.type = "button";
+      reset.textContent = labels.resetAttempt;
+      reset.addEventListener("click", resetAttempt);
+      status.append(reset);
+      refreshChecklist();
+    }
     if (before !== cwd && !result.output) status.textContent = `${labels.directory}${cwd}`;
   });
 
   complete.addEventListener("click", () => {
-    if (!context.submit || previous || !transcript.length) return;
-    complete.disabled = true;
+    if (!currentContext.submit || saved || saving || !transcript.length || complete.disabled) return;
+    saving = true;
+    refreshChecklist();
     status.textContent = labels.saving;
-    void context.submit({ completed: true, transcript }).then(() => {
+    void currentContext.submit({ completed: true, transcript }).then(() => {
+      saving = false;
+      saved = true;
       status.textContent = labels.saved;
-      input.disabled = true;
-      run.disabled = true;
+      try { window.sessionStorage.removeItem(key); } catch {}
+      refreshChecklist();
     }).catch((error) => {
-      complete.disabled = false;
+      saving = false;
       status.textContent = error instanceof Error ? error.message : labels.failed;
+      refreshChecklist();
     });
   });
-  return true;
+  return {
+    update(nextContext) {
+      currentContext = nextContext;
+      saved = saved || Boolean(completedAnswer(nextContext.state));
+      refreshChecklist();
+    },
+  };
 }

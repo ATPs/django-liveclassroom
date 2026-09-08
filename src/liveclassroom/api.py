@@ -9,6 +9,7 @@ from django.db import IntegrityError, transaction
 from django.http import Http404, JsonResponse, StreamingHttpResponse
 from django.shortcuts import get_object_or_404
 from django.urls import reverse
+from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
 from .models import (
@@ -32,15 +33,17 @@ from .services.classroom import (
     can_manage_session,
     can_view_display,
     can_view_session,
+    command_timer,
     delete_session,
     end_session,
+    get_or_create_test_participant,
     join_authenticated,
     join_guest,
     launch_item,
     pause_session,
     post_message,
     public_result_summary,
-    publish_activity_to_channel,
+    publish_activity_to_audiences,
     record_act_as_activation,
     remove_session_staff,
     result_summary,
@@ -53,9 +56,14 @@ from .services.classroom import (
     set_session_staff,
     start_session,
     submit_answer,
+    timer_runtime_state,
     update_channel_visibility,
 )
+from .services.classroom import (
+    close_and_show_answer as close_and_show_activity_answer,
+)
 from .services.exports import csv_export, json_archive
+from .services.presentation import presentation_title
 
 
 def _body(request) -> dict:
@@ -358,6 +366,19 @@ def _public_activity(
     raw_snapshot = revision.definition_snapshot if revision is not None else activity.definition_snapshot
     snapshot = safe_activity_snapshot(raw_snapshot)
     snapshot = deepcopy(snapshot)
+    def contains_content(value, keys):
+        if isinstance(value, dict):
+            if any(key in value and value[key] not in (None, "", []) for key in keys):
+                return True
+            return any(contains_content(item, keys) for item in value.values())
+        if isinstance(value, list):
+            return any(contains_content(item, keys) for item in value)
+        return False
+
+    has_answer = contains_content(snapshot, {"answer", "correct_answer"})
+    has_explanation = contains_content(snapshot, {"explanation", "explanation_markdown"})
+    if isinstance(snapshot.get("title"), str):
+        snapshot["title"] = presentation_title(snapshot["title"])
     show_prompt = force_show_prompt or channel_state is None or channel_state.show_prompt
     show_explanation = (
         activity.state == LiveActivity.State.REVEALED
@@ -425,7 +446,7 @@ def _public_activity(
             snapshot["content"] = content
     if (
         channel_state is not None
-        and channel_state.channel == SessionChannelState.Channel.PARTICIPANTS
+        and getattr(channel_state, "channel", None) == SessionChannelState.Channel.PARTICIPANTS
         and participant is not None
         and participant.admission_state == Participant.AdmissionState.ADMITTED
         and session is not None
@@ -460,7 +481,10 @@ def _public_activity(
         "revision": revision.revision if revision is not None else 1,
         "revision_id": revision.id if revision is not None else None,
         "definition": snapshot,
+        "has_answer": has_answer,
+        "has_explanation": has_explanation,
         "frontend_manifest": manifest,
+        "runtime": timer_runtime_state(activity) if activity.kind == "timer" else None,
     }
 
 
@@ -472,7 +496,13 @@ def start(request, session_id: int):
     if replay is not None:
         return replay
     try:
-        start_session(session=session, actor=request.user)
+        body = _body(request)
+        step_id = body.get("plan_step_id")
+        step = None
+        if step_id is not None:
+            from .models import SessionPlanStep
+            step = get_object_or_404(SessionPlanStep, pk=step_id, session=session, removed=False)
+        start_session(session=session, actor=request.user, starting_item=step)
     except ClassroomError as exc:
         return _record(session, key, "session.start", request, _error(str(exc), 403))
     response = JsonResponse(
@@ -588,6 +618,7 @@ def launch(request, session_id: int):
         return _record(session, key, "activity.launch", request, _error(str(exc), 403))
     except Http404:
         return _record(session, key, "activity.launch", request, _error("The selected activity was not found.", 404))
+    session.refresh_from_db(fields=["state_version"])
     response = JsonResponse(
         {"activity_id": activity.id, "version": session.state_version}, status=201
     )
@@ -611,6 +642,59 @@ def transition(request, activity_id: int, state: str):
 
 @require_POST
 @transaction.atomic
+def close_and_show_answer(request, activity_id: int):
+    """Close responses and reveal an answer as one replayable command."""
+    activity = get_object_or_404(LiveActivity.objects.select_related("session"), pk=activity_id)
+    replay, key = _replay(request, activity.session, "activity.close-and-show-answer")
+    if replay is not None:
+        return replay
+    try:
+        activity = close_and_show_activity_answer(activity=activity, actor=request.user)
+    except ClassroomError as exc:
+        return _record(
+            activity.session, key, "activity.close-and-show-answer", request, _error(str(exc), 403)
+        )
+    return _record(
+        activity.session,
+        key,
+        "activity.close-and-show-answer",
+        request,
+        JsonResponse({"activity_id": activity.id, "state": activity.state, "show_answer": True}),
+    )
+
+
+@require_POST
+@transaction.atomic
+def timer(request, activity_id: int):
+    """Start, pause, resume, or reset a timer's server runtime state."""
+    activity = get_object_or_404(LiveActivity.objects.select_related("session"), pk=activity_id)
+    replay, key = _replay(request, activity.session, "timer.command")
+    if replay is not None:
+        return replay
+    try:
+        action = _body(request)["action"]
+        runtime = command_timer(activity=activity, action=action, actor=request.user)
+        activity.session.refresh_from_db(fields=["state_version"])
+    except KeyError:
+        return _record(activity.session, key, "timer.command", request, _error("action is required."))
+    except ClassroomError as exc:
+        return _record(activity.session, key, "timer.command", request, _error(str(exc), 403))
+    return _record(
+        activity.session,
+        key,
+        "timer.command",
+        request,
+        JsonResponse({
+            "activity_id": activity.id,
+            "runtime": runtime,
+            "server_time": timezone.now().timestamp(),
+            "version": activity.session.state_version,
+        }),
+    )
+
+
+@require_POST
+@transaction.atomic
 def publish_channel(request, session_id: int):
     session = get_object_or_404(LiveSession, pk=session_id)
     replay, key = _replay(request, session, "channel.publish")
@@ -619,13 +703,16 @@ def publish_channel(request, session_id: int):
     try:
         body = _body(request)
         activity = get_object_or_404(LiveActivity, pk=body["activity_id"])
-        channel_state = publish_activity_to_channel(
+        channel = body["channel"]
+        states = publish_activity_to_audiences(
             session=session,
             activity=activity,
-            channel=body["channel"],
+            channels=["display", "participants"] if channel == "both" else [channel],
             actor=request.user,
             allow_review=body.get("allow_review"),
         )
+        session.refresh_from_db(fields=["state_version"])
+        channel_state = states[0]
     except KeyError as exc:
         return _record(session, key, "channel.publish", request, _error(f"{exc.args[0]} is required."))
     except ClassroomError as exc:
@@ -635,9 +722,9 @@ def publish_channel(request, session_id: int):
     return _record(session, key, "channel.publish", request, JsonResponse(
         {
             "session_id": session.id,
-            "channel": channel_state.channel,
+            "channel": body["channel"],
             "activity_id": channel_state.current_activity_id,
-            "version": channel_state.version,
+            "version": session.state_version,
         }
     ))
 
@@ -653,14 +740,24 @@ def channel_settings(request, session_id: int):
     try:
         body = _body(request)
         channel = body.pop("channel")
-        state = update_channel_visibility(session=session, channel=channel, actor=request.user, **body)
+        channels = (
+            [SessionChannelState.Channel.DISPLAY, SessionChannelState.Channel.PARTICIPANTS]
+            if channel == "both"
+            else [channel]
+        )
+        with transaction.atomic():
+            states = [
+                update_channel_visibility(session=session, channel=target, actor=request.user, **body)
+                for target in channels
+            ]
+        state = states[-1]
     except KeyError as exc:
         return _record(session, key, "channel.settings", request, _error(f"{exc.args[0]} is required."))
     except ClassroomError as exc:
         return _record(session, key, "channel.settings", request, _error(str(exc), 403))
     payload = {
         "session_id": session.id,
-        "channel": state.channel,
+        "channel": channel,
         "version": state.version,
         "visibility": {
             field: (
@@ -822,6 +919,10 @@ def chat_messages(request, session_id: int):
         return _error("You are not admitted to this classroom.", 403)
     if not participant and not can_view_session(request.user, session):
         return _error("Join the classroom before viewing chat.", 403)
+    # The managed test identity is intentionally isolated from the classroom
+    # chat stream. It exercises answers without simulating a student device.
+    if participant and participant.is_test:
+        return JsonResponse({"enabled": False, "messages": []})
     messages = (
         session.messages.filter(deleted_at__isnull=True).values("id", "display_name", "body", "created_at")
         if session.chat_enabled or (not acting_as and can_view_session(request.user, session))
@@ -836,7 +937,7 @@ def participants(request, session_id: int):
     session = get_object_or_404(LiveSession, pk=session_id)
     if not can_manage_admission(request.user, session):
         return _error("You do not have permission to view participants.", 403)
-    roster = list(session.participants.order_by("joined_at", "id").values(
+    roster = list(session.participants.filter(is_test=False).order_by("joined_at", "id").values(
         "id",
         "display_name",
         "user_id",
@@ -875,6 +976,48 @@ def activate_student_view(request, session_id: int):
         return _error(str(exc), 403)
     return JsonResponse({
         "act_as_token": _student_view_token(session=session, participant=participant, actor=request.user, active=True)
+    })
+
+
+@require_POST
+@transaction.atomic
+def test_student(request, session_id: int):
+    """Create/reuse a manager-owned test participant and activate it."""
+    session = get_object_or_404(LiveSession, pk=session_id)
+    replay, key = _replay(request, session, "participant.test-student")
+    if replay is not None:
+        return replay
+    try:
+        participant = get_or_create_test_participant(session=session, actor=request.user)
+        record_act_as_activation(session=session, participant=participant, actor=request.user)
+    except ClassroomError as exc:
+        return _record(session, key, "participant.test-student", request, _error(str(exc), 403))
+    response = JsonResponse({
+        "participant": {"id": participant.id, "display_name": participant.display_name, "is_test": True},
+        "act_as_token": _student_view_token(session=session, participant=participant, actor=request.user, active=True),
+        "expires_in": 900,
+    })
+    return _record(session, key, "participant.test-student", request, response)
+
+
+@require_POST
+def renew_test_student(request, session_id: int):
+    """Refresh a manager-owned test token without creating another audit event."""
+    session = get_object_or_404(LiveSession, pk=session_id)
+    if not can_manage_session(request.user, session):
+        return _error("You do not have permission to renew this test student.", 403)
+    participant = Participant.objects.filter(
+        session=session,
+        test_owner=request.user,
+        is_test=True,
+        admission_state=Participant.AdmissionState.ADMITTED,
+    ).first()
+    if participant is None:
+        return _error("Open the test student before renewing its token.", 404)
+    return JsonResponse({
+        "participant": {"id": participant.id, "display_name": participant.display_name, "is_test": True},
+        "act_as_token": _student_view_token(session=session, participant=participant, actor=request.user, active=True),
+        "expires_in": 900,
     })
 
 
@@ -1054,7 +1197,10 @@ def state(request, session_id: int):
     preview = request.GET.get("preview") == "1"
     if preview and (acting_as or not can_manage_session(request.user, session)):
         return _error("You do not have permission to preview participant state.", 403)
-    participant = participant or _participant_for_request(request, session)
+    # Passive staff preview is deliberately identity-free, even when this
+    # browser also carries a participant cookie from a separate test tab.
+    # It must not render, submit, or expose any real student's own record.
+    participant = None if preview else participant or _participant_for_request(request, session)
     staff_view = not preview and not acting_as and can_view_session(request.user, session)
     requested_channel = request.GET.get("channel")
     if requested_channel not in {None, *SessionChannelState.Channel.values}:
@@ -1163,6 +1309,7 @@ def state(request, session_id: int):
             "protocol_version": 1,
             "session_id": session.id,
             "state_version": session.state_version,
+            "server_time": timezone.now().timestamp(),
             "session": {
                 "id": session.id,
                 "title": session.title,

@@ -10,6 +10,12 @@ from liveclassroom.models import ClassroomAsset, DemoLesson, Flow, LiveSession
 from liveclassroom.services.classroom import ClassroomError, join_authenticated, join_guest
 from liveclassroom.services.flows import create_flow
 from liveclassroom.services.permissions import can_teach, can_use_flow
+from liveclassroom.services.presentation import presentation_title
+
+
+def test_legacy_bash_machine_prefix_is_removed_only_for_recognized_demo_steps():
+    assert presentation_title("[bash-demo:en:simulator] Guided Bash practice") == "Guided Bash practice"
+    assert presentation_title("[bash-demo:en:custom] Keep this title") == "[bash-demo:en:custom] Keep this title"
 
 
 @pytest.mark.django_db
@@ -34,6 +40,11 @@ def test_bash_demo_seed_is_idempotent_and_contains_the_full_course():
     assert all(session.chat_enabled is False for session in demo_sessions)
     assert all(demo.ended_session.participants.count() == 1 for demo in demos)
     assert all(demo.ended_session.activities.first().submissions.count() == 1 for demo in demos)
+    assert all(
+        not step.activity_definition.title.startswith("[bash-demo:")
+        for demo in demos
+        for step in demo.flow.steps.select_related("activity_definition")
+    )
     assert {
         step.activity_definition.type_key for step in demos[0].flow.steps.select_related("activity_definition")
     } == {
@@ -52,12 +63,51 @@ def test_bash_demo_seed_is_idempotent_and_contains_the_full_course():
         "liveclassroom.ranking",
         "liveclassroom.short_text",
     }
+    chinese = next(demo for demo in demos if demo.language == "zh-Hans")
+    steps = {step.position: step for step in chinese.flow.steps.select_related("activity_definition")}
+    assert "显示当前目录" in steps[9].activity_definition.definition["options"][0]["text"]
+    assert "查看当前位置" in steps[13].activity_definition.definition["options"][0]["text"]
+    assert steps[4].activity_definition.definition["url"].endswith("bash-command-flow-zh-Hans.svg")
 
     with pytest.raises(ClassroomError, match="requires a Django account"):
         join_guest(session=demos[0].live_session, display_name="Unexpected visitor")
     visitor = get_user_model().objects.create_user(username="demo-uninvited-visitor")
     with pytest.raises(ClassroomError, match="not on this classroom's roster"):
         join_authenticated(session=demos[0].live_session, user=visitor)
+
+
+@pytest.mark.django_db
+def test_seed_refreshes_reusable_definition_through_a_new_revision_only():
+    call_command("seed_liveclassroom_bash_demo", language="en")
+    demo = DemoLesson.objects.get(language="en")
+    activity = demo.flow.steps.get(position=2).activity_definition
+    original_revisions = activity.revisions.count()
+    activity.definition = {"prompt": "outdated", "options": [{"id": "old", "text": "Old"}]}
+    activity.save(update_fields=["definition", "updated_at"])
+
+    call_command("seed_liveclassroom_bash_demo", language="en")
+    activity.refresh_from_db()
+    assert activity.revisions.count() == original_revisions + 1
+    assert activity.current_revision.payload == activity.definition
+    call_command("seed_liveclassroom_bash_demo", language="en")
+    assert activity.revisions.count() == original_revisions + 1
+
+
+@pytest.mark.django_db
+def test_seed_refreshes_an_existing_bash_cheat_sheet_asset():
+    call_command("seed_liveclassroom_bash_demo", language="en")
+    asset = ClassroomAsset.objects.get(original_name="bash-starter-cheatsheet-en.md")
+    asset.sha256 = "0" * 64
+    asset.byte_size = 1
+    asset.save(update_fields=["sha256", "byte_size", "updated_at"])
+
+    call_command("seed_liveclassroom_bash_demo", language="en")
+
+    asset.refresh_from_db()
+    assert asset.sha256 != "0" * 64
+    assert asset.byte_size > 1
+    with asset.content_file.open("rb") as content:
+        assert b"Bash starter cheat sheet" in content.read()
 
 
 @pytest.mark.django_db

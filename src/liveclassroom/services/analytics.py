@@ -3,11 +3,12 @@
 from collections import Counter
 from typing import Any
 
-from django.db.models import Prefetch
+from django.db.models import Prefetch, Q
 
 from liveclassroom.models import LiveSession, Participant, ParticipantConnection, Submission
 
 from .classroom import result_summary
+from .presentation import presentation_title
 
 
 def _revision_payload(revision) -> dict[str, Any]:
@@ -49,12 +50,14 @@ def session_analytics(session: LiveSession) -> dict[str, Any]:
     by the staff-only API endpoint. Student state remains served by ``state``
     and never calls this function.
     """
-    participants = list(session.participants.order_by("joined_at", "id"))
+    participants = list(session.participants.filter(is_test=False).order_by("joined_at", "id"))
     participant_by_id = {participant.id: participant for participant in participants}
     status_counts = Counter(participant.admission_state for participant in participants)
     eligible_count = status_counts[Participant.AdmissionState.ADMITTED]
     chat_messages = list(
-        session.messages.filter(deleted_at__isnull=True)
+        session.messages.filter(deleted_at__isnull=True).filter(
+            Q(participant__isnull=True) | Q(participant__is_test=False)
+        )
         .order_by("created_at", "id")
         .values("id", "author_id", "participant_id", "display_name", "body", "created_at")
     )
@@ -66,7 +69,7 @@ def session_analytics(session: LiveSession) -> dict[str, Any]:
             "current_revision__activity_revision",
         )
         .prefetch_related("revisions")
-        .order_by("participant_id", "id")
+        .filter(participant__is_test=False).order_by("participant_id", "id")
     )
     activities = list(
         session.activities.order_by("sequence").select_related("current_revision").prefetch_related(
@@ -89,7 +92,7 @@ def session_analytics(session: LiveSession) -> dict[str, Any]:
                     {
                         "activity_id": activity.id,
                         "activity_sequence": activity.sequence,
-                        "activity_title": activity.definition_snapshot.get("title", ""),
+                        "activity_title": presentation_title(activity.definition_snapshot.get("title", ""), ""),
                         "submission_id": submission.id,
                         "is_stale": submission.is_stale,
                         "submitted_at": submission.submitted_at,
@@ -106,7 +109,7 @@ def session_analytics(session: LiveSession) -> dict[str, Any]:
                 "id": activity.id,
                 "sequence": activity.sequence,
                 "kind": activity.kind,
-                "title": activity.definition_snapshot.get("title", ""),
+                "title": presentation_title(activity.definition_snapshot.get("title", ""), ""),
                 "state": activity.state,
                 "revision": activity.current_revision.revision if activity.current_revision else 1,
                 "eligible_participant_count": eligible_count,
@@ -120,7 +123,9 @@ def session_analytics(session: LiveSession) -> dict[str, Any]:
         )
 
     active_connection_ids = set(
-        ParticipantConnection.objects.filter(participant__session=session, disconnected_at__isnull=True).values_list(
+        ParticipantConnection.objects.filter(
+            participant__session=session, participant__is_test=False, disconnected_at__isnull=True,
+        ).values_list(
             "participant_id", flat=True
         )
     )

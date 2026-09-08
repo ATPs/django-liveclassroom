@@ -8,11 +8,13 @@ from collections.abc import Iterable, Iterator
 from typing import Any
 
 from django.core.serializers.json import DjangoJSONEncoder
+from django.db.models import Q
 
 from liveclassroom.models import LiveActivity, LiveSession, Submission
 from liveclassroom.registry import activity_registry
 
 from .classroom import result_summary
+from .presentation import presentation_title
 
 
 class _Echo:
@@ -45,7 +47,7 @@ def _answer(activity: LiveActivity, answer: dict, *, activity_revision=None) -> 
 
 
 def _participants(session: LiveSession):
-    return session.participants.order_by("joined_at", "id").values(
+    return session.participants.filter(is_test=False).order_by("joined_at", "id").values(
         "id", "display_name", "user_id", "admission_state", "joined_at", "last_seen_at", "connected_at",
         "disconnected_at", "removed_at",
     ).iterator(chunk_size=200)
@@ -55,8 +57,12 @@ def _activities(session: LiveSession):
     return session.activities.order_by("sequence", "id").select_related("current_revision").iterator(chunk_size=100)
 
 
+def _activity_title(activity: LiveActivity) -> str:
+    return presentation_title(activity.definition_snapshot.get("title", ""), "")
+
+
 def _submissions(session: LiveSession):
-    return Submission.objects.filter(activity__session=session).select_related(
+    return Submission.objects.filter(activity__session=session, participant__is_test=False).select_related(
         "activity", "participant", "current_revision", "current_revision__activity_revision"
     ).order_by("activity__sequence", "participant_id", "id").iterator(chunk_size=200)
 
@@ -126,7 +132,11 @@ def json_archive(session: LiveSession) -> Iterator[str]:
         if not first:
             yield ","
         yield _encode({
-            "id": activity.id, "sequence": activity.sequence, "kind": activity.kind, "state": activity.state,
+            "id": activity.id,
+            "sequence": activity.sequence,
+            "title": _activity_title(activity),
+            "kind": activity.kind,
+            "state": activity.state,
             "reviewable": activity.reviewable, "definition_snapshot": activity.definition_snapshot,
             "revisions": [
                 {"id": revision.id, "revision": revision.revision, "definition_snapshot": revision.definition_snapshot,
@@ -139,18 +149,24 @@ def json_archive(session: LiveSession) -> Iterator[str]:
     yield ',"responses":'
     yield from _array(_submission_row(submission) for submission in _submissions(session))
     yield ',"chat":'
-    yield from _array(session.messages.filter(deleted_at__isnull=True).order_by("created_at", "id").values(
+    yield from _array(session.messages.filter(deleted_at__isnull=True).filter(
+        Q(participant__isnull=True) | Q(participant__is_test=False)
+    ).order_by("created_at", "id").values(
         "id", "author_id", "participant_id", "display_name", "body", "created_at"
     ).iterator(chunk_size=200))
     yield ',"events":'
-    yield from _array(session.events.order_by("sequence", "id").values(
+    yield from _array(session.events.filter(
+        Q(participant__isnull=True) | Q(participant__is_test=False)
+    ).order_by("sequence", "id").values(
         "sequence", "event_type", "actor_id", "participant_id", "payload", "created_at"
     ).iterator(chunk_size=200))
     yield "}"
 
 
 _FIELDS = {
-    "summary": ["activity_id", "sequence", "kind", "state", "submission_count", "stale_submission_count", "choices"],
+    "summary": [
+        "activity_id", "sequence", "title", "kind", "state", "submission_count", "stale_submission_count", "choices",
+    ],
     "responses": ["activity_id", "activity_sequence", "activity_revision", "submission_id", "participant_id",
                   "display_name", "performed_by_id", "answer", "is_stale", "is_correct", "score", "submitted_at",
                   "revisions"],
@@ -164,7 +180,8 @@ def _csv_rows(session: LiveSession, dataset: str) -> Iterable[dict]:
     if dataset == "summary":
         for activity in _activities(session):
             summary = result_summary(activity)
-            yield {"activity_id": activity.id, "sequence": activity.sequence, "kind": activity.kind,
+            yield {"activity_id": activity.id, "sequence": activity.sequence, "title": _activity_title(activity),
+                   "kind": activity.kind,
                    "state": activity.state, "submission_count": summary.get("submission_count", 0),
                    "stale_submission_count": summary.get("stale_submission_count", 0),
                    "choices": _encode(summary.get("choices", {}))}
@@ -175,7 +192,9 @@ def _csv_rows(session: LiveSession, dataset: str) -> Iterable[dict]:
     elif dataset == "participants":
         yield from _participants(session)
     elif dataset == "chat":
-        yield from session.messages.filter(deleted_at__isnull=True).order_by("created_at", "id").values(
+        yield from session.messages.filter(deleted_at__isnull=True).filter(
+            Q(participant__isnull=True) | Q(participant__is_test=False)
+        ).order_by("created_at", "id").values(
             "id", "author_id", "participant_id", "display_name", "body", "created_at"
         ).iterator(chunk_size=200)
     else:

@@ -26,6 +26,7 @@ from .services.flows import (
     update_flow,
 )
 from .services.permissions import can_teach, can_use_activity_definition, can_use_flow
+from .services.presentation import presentation_title
 
 
 def _serialize_flow(flow: Flow) -> dict[str, Any]:
@@ -54,7 +55,7 @@ def _serialize_flow_summary(flow: Flow) -> dict[str, Any]:
 def _serialize_step(step: FlowStep) -> dict[str, Any]:
     activity_data = {
         "id": step.activity_definition.id,
-        "title": step.activity_definition.title,
+        "title": presentation_title(step.activity_definition.title),
         "type_key": step.activity_definition.type_key,
         "schema_version": step.activity_definition.schema_version,
         "status": step.activity_definition.status,

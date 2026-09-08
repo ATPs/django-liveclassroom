@@ -117,7 +117,7 @@ def test_student_can_submit_revise_and_resubmit_after_teacher_activity_edit(live
             lambda response: response.request.method == "GET"
             and response.url.endswith(f"{student_state_url}?channel=participants")
         ) as second_submission_state:
-            student.get_by_role("button", name="Update answer", exact=True).click()
+            student.get_by_role("button", name="Save changes", exact=True).click()
         assert second_submission.value.status == 201, second_submission.value.text()
         assert second_submission_state.value.status == 200
 
@@ -132,6 +132,7 @@ def test_student_can_submit_revise_and_resubmit_after_teacher_activity_edit(live
             teacher_page.goto(f"{live_server.url}{reverse('liveclassroom:teacher-console', args=[session.id])}")
         assert plan_response.value.status == 200
 
+        teacher_page.get_by_text("Edit lesson", exact=True).click()
         plan = teacher_page.locator("[data-session-plan]")
         edit_button = plan.get_by_role("button", name="Edit this classroom", exact=True)
         edit_button.wait_for()
@@ -160,9 +161,7 @@ def test_student_can_submit_revise_and_resubmit_after_teacher_activity_edit(live
             student.wait_for_function(
                 """() => {
                     const input = document.querySelector('#student-content textarea[name="text"]');
-                    const title = document.querySelector('#student-title');
-                    return input && !input.disabled && input.value === ""
-                        && title && title.textContent.trim() === "Revised question";
+                    return input && !input.disabled && input.value === "";
                 }"""
             )
         assert revised_state.value.status == 200
@@ -187,6 +186,7 @@ def test_student_can_submit_revise_and_resubmit_after_teacher_activity_edit(live
 
         database_call(assert_submission_saved)
 
+        teacher_page.get_by_text("More", exact=True).click()
         review_fieldset = teacher_page.get_by_role("group", name="Student review access")
         allow_review = review_fieldset.get_by_label("Allow review", exact=True)
         allow_review.wait_for()
@@ -204,7 +204,8 @@ def test_student_can_submit_revise_and_resubmit_after_teacher_activity_edit(live
         with teacher_page.expect_response(
             lambda response: response.request.method == "POST" and response.url.endswith(end_url)
         ) as end_response:
-            teacher_page.get_by_role("button", name="End classroom", exact=True).click()
+            teacher_page.get_by_text("Class menu", exact=True).click()
+            teacher_page.get_by_role("button", name="End class", exact=True).click()
         assert end_response.value.status == 200
 
         def snapshot_participant():
@@ -240,8 +241,10 @@ def test_student_can_submit_revise_and_resubmit_after_teacher_activity_edit(live
         ) as review_history_response:
             student.reload()
         assert review_history_response.value.status == 200
-        student.get_by_text("Revised prompt", exact=True).wait_for()
-        student.get_by_text("answer after revision", exact=True).wait_for()
+        history = student.locator("details[data-liveclassroom-history]")
+        history.locator("summary").get_by_text("Previous activities", exact=True).click()
+        history.get_by_text("Revised prompt", exact=True).wait_for()
+        history.get_by_text("answer after revision", exact=True).wait_for()
         assert student.get_by_text("Waiting for the teacher.", exact=True).count() == 0
         assert join_requests == []
         enabled_answer_controls = student.locator(
@@ -314,9 +317,10 @@ def test_ended_single_choice_review_shows_labels_and_own_answer(live_server):
             [{"name": settings.SESSION_COOKIE_NAME, "value": guest_cookie, "url": live_server.url}]
         )
         student.goto(f"{live_server.url}{reverse('liveclassroom:student-session', args=[session.id])}")
-        readonly_choices = student.locator("[data-liveclassroom-readonly-choices]")
-        readonly_choices.get_by_text("Blue", exact=True).wait_for()
-        readonly_choices.get_by_text("Green", exact=True).wait_for()
+        history = student.locator("details[data-liveclassroom-history]")
+        history.locator("summary").get_by_text("Previous activities", exact=True).click()
+        assert history.get_by_label("Blue", exact=True).is_disabled()
+        assert history.get_by_label("Green", exact=True).is_disabled()
         student.locator("[data-liveclassroom-own-answer]").get_by_text("Blue", exact=True).wait_for()
         enabled_answer_controls = student.locator(
             "#student-content input:not([disabled]), #student-content textarea:not([disabled]), "

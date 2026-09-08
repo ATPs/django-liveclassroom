@@ -13,7 +13,7 @@ from django.views.decorators.http import require_GET, require_http_methods, requ
 
 from .api import _authoring_replay, _body, _error, _record_authoring
 from .models import ActivityDefinition, Course, CourseMembership, Flow, FlowShare, LiveSession, SessionPlanStep
-from .services.classroom import ClassroomError, can_view_session, publish_activity_to_channel, session_capabilities
+from .services.classroom import ClassroomError, can_view_session, session_capabilities
 from .services.permissions import can_author_course, can_edit_flow, can_teach, can_use_flow
 from .services.plan_changes import apply_changes, compare_changes
 from .services.plans import (
@@ -23,6 +23,7 @@ from .services.plans import (
     launch_plan_step,
     reorder_plan,
 )
+from .services.presentation import presentation_title
 
 
 def command(view):
@@ -249,12 +250,15 @@ def sessions_create(request):
 
 def serialize_step(step):
     latest = step.runs.order_by("-sequence").first()
+    snapshot = dict(step.snapshot)
+    if isinstance(snapshot.get("title"), str):
+        snapshot["title"] = presentation_title(snapshot["title"])
     return {
         "id": step.pk,
         "key": str(step.key),
         "position": step.position,
-        "snapshot": step.snapshot,
-        "title": step.snapshot.get("title", "Activity"),
+        "snapshot": snapshot,
+        "title": presentation_title(step.snapshot.get("title", "Activity")),
         "activity_id": latest.pk if latest else None,
         "activity_state": latest.state if latest else None,
         "launched": latest is not None,
@@ -333,19 +337,13 @@ def plan_launch(request, session_id, step_id):
     if not isinstance(body.get("restart", False), bool):
         raise ClassroomError("restart must be a boolean.")
     channel = body.get("channel", "display")
-    if channel == "both":
-        activity = launch_plan_step(
-            session=session, step=step, actor=request.user, channel="display", restart=body.get("restart", False)
-        )
-        publish_activity_to_channel(session=session, activity=activity, channel="participants", actor=request.user)
-    else:
-        activity = launch_plan_step(
+    activity = launch_plan_step(
         session=session,
         step=step,
         actor=request.user,
         channel=channel,
         restart=body.get("restart", False),
-        )
+    )
     return JsonResponse({"activity_id": activity.pk}, status=201)
 
 

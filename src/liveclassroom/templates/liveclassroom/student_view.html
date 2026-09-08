@@ -1,7 +1,7 @@
 {% extends liveclassroom_base_template %}
 {% block title %}Student view · {{ session.title }}{% endblock %}
 {% block content %}
-  <section class="lc-card lc-wide" data-student-view data-participants-url="{% url 'liveclassroom:api-v1-participants' session.id %}" data-activate-url="{% url 'liveclassroom:api-v1-student-view-activate' session.id %}" data-state-url="{% url 'liveclassroom:api-v1-state' session.id %}">
+  <section class="lc-card lc-wide" data-student-view data-participants-url="{% url 'liveclassroom:api-v1-participants' session.id %}" data-activate-url="{% url 'liveclassroom:api-v1-student-view-activate' session.id %}" data-test-student-url="{% url 'liveclassroom:api-v1-test-student' session.id %}" data-renew-test-student-url="{% url 'liveclassroom:api-v1-renew-test-student' session.id %}" data-teacher-url="{% url 'liveclassroom:teacher-console' session.id %}" data-state-url="{% url 'liveclassroom:api-v1-state' session.id %}">
     <label>Participant <select data-student-view-participant></select></label>
     <button type="button" data-student-view-inspect>Inspect</button>
     <button type="button" data-student-view-activate>Act as participant</button>

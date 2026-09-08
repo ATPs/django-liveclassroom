@@ -1,7 +1,9 @@
+import json
 from datetime import timedelta
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.urls import reverse
 from django.utils import timezone
 
 from liveclassroom.models import (
@@ -20,6 +22,7 @@ from liveclassroom.services.classroom import (
     can_manage_session,
     can_view_display,
     can_view_session,
+    close_and_show_answer,
     create_activity_definition,
     create_instant_session,
     delete_session,
@@ -28,6 +31,7 @@ from liveclassroom.services.classroom import (
     join_guest,
     launch_item,
     pause_session,
+    publish_activity_to_audiences,
     publish_activity_to_channel,
     purge_expired_sessions,
     revise_activity,
@@ -75,6 +79,228 @@ def test_instant_session_has_independent_channels_and_reusable_activity(teacher)
         allow_review=True,
     )
     assert activity.reviewable is True
+
+
+@pytest.mark.django_db
+def test_start_session_can_publish_a_selected_starting_item(teacher):
+    from liveclassroom.models import SessionPlanStep
+    from liveclassroom.services.flows import add_flow_step, create_flow
+    from liveclassroom.services.plans import create_session
+
+    flow = create_flow(title="Starting item", creator=teacher)
+    definition = create_activity_definition(
+        owner=teacher, title="Welcome", type_key="liveclassroom.markdown", definition={"markdown": "Welcome"},
+    )
+    add_flow_step(flow=flow, actor=teacher, activity_definition=definition)
+    session = create_session(owner=teacher, title="Start selected", flow=flow)
+    step = SessionPlanStep.objects.get(session=session, position=1)
+
+    start_session(session=session, actor=teacher, starting_item=step)
+
+    assert session.status == LiveSession.Status.LIVE
+    assert {state.current_activity_id for state in session.channel_states.all()} == {session.activities.get().id}
+
+
+@pytest.mark.django_db
+def test_start_prepared_session_publishes_the_first_plan_step_by_default(teacher):
+    from liveclassroom.services.flows import add_flow_step, create_flow
+    from liveclassroom.services.plans import create_session
+
+    flow = create_flow(title="Default start", creator=teacher)
+    welcome = create_activity_definition(
+        owner=teacher, title="Welcome", type_key="liveclassroom.markdown", definition={"markdown": "Welcome"},
+    )
+    add_flow_step(flow=flow, actor=teacher, activity_definition=welcome)
+    session = create_session(owner=teacher, title="Default item", flow=flow)
+
+    start_session(session=session, actor=teacher)
+
+    activity = session.activities.get()
+    assert activity.plan_step.position == 1
+    assert set(session.channel_states.values_list("current_activity_id", flat=True)) == {activity.id}
+
+
+@pytest.mark.django_db
+def test_publishing_a_new_activity_resets_feedback_without_resetting_same_activity(teacher):
+    session = create_instant_session(owner=teacher, title="Visibility reset")
+    first = create_activity_definition(
+        owner=teacher, title="First", type_key="liveclassroom.single_choice",
+        definition={"options": [{"id": "a", "text": "A"}]},
+    )
+    second = create_activity_definition(
+        owner=teacher, title="Second", type_key="liveclassroom.single_choice",
+        definition={"options": [{"id": "b", "text": "B"}]},
+    )
+    start_session(session=session, actor=teacher)
+    first_run = launch_item(session=session, item=first, actor=teacher)
+    state = session.channel_states.get(channel=SessionChannelState.Channel.DISPLAY)
+    state.show_aggregate = state.show_answer = state.show_explanation = True
+    state.save(update_fields=["show_aggregate", "show_answer", "show_explanation"])
+    publish_activity_to_channel(session=session, activity=first_run, channel="display", actor=teacher)
+    state.refresh_from_db()
+    assert state.show_answer and state.show_explanation
+    second_run = launch_item(session=session, item=second, actor=teacher)
+    state.refresh_from_db()
+    assert state.current_activity_id == second_run.id
+    assert state.show_prompt is True
+    assert state.show_aggregate is state.show_answer is state.show_explanation is False
+
+
+@pytest.mark.django_db
+def test_two_audience_publication_rolls_back_if_the_second_channel_fails(teacher, monkeypatch):
+    """A failed participant update must not strand the display on another item."""
+    import liveclassroom.services.classroom as classroom_service
+
+    session = create_instant_session(owner=teacher, title="Atomic audience publication")
+    first = create_activity_definition(
+        owner=teacher, title="First", type_key="liveclassroom.markdown", definition={"markdown": "First"},
+    )
+    second = create_activity_definition(
+        owner=teacher, title="Second", type_key="liveclassroom.markdown", definition={"markdown": "Second"},
+    )
+    start_session(session=session, actor=teacher)
+    first_run = launch_item(session=session, item=first, actor=teacher)
+    publish_activity_to_audiences(
+        session=session,
+        activity=first_run,
+        channels=[SessionChannelState.Channel.DISPLAY, SessionChannelState.Channel.PARTICIPANTS],
+        actor=teacher,
+    )
+    second_run = launch_item(session=session, item=second, actor=teacher)
+    # `launch_item()` preserves its legacy display-launch behavior. Restore a
+    # common baseline before testing the two-audience publisher in isolation.
+    publish_activity_to_audiences(
+        session=session,
+        activity=first_run,
+        channels=[SessionChannelState.Channel.DISPLAY, SessionChannelState.Channel.PARTICIPANTS],
+        actor=teacher,
+    )
+    original_publish = classroom_service.publish_activity_to_channel
+
+    def fail_participants(*, channel, **kwargs):
+        if channel == SessionChannelState.Channel.PARTICIPANTS:
+            raise ClassroomError("simulated participant publication failure")
+        return original_publish(channel=channel, **kwargs)
+
+    monkeypatch.setattr(classroom_service, "publish_activity_to_channel", fail_participants)
+    with pytest.raises(ClassroomError, match="simulated participant publication failure"):
+        publish_activity_to_audiences(
+            session=session,
+            activity=second_run,
+            channels=[SessionChannelState.Channel.DISPLAY, SessionChannelState.Channel.PARTICIPANTS],
+            actor=teacher,
+        )
+
+    states = SessionChannelState.objects.filter(session=session)
+    assert set(states.values_list("current_activity_id", flat=True)) == {first_run.id}
+
+
+@pytest.mark.django_db
+def test_close_and_show_answer_is_atomic_and_only_affects_active_audiences(teacher):
+    session = create_instant_session(owner=teacher, title="Answer reveal")
+    definition = create_activity_definition(
+        owner=teacher, title="Scored", type_key="liveclassroom.single_choice",
+        definition={"options": [{"id": "a", "text": "A"}], "answer": "a"},
+    )
+    other_definition = create_activity_definition(
+        owner=teacher, title="Held", type_key="liveclassroom.single_choice",
+        definition={"options": [{"id": "b", "text": "B"}]},
+    )
+    start_session(session=session, actor=teacher)
+    activity = launch_item(session=session, item=definition, actor=teacher)
+    other = launch_item(session=session, item=other_definition, actor=teacher)
+    publish_activity_to_channel(session=session, activity=activity, channel="display", actor=teacher)
+    publish_activity_to_channel(session=session, activity=other, channel="participants", actor=teacher)
+
+    close_and_show_answer(activity=activity, actor=teacher)
+
+    activity.refresh_from_db()
+    display = session.channel_states.get(channel="display")
+    participants = session.channel_states.get(channel="participants")
+    assert activity.state == LiveActivity.State.REVEALED
+    assert display.show_answer is True
+    assert participants.current_activity_id == other.id
+    assert participants.show_answer is False
+
+
+@pytest.mark.django_db
+def test_close_and_show_answer_api_replays_without_a_second_transition(client, teacher):
+    session = create_instant_session(owner=teacher, title="Replay answer reveal")
+    definition = create_activity_definition(
+        owner=teacher, title="Scored", type_key="liveclassroom.single_choice",
+        definition={"options": [{"id": "a", "text": "A"}], "answer": "a"},
+    )
+    start_session(session=session, actor=teacher)
+    activity = launch_item(session=session, item=definition, actor=teacher)
+    publish_activity_to_channel(session=session, activity=activity, channel="display", actor=teacher)
+    client.force_login(teacher)
+    url = reverse("liveclassroom:api-v1-close-and-show-answer", args=[activity.id])
+
+    first = client.post(url, data="{}", content_type="application/json", HTTP_IDEMPOTENCY_KEY="show-once")
+    replay = client.post(url, data="{}", content_type="application/json", HTTP_IDEMPOTENCY_KEY="show-once")
+
+    assert first.status_code == replay.status_code == 200
+    assert replay.headers["Idempotent-Replay"] == "true"
+    assert first.json() == replay.json()
+    assert first.json()["state"] == LiveActivity.State.REVEALED
+
+
+@pytest.mark.django_db
+def test_same_activity_review_change_advances_version_once(teacher):
+    session = create_instant_session(owner=teacher, title="Review publication")
+    definition = create_activity_definition(
+        owner=teacher, title="Reviewable", type_key="liveclassroom.markdown", definition={"markdown": "Review"},
+    )
+    start_session(session=session, actor=teacher)
+    activity = launch_item(session=session, item=definition, actor=teacher)
+    state = session.channel_states.get(channel=SessionChannelState.Channel.DISPLAY)
+    session.refresh_from_db()
+    before = session.state_version
+
+    publish_activity_to_channel(
+        session=session,
+        activity=activity,
+        channel=SessionChannelState.Channel.DISPLAY,
+        actor=teacher,
+        allow_review=True,
+    )
+    session.refresh_from_db()
+    state.refresh_from_db()
+    assert activity.reviewable is True
+    assert session.state_version == before + 1
+    assert state.version == session.state_version
+    assert session.events.order_by("-sequence").first().event_type == "activity.review.updated"
+
+    publish_activity_to_channel(
+        session=session,
+        activity=activity,
+        channel=SessionChannelState.Channel.DISPLAY,
+        actor=teacher,
+        allow_review=True,
+    )
+    session.refresh_from_db()
+    assert session.state_version == before + 1
+
+
+@pytest.mark.django_db
+def test_publish_both_api_returns_authoritative_session_version(client, teacher):
+    session = create_instant_session(owner=teacher, title="Both publication")
+    definition = create_activity_definition(
+        owner=teacher, title="Published", type_key="liveclassroom.markdown", definition={"markdown": "Published"},
+    )
+    start_session(session=session, actor=teacher)
+    activity = launch_item(session=session, item=definition, actor=teacher)
+    client.force_login(teacher)
+
+    response = client.post(
+        reverse("liveclassroom:api-v1-publish-channel", args=[session.id]),
+        data=json.dumps({"activity_id": activity.id, "channel": "both"}),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 200
+    session.refresh_from_db()
+    assert response.json()["version"] == session.state_version
 
 
 @pytest.mark.django_db

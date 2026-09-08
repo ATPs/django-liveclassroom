@@ -11,6 +11,7 @@ import {
   choicesFor,
   numberValue,
   selectedChoices,
+  stringValue,
   submitUrl,
 } from "./activityData.js";
 
@@ -24,7 +25,11 @@ function SubmitButton({
   submitting: boolean;
 }) {
   const t = useT();
-  const label = state?.my_submission && !state.my_submission.is_stale ? t("update") : t("submit");
+  const label = submitting
+    ? t("saving")
+    : state?.my_submission && !state.my_submission.is_stale
+      ? t("saveChanges")
+      : t("submit");
   return (
     <button type="submit" disabled={!canSubmit || submitting}>
       {label}
@@ -103,28 +108,33 @@ function useSubmit(activity: ActivityState, state: SessionState, stateUrl: strin
     }
   };
 
-  return { canSubmit, notice, submitting, submit };
+  return { canSubmit, notice, setNotice, submitting, submit };
 }
 
 export function ChoiceAnswerForm({ activity, state, stateUrl, onSubmitted }: FormProps) {
+  const t = useT();
   const kind = activityKind(activity);
   const multiple = kind === "multiple_choice";
   const selected = selectedChoices(answerFor(activity, state));
   const options = choicesFor(activity);
   const inputType = multiple ? "checkbox" : "radio";
   const inputName = multiple ? "choices" : "choice";
-  const { canSubmit, notice, submitting, submit } = useSubmit(activity, state, stateUrl, onSubmitted);
+  const { canSubmit, notice, setNotice, submitting, submit } = useSubmit(activity, state, stateUrl, onSubmitted);
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!canSubmit || submitting) return;
     const values = [...new FormData(event.currentTarget).getAll(inputName)].map(String);
-    if (!values.length) return;
+    if (!values.length) {
+      setNotice(t("selectionRequired"));
+      return;
+    }
     void submit(multiple ? { choices: values } : { choice: values[0] });
   };
 
   return (
     <form onSubmit={handleSubmit}>
+      <p className="lc-form-hint">{multiple ? t("chooseMany") : t("chooseOne")}</p>
       {options.map((option) => (
         <div key={option.id}>
           <label>
@@ -149,21 +159,35 @@ export function ChoiceAnswerForm({ activity, state, stateUrl, onSubmitted }: For
 }
 
 export function TextAnswerForm({ activity, state, stateUrl, onSubmitted }: FormProps) {
+  const t = useT();
   const kind = activityKind(activity);
   const content = activityContent(activity);
   const field = kind === "numeric" ? "value" : kind === "rating" ? "rating" : "text";
   const initial = answerText(answerFor(activity, state), field);
-  const { canSubmit, notice, submitting, submit } = useSubmit(activity, state, stateUrl, onSubmitted);
+  const { canSubmit, notice, setNotice, submitting, submit } = useSubmit(activity, state, stateUrl, onSubmitted);
   const asTextarea = kind === "short_text" || kind === "word_cloud";
+  const [rating, setRating] = useState(initial);
+  const ratingMinimum = numberValue(content.minimum) ?? 1;
+  const ratingMaximum = numberValue(content.maximum) ?? 5;
+  const ratingOptions = Array.from(
+    { length: Math.max(0, Math.floor(ratingMaximum) - Math.ceil(ratingMinimum) + 1) },
+    (_, index) => Math.ceil(ratingMinimum) + index,
+  );
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!canSubmit || submitting) return;
     const input = event.currentTarget.elements.namedItem(field) as HTMLInputElement | HTMLTextAreaElement;
     const raw = input.value.trim();
-    if (!raw) return;
+    if (!raw) {
+      setNotice(t("answerRequired"));
+      return;
+    }
     const value = kind === "numeric" || kind === "rating" ? Number(raw) : raw;
-    if (typeof value === "number" && !Number.isFinite(value)) return;
+    if (typeof value === "number" && !Number.isFinite(value)) {
+      setNotice(t("numericAnswer"));
+      return;
+    }
     void submit({ [field]: value });
   };
 
@@ -179,10 +203,19 @@ export function TextAnswerForm({ activity, state, stateUrl, onSubmitted }: FormP
 
   return (
     <form onSubmit={handleSubmit}>
-      {asTextarea ? (
-        <textarea name={field} defaultValue={initial} disabled={!canSubmit || submitting} />
+      {kind === "rating" ? (
+        <fieldset className="lc-rating-control">
+          <legend>{t("ratingValue")}</legend>
+          <div className="lc-rating-endpoints"><span>{stringValue(content.minimum_label, t("notConfidentYet"))}</span><span>{stringValue(content.maximum_label, t("veryConfident"))}</span></div>
+          <div className="lc-rating-options">
+            {ratingOptions.map((value) => <button key={value} type="button" className={String(value) === rating ? "lc-rating-btn lc-rating-btn-selected" : "lc-rating-btn"} disabled={!canSubmit || submitting} aria-pressed={String(value) === rating} onClick={() => setRating(String(value))}>{value}</button>)}
+          </div>
+          <input type="hidden" name={field} value={rating} />
+        </fieldset>
+      ) : asTextarea ? (
+        <label>{t("textAnswer")}<textarea name={field} defaultValue={initial} maxLength={numberValue(content.max_length) ?? undefined} disabled={!canSubmit || submitting} /></label>
       ) : (
-        <input name={field} defaultValue={initial} disabled={!canSubmit || submitting} {...numericProps} />
+        <label>{stringValue(content.label, t("numericAnswer"))}<input name={field} defaultValue={initial} disabled={!canSubmit || submitting} {...numericProps} /></label>
       )}
       {activity.state === "open" ? (
         <SubmitButton state={state} canSubmit={canSubmit} submitting={submitting} />
@@ -194,27 +227,45 @@ export function TextAnswerForm({ activity, state, stateUrl, onSubmitted }: FormP
 }
 
 export function RankingAnswerForm({ activity, state, stateUrl, onSubmitted }: FormProps) {
-  const selected = selectedChoices(answerFor(activity, state));
+  const saved = selectedChoices(answerFor(activity, state));
+  const choices = choicesFor(activity);
+  const [ranking, setRanking] = React.useState(() => {
+    const known = new Set(saved);
+    return [...saved.filter((id) => choices.some((choice) => choice.id === id)), ...choices.map((choice) => choice.id).filter((id) => !known.has(id))];
+  });
   const { canSubmit, notice, submitting, submit } = useSubmit(activity, state, stateUrl, onSubmitted);
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!canSubmit || submitting) return;
-    const select = event.currentTarget.elements.namedItem("ranking") as HTMLSelectElement;
-    const values = [...select.selectedOptions].map((option) => option.value);
-    if (!values.length) return;
-    void submit({ ranking: values });
+    void submit({ ranking });
+  };
+
+  const move = (index: number, delta: number) => {
+    const destination = index + delta;
+    if (destination < 0 || destination >= ranking.length) return;
+    setRanking((current) => {
+      const next = [...current];
+      [next[index], next[destination]] = [next[destination], next[index]];
+      return next;
+    });
   };
 
   return (
     <form onSubmit={handleSubmit}>
-      <select name="ranking" multiple defaultValue={selected} disabled={!canSubmit || submitting}>
-        {choicesFor(activity).map((option) => (
-          <option key={option.id} value={option.id}>
-            {option.text}
-          </option>
-        ))}
-      </select>
+      <ol className="lc-ranking-list" aria-label="Ranking order">
+        {ranking.map((id, index) => {
+          const option = choices.find((choice) => choice.id === id);
+          if (!option) return null;
+          return <li key={id} className="lc-ranking-item">
+            <span>{index + 1}. {option.text}</span>
+            <span className="lc-actions">
+              <button type="button" disabled={!canSubmit || submitting || index === 0} aria-label={`Move ${option.text} up`} onClick={() => move(index, -1)}>↑</button>
+              <button type="button" disabled={!canSubmit || submitting || index === ranking.length - 1} aria-label={`Move ${option.text} down`} onClick={() => move(index, 1)}>↓</button>
+            </span>
+          </li>;
+        })}
+      </ol>
       {activity.state === "open" ? (
         <SubmitButton state={state} canSubmit={canSubmit} submitting={submitting} />
       ) : null}

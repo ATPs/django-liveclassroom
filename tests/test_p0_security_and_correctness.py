@@ -224,6 +224,25 @@ def test_review_flag_stays_in_sync_via_channel_settings(teacher):
 
 
 @pytest.mark.django_db
+def test_channel_settings_both_updates_both_audiences(client, teacher):
+    session = create_instant_session(owner=teacher, title="Both channel settings")
+    start_session(session=session, actor=teacher)
+    client.force_login(teacher)
+
+    response = post_json(
+        client,
+        reverse("liveclassroom:api-v1-channel-settings", args=[session.id]),
+        {"channel": "both", "show_prompt": False},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["channel"] == "both"
+    assert set(session.channel_states.values_list("channel", flat=True)) == {"display", "participants"}
+    assert not session.channel_states.get(channel="display").show_prompt
+    assert not session.channel_states.get(channel="participants").show_prompt
+
+
+@pytest.mark.django_db
 def test_launch_targets_one_channel_and_does_not_replace_the_other(teacher):
     session = create_instant_session(owner=teacher, title="Independent channels")
     first = create_activity_definition(

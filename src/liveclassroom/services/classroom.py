@@ -13,13 +13,11 @@ from liveclassroom.models import (
     ActivityRunRevision,
     ClassroomAsset,
     CourseMembership,
-    FlowStep,
     LiveActivity,
     LiveSession,
     Participant,
     ParticipantConnection,
     SessionChannelState,
-    SessionEvent,
     SessionMessage,
     SessionStaff,
     Submission,
@@ -29,10 +27,30 @@ from liveclassroom.registry import activity_registry
 
 from .events import notify_session_after_commit
 from .permissions import can_author_course, can_teach
+from .runtime import (
+    ClassroomError,
+    _activity_validation_definition,
+    _advance_version,
+    _append_event,
+    _ensure_run_revision,
+    activity_snapshot,
+    can_manage_session,
+    command_timer,
+    initialize_timer_runtime,
+    timer_runtime_state,
+)
 
-
-class ClassroomError(Exception):
-    """A command error that is safe to return from the JSON API."""
+__all__ = [
+    "ClassroomError",
+    "_advance_version",
+    "_append_event",
+    "_ensure_run_revision",
+    "activity_snapshot",
+    "can_manage_session",
+    "command_timer",
+    "initialize_timer_runtime",
+    "timer_runtime_state",
+]
 
 
 def _snapshot_type_key(snapshot: dict[str, Any]) -> str | None:
@@ -87,28 +105,6 @@ def safe_activity_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
             "content": {"media_disabled": True},
             "media_disabled": True,
         }
-
-
-def can_manage_session(user, session: LiveSession) -> bool:
-    if not can_teach(user):
-        return False
-    if (user.pk == session.teacher_id or user.is_superuser
-            or (session.course_id and session.course.created_by_id == user.pk)):
-        return True
-    if SessionStaff.objects.filter(
-        session=session,
-        user=user,
-        role=SessionStaff.Role.COHOST,
-    ).exists():
-        return True
-    return bool(
-        session.course_id
-        and CourseMembership.objects.filter(
-            course_id=session.course_id,
-            user=user,
-            role=CourseMembership.Role.TEACHER,
-        ).exists()
-    )
 
 
 def can_manage_admission(user, session: LiveSession) -> bool:
@@ -179,100 +175,6 @@ def session_capabilities(user, session: LiveSession) -> tuple[str, ...]:
     if can_manage_admission(user, session):
         return ("manage_admission", "moderate_chat", "view_analytics")
     return ("view_analytics",)
-
-
-def _append_event(
-    session: LiveSession,
-    event_type: str,
-    actor=None,
-    payload: dict | None = None,
-    participant: Participant | None = None,
-) -> int:
-    locked_session = LiveSession.objects.select_for_update().get(pk=session.pk)
-    sequence = (locked_session.events.order_by("-sequence").values_list("sequence", flat=True).first() or 0) + 1
-    event = SessionEvent.objects.create(
-        session=locked_session,
-        sequence=sequence,
-        event_type=event_type,
-        actor=actor if getattr(actor, "is_authenticated", False) else None,
-        participant=participant,
-        payload=payload or {},
-    )
-    return event.id
-
-
-def _advance_version(session: LiveSession) -> int:
-    locked_session = LiveSession.objects.select_for_update().get(pk=session.pk)
-    locked_session.state_version += 1
-    locked_session.save(update_fields=["state_version", "updated_at"])
-    session.state_version = locked_session.state_version
-    return locked_session.state_version
-
-
-def activity_snapshot(item: FlowStep | ActivityDefinition) -> dict[str, Any]:
-    """Capture all display and grading details so source content may change later."""
-    definition = getattr(item, "activity_definition", None)
-    if isinstance(item, ActivityDefinition):
-        definition = item
-    if definition is None:
-        raise ClassroomError("A flow step must reference an activity definition.")
-    if definition.pk and not definition.current_revision_id:
-        definition.refresh_from_db(fields=["definition", "current_revision"])
-    return {
-        "schema_version": definition.schema_version,
-        "type_key": definition.type_key,
-        "kind": definition.type_key.rsplit(".", 1)[-1],
-        "title": definition.title,
-        "content": definition.definition,
-        "activity_definition_id": definition.id,
-        "activity_definition_revision_id": definition.current_revision_id,
-    }
-
-
-def _ensure_run_revision(activity: LiveActivity, actor=None, source_revision=None) -> ActivityRunRevision:
-    locked_activity = LiveActivity.objects.select_for_update().get(pk=activity.pk)
-    revision = locked_activity.current_revision
-    if revision is not None:
-        activity.current_revision = revision
-        activity.current_revision_id = revision.id
-        return revision
-    revision = ActivityRunRevision.objects.create(
-        activity=locked_activity,
-        revision=1,
-        definition_snapshot=locked_activity.definition_snapshot,
-        asset=getattr(source_revision, "asset", None),
-        source_revision=source_revision,
-        created_by=actor if getattr(actor, "is_authenticated", False) else None,
-    )
-    locked_activity.current_revision = revision
-    locked_activity.save(update_fields=["current_revision"])
-    activity.current_revision = revision
-    activity.current_revision_id = revision.id
-    return revision
-
-
-def _activity_validation_definition(activity: LiveActivity) -> dict[str, Any]:
-    """Return the definition payload used to validate and aggregate a run's answers."""
-    definition = (
-        activity.current_revision.definition_snapshot
-        if activity.current_revision_id
-        else activity.definition_snapshot
-    )
-    if not isinstance(definition, dict):
-        return {}
-    definition_content = definition.get("content", definition)
-    if not isinstance(definition_content, dict):
-        definition_content = definition
-    validation_definition = definition_content
-    if isinstance(definition.get("question"), dict):
-        question = definition["question"]
-        question_data = question.get("data") if isinstance(question.get("data"), dict) else {}
-        validation_definition = {
-            **definition_content,
-            "options": question_data.get("options", question_data.get("choices", [])),
-            "answer": question.get("answer"),
-        }
-    return validation_definition
 
 
 def ensure_channel_states(session: LiveSession) -> list[SessionChannelState]:
@@ -394,19 +296,33 @@ def revise_activity_definition(
 
 
 @transaction.atomic
-def start_session(*, session: LiveSession, actor) -> LiveSession:
+def start_session(*, session: LiveSession, actor, starting_item=None) -> LiveSession:
     if not can_manage_session(actor, session):
         raise ClassroomError("You do not have permission to start this session.")
     locked = LiveSession.objects.select_for_update().get(pk=session.pk)
     session.state_version = locked.state_version
     if locked.status == LiveSession.Status.ENDED:
         raise ClassroomError("An ended session cannot be restarted.")
+    started_from_draft = locked.status == LiveSession.Status.DRAFT
+    was_paused = locked.status == LiveSession.Status.PAUSED
     if locked.status != LiveSession.Status.LIVE:
         locked.status = LiveSession.Status.LIVE
         locked.started_at = locked.started_at or timezone.now()
         locked.save(update_fields=["status", "started_at", "updated_at"])
         session.status = locked.status
         session.started_at = locked.started_at
+        if was_paused:
+            now = timezone.now()
+            for timer in LiveActivity.objects.select_for_update().filter(session=locked, kind="timer"):
+                runtime = timer_runtime_state(timer, now=now)
+                if runtime["status"] == "paused" and runtime["paused_by_classroom"]:
+                    runtime.update(
+                        status="running",
+                        deadline=now.timestamp() + runtime["remaining_seconds"],
+                        paused_by_classroom=False,
+                    )
+                    timer.runtime_state = runtime
+                    timer.save(update_fields=["runtime_state"])
         version = _advance_version(locked)
         event_id = _append_event(locked, "session.started", actor)
         notify_session_after_commit(
@@ -423,6 +339,30 @@ def start_session(*, session: LiveSession, actor) -> LiveSession:
     else:
         session.status = locked.status
         session.started_at = locked.started_at
+    if starting_item is None and started_from_draft:
+        from liveclassroom.models import SessionPlanStep
+
+        starting_item = (
+            SessionPlanStep.objects.filter(session=locked, removed=False)
+            .order_by("position", "pk")
+            .first()
+        )
+    if starting_item is not None:
+        from liveclassroom.models import SessionPlanStep
+
+        if isinstance(starting_item, SessionPlanStep):
+            from .plans import launch_plan_step
+
+            activity = launch_plan_step(session=locked, step=starting_item, actor=actor, channel="display")
+        else:
+            activity = launch_item(session=locked, item=starting_item, actor=actor, channel="display")
+        publish_activity_to_audiences(
+            session=locked,
+            activity=activity,
+            channels=[SessionChannelState.Channel.PARTICIPANTS],
+            actor=actor,
+        )
+    session.refresh_from_db(fields=["state_version", "status", "started_at"])
     return session
 
 
@@ -439,10 +379,17 @@ def pause_session(*, session: LiveSession, actor) -> LiveSession:
         return session
     if locked.status != LiveSession.Status.LIVE:
         raise ClassroomError("Only a live session can be paused.")
+    now = timezone.now()
+    for timer in LiveActivity.objects.select_for_update().filter(session=locked, kind="timer"):
+        runtime = timer_runtime_state(timer, now=now)
+        if runtime["status"] == "running":
+            runtime.update(status="paused", deadline=None, paused_by_classroom=True)
+            timer.runtime_state = runtime
+            timer.save(update_fields=["runtime_state"])
     locked.status = LiveSession.Status.PAUSED
     locked.save(update_fields=["status", "updated_at"])
     session.status = locked.status
-    version = _advance_version(locked)
+    version = _advance_version(session)
     event_id = _append_event(locked, "session.paused", actor)
     notify_session_after_commit(
         locked.id,
@@ -488,7 +435,7 @@ def end_session(*, session: LiveSession, actor) -> LiveSession:
     ).update(disconnected_at=now)
     session.status = locked.status
     session.ended_at = locked.ended_at
-    version = _advance_version(locked)
+    version = _advance_version(session)
     event_id = _append_event(locked, "session.ended", actor, {"closed_activity_ids": open_activity_ids})
     notify_session_after_commit(
         locked.id,
@@ -521,7 +468,7 @@ def archive_session(*, session: LiveSession, actor, archived: bool = True) -> Li
     locked.archived_at = desired
     locked.save(update_fields=["archived_at", "updated_at"])
     session.archived_at = desired
-    version = _advance_version(locked)
+    version = _advance_version(session)
     event_id = _append_event(
         locked,
         "session.archived" if archived else "session.unarchived",
@@ -598,8 +545,39 @@ def publish_activity_to_channel(
         raise ClassroomError("An ended classroom cannot publish activities.")
     revision = _ensure_run_revision(activity, actor)
     state, _ = SessionChannelState.objects.get_or_create(session=session, channel=channel)
+    if state.current_activity_id == activity.id and state.current_revision_id == revision.id:
+        if allow_review is not None and activity.reviewable != allow_review:
+            activity.reviewable = allow_review
+            activity.save(update_fields=["reviewable"])
+            version = _advance_version(session)
+            state.version = version
+            state.save(update_fields=["version", "updated_at"])
+            event_id = _append_event(
+                session,
+                "activity.review.updated",
+                actor,
+                {"activity_id": activity.id, "channel": channel, "allow_review": allow_review},
+            )
+            notify_session_after_commit(
+                session.id,
+                {
+                    "protocol": 1,
+                    "session_id": session.id,
+                    "version": version,
+                    "event_id": event_id,
+                    "type": "activity.review.updated",
+                    "payload": {"activity_id": activity.id, "channel": channel},
+                },
+            )
+        return state
     state.current_activity = activity
     state.current_revision = revision
+    # Visibility is activity-specific. Never carry feedback into another item.
+    state.show_prompt = True
+    state.show_aggregate = False
+    state.show_answer = False
+    state.show_explanation = False
+    state.show_own_status = True
     state.document_page = 1
     state.document_navigation = SessionChannelState.DocumentNavigation.FOLLOW
     if allow_review is not None:
@@ -611,6 +589,11 @@ def publish_activity_to_channel(
         update_fields=[
             "current_activity",
             "current_revision",
+            "show_prompt",
+            "show_aggregate",
+            "show_answer",
+            "show_explanation",
+            "show_own_status",
             "version",
             "document_page",
             "document_navigation",
@@ -633,6 +616,52 @@ def publish_activity_to_channel(
 
 
 @transaction.atomic
+def publish_activity_to_audiences(*, session: LiveSession, activity: LiveActivity, channels, actor,
+                                  allow_review: bool | None = None) -> list[SessionChannelState]:
+    """Atomically publish a run to one or both audience channels."""
+    if not isinstance(channels, (list, tuple)) or not channels:
+        raise ClassroomError("Supply at least one audience channel.")
+    unique_channels = list(dict.fromkeys(channels))
+    if any(channel not in SessionChannelState.Channel.values for channel in unique_channels):
+        raise ClassroomError("Unsupported session channel.")
+    return [
+        publish_activity_to_channel(
+            session=session, activity=activity, channel=channel, actor=actor, allow_review=allow_review,
+        )
+        for channel in unique_channels
+    ]
+
+
+@transaction.atomic
+def get_or_create_test_participant(*, session: LiveSession, actor) -> Participant:
+    """Return a manager-owned test identity without attendance side effects."""
+    if not can_manage_session(actor, session):
+        raise ClassroomError("You do not have permission to create a test student.")
+    from .demos import is_public_demo_session
+
+    if is_public_demo_session(session):
+        raise ClassroomError("Use this demo to create a private classroom before testing it.")
+    locked = LiveSession.objects.select_for_update().get(pk=session.pk)
+    try:
+        # Keep the recovery savepoint isolated: a concurrent creator may win
+        # the partial unique constraint without poisoning this outer command.
+        with transaction.atomic():
+            participant, _ = Participant.objects.get_or_create(
+                session=locked,
+                test_owner=actor,
+                is_test=True,
+                defaults={
+                    "guest_id": f"test-student:{actor.pk}",
+                    "display_name": "Test student",
+                    "admission_state": Participant.AdmissionState.ADMITTED,
+                },
+            )
+    except IntegrityError:
+        participant = Participant.objects.get(session=locked, test_owner=actor, is_test=True)
+    return participant
+
+
+@transaction.atomic
 def update_channel_visibility(*, session: LiveSession, channel: str, actor, **changes: bool) -> SessionChannelState:
     """Update audience visibility flags without changing the published activity."""
     if not can_manage_session(actor, session):
@@ -642,6 +671,8 @@ def update_channel_visibility(*, session: LiveSession, channel: str, actor, **ch
     session = LiveSession.objects.select_for_update().get(pk=session.pk)
     if session.status == LiveSession.Status.ENDED:
         raise ClassroomError("Use review settings for an ended classroom.")
+    if changes.get("show_answer") is True:
+        raise ClassroomError("Close responses and show the answer with the combined reveal action.")
     allowed = {
         "show_prompt",
         "show_aggregate",
@@ -882,6 +913,61 @@ def set_activity_state(*, activity: LiveActivity, state: str, actor) -> LiveActi
             "version": version,
             "event_id": event_id,
             "type": event_type,
+            "payload": {"activity_id": activity.id},
+        },
+    )
+    return activity
+
+
+@transaction.atomic
+def close_and_show_answer(*, activity: LiveActivity, actor) -> LiveActivity:
+    """Atomically stop responses and reveal a scored activity's answer.
+
+    The teacher-facing action deliberately combines the otherwise separate
+    close and reveal transitions.  It also updates only audiences currently
+    presenting this activity, so a held audience is never moved or exposed by
+    a result command for another item.
+    """
+    if not can_manage_session(actor, activity.session):
+        raise ClassroomError("You do not have permission to control this session.")
+    session = LiveSession.objects.select_for_update().get(pk=activity.session_id)
+    activity = LiveActivity.objects.select_for_update().get(pk=activity.pk)
+    if session.status == LiveSession.Status.ENDED:
+        raise ClassroomError("An ended classroom cannot change teaching content.")
+    if activity.state == LiveActivity.State.OPEN:
+        now = timezone.now()
+        activity.state = LiveActivity.State.REVEALED
+        activity.closed_at = activity.closed_at or now
+        activity.revealed_at = activity.revealed_at or now
+        activity.save(update_fields=["state", "closed_at", "revealed_at"])
+    elif activity.state != LiveActivity.State.REVEALED:
+        raise ClassroomError("Unsupported activity state.")
+
+    audience_states = list(
+        SessionChannelState.objects.select_for_update().filter(session=session, current_activity=activity)
+    )
+    for audience_state in audience_states:
+        if not audience_state.show_answer:
+            audience_state.show_answer = True
+            audience_state.save(update_fields=["show_answer", "updated_at"])
+    version = _advance_version(session)
+    for audience_state in audience_states:
+        audience_state.version = version
+        audience_state.save(update_fields=["version", "updated_at"])
+    event_id = _append_event(
+        session,
+        "activity.answer.shown",
+        actor,
+        {"activity_id": activity.id, "channels": sorted(state.channel for state in audience_states)},
+    )
+    notify_session_after_commit(
+        session.id,
+        {
+            "protocol": 1,
+            "session_id": session.id,
+            "version": version,
+            "event_id": event_id,
+            "type": "activity.answer.shown",
             "payload": {"activity_id": activity.id},
         },
     )
@@ -1236,7 +1322,9 @@ def submit_answer(*, activity: LiveActivity, participant: Participant, answer: d
 
 
 def result_summary(activity: LiveActivity, *, public: bool = False) -> dict[str, Any]:
-    current = activity.submissions.filter(is_stale=False)
+    # Test student work follows ordinary validation and storage, but is not
+    # classroom evidence and must not affect normal/public results.
+    current = activity.submissions.filter(is_stale=False, participant__is_test=False)
     answers = list(current.values_list("answer", flat=True))
     try:
         type_key = (
@@ -1255,7 +1343,7 @@ def result_summary(activity: LiveActivity, *, public: bool = False) -> dict[str,
     return {
         "activity_id": activity.id,
         "submission_count": current.count(),
-        "stale_submission_count": activity.submissions.filter(is_stale=True).count(),
+        "stale_submission_count": activity.submissions.filter(is_stale=True, participant__is_test=False).count(),
         **aggregate,
     }
 
@@ -1302,6 +1390,8 @@ def post_message(
     if participant is not None:
         if participant.session_id != session.id or participant.admission_state != Participant.AdmissionState.ADMITTED:
             raise ClassroomError("You are not admitted to this classroom.")
+        if participant.is_test:
+            raise ClassroomError("Test student chat is kept outside the class chat.")
         display_name = participant.display_name
     elif getattr(actor, "is_authenticated", False) and can_manage_admission(actor, session):
         display_name = actor.get_username()

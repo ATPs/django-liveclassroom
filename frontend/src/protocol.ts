@@ -4,6 +4,7 @@ export type SessionState = {
   protocol_version: number;
   session_id: number;
   state_version: number;
+  server_time?: number;
   session: {
     id: number;
     title: string;
@@ -28,7 +29,17 @@ export type ActivityState = {
   revision: number;
   revision_id: number;
   definition: Record<string, unknown>;
+  has_answer?: boolean;
+  has_explanation?: boolean;
   frontend_manifest?: Record<string, string>;
+  runtime?: TimerRuntime | null;
+};
+
+export type TimerRuntime = {
+  status: "idle" | "running" | "paused" | "expired";
+  deadline: number | null;
+  remaining_seconds: number;
+  paused_by_classroom: boolean;
 };
 
 export type SubmissionState = {

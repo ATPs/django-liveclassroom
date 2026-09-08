@@ -84,6 +84,12 @@ urlpatterns = [
         name="api-v1-admission",
     ),
     path("api/v1/sessions/<int:session_id>/participants/", api.participants, name="api-v1-participants"),
+    path("api/v1/sessions/<int:session_id>/student-view/test-student/", api.test_student, name="api-v1-test-student"),
+    path(
+        "api/v1/sessions/<int:session_id>/student-view/test-student/renew/",
+        api.renew_test_student,
+        name="api-v1-renew-test-student",
+    ),
     path(
         "api/v1/sessions/<int:session_id>/student-view/activate/",
         api.activate_student_view,
@@ -101,6 +107,12 @@ urlpatterns = [
     path("api/v1/sessions/join/<str:join_code>/", api.join, name="api-v1-join"),
     path("api/v1/activities/<int:activity_id>/close/", api.transition, {"state": "closed"}, name="api-v1-close"),
     path("api/v1/activities/<int:activity_id>/reveal/", api.transition, {"state": "revealed"}, name="api-v1-reveal"),
+    path(
+        "api/v1/activities/<int:activity_id>/close-and-show-answer/",
+        api.close_and_show_answer,
+        name="api-v1-close-and-show-answer",
+    ),
+    path("api/v1/activities/<int:activity_id>/timer/", api.timer, name="api-v1-timer"),
     path("api/v1/activities/<int:activity_id>/revise/", api.revise, name="api-v1-revise"),
     path("api/v1/activities/<int:activity_id>/submissions/", api.submit, name="api-v1-submit"),
     path("api/v1/activities/<int:activity_id>/results/", api.results, name="api-v1-results"),

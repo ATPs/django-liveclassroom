@@ -2,20 +2,7 @@
 {% block title %}Teacher console · LiveClassroom{% endblock %}
 {% block content %}
   <div class="lc-page-stack">
-    <aside class="lc-card lc-context-help" aria-labelledby="console-guidance-title">
-      {% if active_lang == "zh-Hans" %}
-        <p class="lc-context-kicker">开始控制课堂前</p>
-        <h2 id="console-guidance-title">发布前确认目标频道</h2>
-        <p>控制台把“大屏”和“学生端”分开管理。选择活动后，先确认目标频道，再发布题目；两个频道可以同时显示不同内容。</p>
-        <p class="lc-guidance-risk"><strong>高风险提示：</strong>公布答案或解析前检查当前频道的可见性设置。结束课堂会关闭新的作答和聊天；归档会保留记录，删除已归档课堂会永久移除记录。</p>
-      {% else %}
-        <p class="lc-context-kicker">Before you control the class</p>
-        <h2 id="console-guidance-title">Confirm the target channel before publishing</h2>
-        <p>The console controls the Display and Students channels separately. After selecting an activity, confirm its target channel before publishing; the two channels can show different content at the same time.</p>
-        <p class="lc-guidance-risk"><strong>High impact check:</strong> Check the current channel's visibility settings before revealing an answer or explanation. Ending closes new responses and chat; archiving keeps the record, while deleting an archived classroom permanently removes it.</p>
-      {% endif %}
-      <p class="lc-context-help-link">{% include "liveclassroom/_help_link.html" %}</p>
-    </aside>
+    <p class="lc-context-help-link">{% include "liveclassroom/_help_link.html" %}</p>
     <section class="lc-card lc-wide"
       data-liveclassroom-app data-audience="teacher"
       data-capabilities='{{ capabilities_json }}'

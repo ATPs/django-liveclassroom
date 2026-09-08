@@ -58,6 +58,13 @@ def test_bash_simulator_definition_is_strict_and_declarative():
         activity_type.validate(simulator_definition(completion={"required_commands": ["rm"]}))
 
 
+def test_ranking_rejects_duplicate_items_instead_of_silently_deduplicating():
+    activity_type = activity_registry.get("liveclassroom.ranking")
+    definition = activity_type.validate({"options": [{"id": "a", "text": "A"}, {"id": "b", "text": "B"}]})
+    with pytest.raises(ValueError, match="more than once"):
+        activity_type.validate_answer(activity_type.normalize({"ranking": ["a", "a", "b"]}), definition)
+
+
 def test_bash_simulator_submission_is_bounded_and_requires_explicit_completion():
     activity_type = activity_registry.get("liveclassroom.bash_simulator")
     definition = activity_type.validate(simulator_definition())
@@ -148,10 +155,27 @@ def test_bash_simulator_service_accepts_only_a_completed_transcript():
 def test_bash_simulator_renderer_is_browser_only_and_completion_explicit():
     renderer = Path("src/liveclassroom/static/liveclassroom/plugins/bash_simulator.v1.js").read_text(encoding="utf-8")
     assert 'const COMMANDS = ["pwd", "ls", "cd", "cat", "echo", "help", "clear", "reset"]' in renderer
-    assert "context.submit({ completed: true, transcript })" in renderer
-    assert renderer.count("context.submit(") == 1
+    assert "currentContext.submit({ completed: true, transcript })" in renderer
+    assert renderer.count("currentContext.submit(") == 1
     assert "submission.is_stale" in renderer
     assert "fetch(" not in renderer
     assert "subprocess" not in renderer
     assert "eval(" not in renderer
     assert "new Function" not in renderer
+    assert "liveclassroom.bash.v1:" in renderer
+    assert "sessionStorage" in renderer
+    assert "lc-bash-simulator-checklist" in renderer
+    assert "input.focus()" in renderer
+    assert "inputLabel.htmlFor = input.id" in renderer
+    assert "update(nextContext)" in renderer
+    assert "Try commands" in renderer
+    assert "Reset practice" in renderer
+    assert 'if (name === "ls") return { cwd, ...listDirectory(' in renderer
+
+
+def test_plugin_runtime_keeps_plugins_mounted_during_ordinary_state_polling():
+    runtime = Path("frontend/src/plugin_runtime.ts").read_text(encoding="utf-8")
+    activity_view = Path("frontend/src/activities/ActivityView.tsx").read_text(encoding="utf-8")
+    assert "update?: (context: PluginRenderContext)" in runtime
+    assert "Normal state polling must not recreate a plugin" in runtime
+    assert "state?.state_version" not in activity_view

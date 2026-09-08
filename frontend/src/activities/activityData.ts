@@ -102,5 +102,16 @@ export function submitUrl(stateUrl: string, activity: ActivityState): string {
 
 export function activityTitle(activity: ActivityState, fallback: string): string {
   const definition = activity.definition;
-  return stringValue(definition.title, stringValue(definition.kind, fallback));
+  return presentationTitle(stringValue(definition.title, stringValue(definition.kind, fallback)));
+}
+
+const BASH_DEMO_STEP_KEYS = new Set([
+  "welcome", "confidence_poll", "word_cloud", "terminal_map", "cheatsheet", "simulator", "timer",
+  "true_false", "multiple_choice", "single_choice", "numeric", "rating", "ranking", "reflection",
+]);
+
+/** Strip only the old machine prefix used by the bundled Bash demo. */
+export function presentationTitle(title: string): string {
+  const match = title.match(/^\[bash-demo:(en|zh-Hans):([a-z0-9_]+)\]\s+(.+)$/);
+  return match && BASH_DEMO_STEP_KEYS.has(match[2]) ? match[3] : title;
 }

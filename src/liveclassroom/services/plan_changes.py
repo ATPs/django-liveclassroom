@@ -7,6 +7,7 @@ from django.db import transaction
 from liveclassroom.models import ClassroomAsset, Flow, FlowStep, LiveSession, SessionPlanStep
 from liveclassroom.services.classroom import ClassroomError, can_manage_session
 from liveclassroom.services.permissions import can_edit_flow, can_use_flow
+from liveclassroom.services.presentation import presentation_title
 
 from .plans import (
     content_signature,
@@ -57,7 +58,7 @@ def compare_changes(*, session, actor, direction):
             {
                 "key": key,
                 "kind": "added" if old is None else "removed" if new is None else "modified",
-                "title": (new or old)["snapshot"].get("title", "Activity"),
+                "title": presentation_title((new or old)["snapshot"].get("title", "Activity")),
                 "conflict": content_signature(now) != content_signature(old),
                 "before": content_signature(now),
                 "after": content_signature(new),
@@ -77,8 +78,8 @@ def compare_changes(*, session, actor, direction):
                 "conflict": target_order != base_order,
                 "before": target_order,
                 "after": proposed_order,
-                "before_labels": [r["snapshot"].get("title", "Activity") for r in target],
-                "after_labels": [r["snapshot"].get("title", "Activity") for r in proposed],
+                "before_labels": [presentation_title(r["snapshot"].get("title", "Activity")) for r in target],
+                "after_labels": [presentation_title(r["snapshot"].get("title", "Activity")) for r in proposed],
             }
         )
     token = fingerprint(

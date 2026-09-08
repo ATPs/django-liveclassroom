@@ -304,6 +304,8 @@ def _validate_ranking(answer: dict[str, Any], definition: dict[str, Any]) -> dic
     option_ids = _option_ids(definition)
     if option_ids and any(choice not in option_ids for choice in answer["ranking"]):
         raise ValueError("One or more ranked choices are not part of this activity.")
+    if option_ids and set(answer["ranking"]) != set(option_ids):
+        raise ValueError("A ranking answer must include every option exactly once.")
     return answer
 
 
@@ -324,9 +326,12 @@ def _normalize_ranking(answer: dict[str, Any]) -> dict[str, Any]:
     ranking = result.get("ranking", result.get("order"))
     if not isinstance(ranking, list) or not ranking or any(not isinstance(value, str) for value in ranking):
         raise ValueError("A ranking answer needs an ordered list.")
-    result["ranking"] = list(dict.fromkeys(value.strip() for value in ranking if value.strip()))
-    if not result["ranking"]:
+    cleaned = [value.strip() for value in ranking]
+    if not all(cleaned):
         raise ValueError("A ranking answer needs an ordered list.")
+    if len(set(cleaned)) != len(cleaned):
+        raise ValueError("A ranking answer must not contain the same choice more than once.")
+    result["ranking"] = cleaned
     result.pop("order", None)
     return result
 
