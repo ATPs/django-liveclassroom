@@ -31,6 +31,13 @@ class StudentDeckProvider:
         return {"embed_url": "/database/vaultpub/share/student-deck/__slides__/Deck.md?embed=1"}
 
 
+class ProtocolRelativeDeckProvider(StudentDeckProvider):
+    """Return an unsafe protocol-relative URL to exercise the participant boundary."""
+
+    def grant_participant_access(self, reference, *, session, participant, request=None):
+        return {"embed_url": "//outside.example/Deck.md"}
+
+
 @pytest.fixture
 def teacher(db):
     return get_user_model().objects.create_user(username="asset-teacher", password="secret")
@@ -225,6 +232,50 @@ def test_host_can_substitute_a_participant_vaultpub_url_without_package_permissi
         ).json()
     assert display["current_activity"]["definition"]["content"]["url"] == original_url
     assert student_state["current_activity"]["definition"]["content"]["url"].startswith("/database/vaultpub/share/")
+
+
+@pytest.mark.django_db
+def test_participant_vaultpub_substitution_rejects_protocol_relative_urls(teacher, teacher_client):
+    session = create_instant_session(owner=teacher, title="Unsafe VaultPub grant")
+    start_session(session=session, actor=teacher)
+    with override_settings(LIVECLASSROOM={"CONTENT_PROVIDERS": {"vaultpub": ProtocolRelativeDeckProvider()}}):
+        created = post_json(
+            teacher_client,
+            reverse("liveclassroom:api-v1-session-plan", args=[session.id]),
+            {
+                "plan_version": session.plan_version,
+                "snapshot": {
+                    "type_key": "liveclassroom.media",
+                    "kind": "media",
+                    "schema_version": 1,
+                    "title": "Deck",
+                    "content": {
+                        "url": "/database/vaultpub/vault/server/__slides__/Deck.md?embed=1",
+                        "provider": "vaultpub",
+                        "media_type": "iframe",
+                    },
+                },
+            },
+        )
+        step_id = created.json()["steps"][0]["id"]
+        launched = post_json(
+            teacher_client,
+            reverse("liveclassroom:api-v1-plan-launch", args=[session.id, step_id]),
+            {"channel": "participants"},
+        )
+        assert launched.status_code == 201
+        participant = join_guest(session=session, display_name="Student")
+        student = Client()
+        browser_session = student.session
+        browser_session[f"liveclassroom.participant.{session.id}"] = participant.id
+        browser_session.save()
+
+        content = student.get(
+            reverse("liveclassroom:api-v1-state", args=[session.id]), {"channel": "participants"}
+        ).json()["current_activity"]["definition"]["content"]
+
+    assert content["media_disabled"] is True
+    assert "url" not in content
 
 
 @pytest.mark.django_db

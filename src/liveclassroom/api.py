@@ -1,6 +1,7 @@
 import hashlib
 import json
 from copy import deepcopy
+from urllib.parse import urlsplit
 
 from django.contrib.auth import get_user_model
 from django.core import signing
@@ -439,10 +440,18 @@ def _public_activity(
                     reference, session=session, participant=participant, request=request
                 )
                 embed_url = grant.get("embed_url") if isinstance(grant, dict) else None
-                if not isinstance(embed_url, str) or not embed_url.startswith("/"):
+                parsed_url = urlsplit(embed_url) if isinstance(embed_url, str) else None
+                if (
+                    parsed_url is None
+                    or not embed_url.startswith("/")
+                    or embed_url.startswith("//")
+                    or parsed_url.scheme
+                    or parsed_url.netloc
+                ):
                     raise ProviderError("The VaultPub participant URL is unavailable.")
                 content["url"] = embed_url
             except (ProviderError, TypeError, ValueError):
+                content.pop("url", None)
                 content["media_disabled"] = True
             snapshot["content"] = content
     return {

@@ -75,6 +75,8 @@ function VaultPubFrame({ activity, url, caption, state, stateUrl, audience }: Me
   const t = useT();
   const frame = useRef<HTMLIFrameElement>(null);
   const lastReported = useRef<number | null>(null);
+  const ready = useRef(false);
+  const slideCount = useRef<number | null>(null);
   const channel = audience === "student" ? "participants" : "display";
   const page = Math.max(1, Math.floor(state?.channels?.[channel]?.presentation?.page ?? 1));
   const canControl = audience === "teacher" && Boolean(stateUrl) && state?.session.status === "live";
@@ -82,13 +84,21 @@ function VaultPubFrame({ activity, url, caption, state, stateUrl, audience }: Me
     && state?.channels?.display?.activity?.revision_id === activity.revision_id
     && state?.channels?.participants?.activity?.id === activity.id
     && state?.channels?.participants?.activity?.revision_id === activity.revision_id;
-  useEffect(() => { lastReported.current = page - 1; }, [page, url]);
   const postFrame = (command: "previous" | "next" | "go_to", index?: number) => {
     frame.current?.contentWindow?.postMessage(
       { protocol: "vaultpub.slide", version: 1, type: "command", command, ...(index === undefined ? {} : { index }) },
       window.location.origin,
     );
   };
+  useEffect(() => {
+    ready.current = false;
+    slideCount.current = null;
+  }, [url]);
+  useEffect(() => {
+    const index = Math.min(page - 1, Math.max(0, (slideCount.current ?? page) - 1));
+    lastReported.current = index;
+    if (ready.current) postFrame("go_to", index);
+  }, [page, url]);
   const savePage = (index: number) => {
     if (!canControl || !stateUrl || index < 0) return;
     const channels = sameOnParticipants ? ["display", "participants"] : ["display"];
@@ -102,12 +112,18 @@ function VaultPubFrame({ activity, url, caption, state, stateUrl, audience }: Me
       const message = event.data as Record<string, unknown>;
       if (message.protocol !== "vaultpub.slide" || message.version !== 1) return;
       if (message.type === "ready") {
-        postFrame("go_to", page - 1);
+        const deck = message.deck;
+        if (!deck || typeof deck !== "object" || Array.isArray(deck)) return;
+        const count = Math.floor(Number((deck as Record<string, unknown>).slideCount));
+        if (!Number.isFinite(count) || count < 1) return;
+        ready.current = true;
+        slideCount.current = count;
+        postFrame("go_to", Math.min(page - 1, count - 1));
         return;
       }
       if (message.type !== "slide-changed" || !canControl || typeof message.index !== "number") return;
       const index = Math.floor(message.index);
-      if (index < 0 || lastReported.current === index || index === page - 1) return;
+      if (index < 0 || index >= (slideCount.current ?? 0) || lastReported.current === index || index === page - 1) return;
       lastReported.current = index;
       savePage(index);
     };
@@ -123,7 +139,14 @@ function VaultPubFrame({ activity, url, caption, state, stateUrl, audience }: Me
       sandbox="allow-scripts allow-same-origin"
       referrerPolicy="same-origin"
       loading="lazy"
-      onLoad={() => frame.current?.contentWindow?.postMessage({ protocol: "vaultpub.slide", version: 1, type: "handshake" }, window.location.origin)}
+      onLoad={() => {
+        ready.current = false;
+        slideCount.current = null;
+        frame.current?.contentWindow?.postMessage(
+          { protocol: "vaultpub.slide", version: 1, type: "handshake" },
+          window.location.origin,
+        );
+      }}
       title={caption || t("vaultpubPresentation")}
     />
   </div>;

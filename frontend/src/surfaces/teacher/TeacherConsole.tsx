@@ -234,7 +234,7 @@ function BuiltinTeacherActivityView({
   const kind = activityKind(activity);
   const heading = <h2>{activityTitle(activity, t("activity"))}</h2>;
   if (kind === "media") {
-    return <><>{heading}</><Prompt activity={activity} /><MediaView activity={activity} state={state} stateUrl={stateUrl} audience="teacher" /></>;
+    return <>{heading}<Prompt activity={activity} /><MediaView activity={activity} state={state} stateUrl={stateUrl} audience="teacher" /></>;
   }
   if (kind === "timer" || kind === "markdown") {
     return (
