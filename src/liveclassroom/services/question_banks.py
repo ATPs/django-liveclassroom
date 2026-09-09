@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from copy import deepcopy
 from typing import Any
 
 from django.db import IntegrityError, transaction
@@ -10,7 +11,8 @@ from django.db import IntegrityError, transaction
 from liveclassroom.models import ActivityDefinition, Course, QuestionBank, QuestionBankItem
 
 from .classroom import ClassroomError
-from .permissions import can_author_course, can_teach, can_use_activity_definition
+from .definitions import create_activity_definition, revise_activity_definition
+from .permissions import can_author_course, can_read_asset, can_teach, can_use_activity_definition
 
 
 def _text(value: Any, field: str, *, required: bool = False, maximum: int = 200) -> str:
@@ -106,6 +108,93 @@ def remove_question_from_bank(*, actor, bank: QuestionBank, definition: Activity
     deleted, _ = QuestionBankItem.objects.filter(bank=bank, definition=definition).delete()
     if not deleted:
         raise ClassroomError("This question is not in the bank.")
+
+
+def _bank_membership(actor, bank: QuestionBank, definition: ActivityDefinition) -> None:
+    """Require the source definition to be a member of the selected bank."""
+    _owner(actor, bank)
+    if not QuestionBankItem.objects.filter(bank=bank, definition=definition).exists():
+        raise ClassroomError("This question is not in the bank.")
+    if not can_use_activity_definition(actor, definition):
+        raise ClassroomError("You do not have permission to use this activity definition.")
+
+
+def _title(value: Any, fallback: str) -> str:
+    if value is None:
+        return fallback
+    return _text(value, "title", required=True, maximum=200)
+
+
+@transaction.atomic
+def copy_question(
+    *,
+    actor,
+    source_bank: QuestionBank,
+    definition: ActivityDefinition,
+    title: Any = None,
+    metadata: Mapping[str, Any] | None = None,
+    target_bank: QuestionBank | None = None,
+) -> ActivityDefinition:
+    """Copy a bank member through the canonical validated definition path.
+
+    The source definition and all of its revisions remain untouched.  An asset
+    is retained only when the actor is authorized to read and own that link;
+    file definitions cannot be copied without their asset because the registry
+    requires the reference to remain valid.
+    """
+    _bank_membership(actor, source_bank, definition)
+    if target_bank is not None:
+        _owner(actor, target_bank)
+
+    source_asset = definition.asset
+    if source_asset is not None and not can_read_asset(actor, source_asset):
+        raise ClassroomError("You do not have permission to copy this question's material.")
+    if source_asset is not None and source_asset.owner_id != actor.pk and not getattr(actor, "is_superuser", False):
+        raise ClassroomError("You do not have permission to copy this question's material.")
+
+    course = definition.course if definition.course_id and can_author_course(actor, definition.course) else None
+    copied = create_activity_definition(
+        owner=actor,
+        title=_title(title, definition.title),
+        type_key=definition.type_key,
+        definition=deepcopy(definition.definition),
+        course=course,
+        asset=source_asset,
+        metadata=deepcopy(definition.metadata) if metadata is None else metadata,
+        change_note=f"Copied from question {definition.pk}",
+    )
+    if target_bank is not None:
+        add_question_to_bank(actor=actor, bank=target_bank, definition=copied)
+    return copied
+
+
+@transaction.atomic
+def update_bank_question(
+    *,
+    actor,
+    bank: QuestionBank,
+    definition: ActivityDefinition,
+    title: Any = None,
+    payload: Mapping[str, Any],
+) -> ActivityDefinition:
+    """Revise a bank question and optionally update its teacher-facing title."""
+    _bank_membership(actor, bank, definition)
+    if not isinstance(payload, Mapping):
+        raise ClassroomError("definition must be an object.")
+    if set(payload) - {"definition", "metadata", "change_note"} or "definition" not in payload:
+        raise ClassroomError("Unsupported question fields.")
+    activity = ActivityDefinition.objects.select_for_update().get(pk=definition.pk)
+    revise_activity_definition(
+        activity=activity,
+        definition=payload["definition"],
+        metadata=payload.get("metadata") if "metadata" in payload else None,
+        actor=actor,
+        change_note=str(payload.get("change_note", ""))[:255],
+    )
+    if title is not None:
+        activity.title = _title(title, activity.title)
+        activity.save(update_fields=["title", "updated_at"])
+    return activity
 
 
 def _matches(definition: ActivityDefinition, filters: Mapping[str, Any]) -> bool:

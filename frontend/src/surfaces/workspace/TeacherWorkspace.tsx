@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { deleteJson, getJson, patchJson, postJson } from "../../protocol.js";
 import { getLocale, type Locale } from "../../locales.js";
 import { LanguageSwitcher, LocaleProvider, useLocale } from "../../i18n.js";
+import { QuestionBankWorkspace } from "../questions/QuestionBankWorkspace.js";
 
 type CourseDefaults = {
   access_mode?: string;
@@ -96,6 +97,7 @@ type SharesPayload = { shares: Array<{ user_id: number; username: string }> };
 type WorkspaceTextKey =
   | "workspace"
   | "lessons"
+  | "questions"
   | "sharedWithMe"
   | "classes"
   | "recentSessions"
@@ -194,6 +196,7 @@ const workspaceCopy: Record<Locale, Record<WorkspaceTextKey, string>> = {
   en: {
     workspace: "Teacher workspace",
     lessons: "My lessons",
+    questions: "Question bank",
     sharedWithMe: "Shared with me",
     classes: "Classes",
     recentSessions: "Recent sessions",
@@ -291,6 +294,7 @@ const workspaceCopy: Record<Locale, Record<WorkspaceTextKey, string>> = {
   "zh-Hans": {
     workspace: "教师工作台",
     lessons: "我的教案",
+    questions: "题库",
     sharedWithMe: "分享给我",
     classes: "班级",
     recentSessions: "最近课堂",
@@ -1090,7 +1094,7 @@ function TeachingCoursesSection({
 
 function TeacherWorkspace({ apiRoot, builderUrl }: { apiRoot: string; builderUrl: string }) {
   const t = useWorkspaceText();
-  const [tab, setTab] = useState<"lessons" | "shared" | "classes" | "recent">("lessons");
+  const [tab, setTab] = useState<"lessons" | "questions" | "shared" | "classes" | "recent">("lessons");
   const [courses, setCourses] = useState<CourseSummary[]>([]);
   const [teachingCourses, setTeachingCourses] = useState<TeachingCourseDetail[]>([]);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
@@ -1208,8 +1212,8 @@ function TeacherWorkspace({ apiRoot, builderUrl }: { apiRoot: string; builderUrl
         />
       ) : null}
       <nav className="lc-workspace-tabs" aria-label={t("workspace")}>
-        {(["lessons", "shared", "classes", "recent"] as const).map((item) => {
-          const label = item === "lessons" ? t("lessons") : item === "shared" ? t("sharedWithMe") : item === "classes" ? t("classes") : t("recentSessions");
+        {(["lessons", "questions", "shared", "classes", "recent"] as const).map((item) => {
+          const label = item === "lessons" ? t("lessons") : item === "questions" ? t("questions") : item === "shared" ? t("sharedWithMe") : item === "classes" ? t("classes") : t("recentSessions");
           return (
             <button key={item} type="button" className={tab === item ? "lc-btn-sm lc-btn-primary" : "lc-btn-sm lc-btn-outline"} aria-selected={tab === item} onClick={() => setTab(item)}>
               {label}
@@ -1217,7 +1221,9 @@ function TeacherWorkspace({ apiRoot, builderUrl }: { apiRoot: string; builderUrl
           );
         })}
       </nav>
-      {loading ? <p>{t("loading")}</p> : tab === "classes" ? (
+      {loading ? <p>{t("loading")}</p> : tab === "questions" ? (
+        <QuestionBankWorkspace apiRoot={apiRoot} />
+      ) : tab === "classes" ? (
         <>
           <TeachingCoursesSection teachingCourses={teachingCourses} classes={courses} apiRoot={apiRoot} run={run} busy={busy} refresh={refresh} />
           <section className="lc-workspace-create-class">

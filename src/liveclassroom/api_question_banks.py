@@ -12,10 +12,12 @@ from .services.classroom import ClassroomError
 from .services.permissions import can_teach
 from .services.question_banks import (
     add_question_to_bank,
+    copy_question,
     create_question_bank,
     delete_question_bank,
     list_bank_questions,
     remove_question_from_bank,
+    update_bank_question,
     update_question_bank,
 )
 
@@ -56,6 +58,30 @@ def _question(definition: ActivityDefinition) -> dict:
         "current_revision_id": definition.current_revision_id,
         "updated_at": definition.updated_at.isoformat(),
     }
+
+
+def _question_detail(definition: ActivityDefinition) -> dict:
+    """Private owner payload for preview/edit; never used in list responses."""
+    payload = _question(definition)
+    payload.update(
+        {
+            "definition": definition.definition,
+            "asset_id": definition.asset_id,
+            "status": definition.status,
+            "schema_version": definition.schema_version,
+            "revisions": [
+                {
+                    "id": revision.id,
+                    "revision": revision.revision,
+                    "payload": revision.payload,
+                    "metadata": revision.metadata,
+                    "created_at": revision.created_at.isoformat(),
+                }
+                for revision in definition.revisions.order_by("revision")
+            ],
+        }
+    )
+    return payload
 
 
 def _mutate(request, command_type: str, action):
@@ -151,12 +177,67 @@ def question_bank_questions(request, bank_id: int):
     return _mutate(request, "question_bank.add_question", action)
 
 
-@require_http_methods(["DELETE"])
+@require_http_methods(["GET", "PATCH", "DELETE"])
 def question_bank_question(request, bank_id: int, definition_id: int):
-    def action():
+    denied = _access(request)
+    if denied is not None:
+        return denied
+
+    try:
         bank = _bank(request.user, bank_id)
         definition = get_object_or_404(ActivityDefinition, pk=definition_id)
+    except Http404:
+        return _error("Not found.", 404, code="not_found")
+    if request.method == "GET":
+        if not bank.items.filter(definition=definition).exists():
+            return _error("Not found.", 404, code="not_found")
+        return JsonResponse(_question_detail(definition))
+
+    def action():
+        if request.method == "PATCH":
+            body = _body(request)
+            updated = update_bank_question(
+                actor=request.user,
+                bank=bank,
+                definition=definition,
+                title=body.pop("title", None),
+                payload=body,
+            )
+            return JsonResponse(_question_detail(updated))
         remove_question_from_bank(actor=request.user, bank=bank, definition=definition)
         return JsonResponse({"deleted": True})
 
-    return _mutate(request, "question_bank.remove_question", action)
+    return _mutate(request, f"question_bank.{request.method.casefold()}_question", action)
+
+
+@require_http_methods(["POST"])
+def question_bank_question_copy(request, bank_id: int, definition_id: int):
+    """Copy a private bank member and optionally add it to another own bank."""
+    denied = _access(request)
+    if denied is not None:
+        return denied
+    command_type = f"question_bank.copy_question.{bank_id}.{definition_id}"
+
+    def action():
+        body = _body(request)
+        if set(body) - {"target_bank_id", "title", "metadata"}:
+            raise ClassroomError("Unsupported copy fields.")
+        target_bank_id = body.pop("target_bank_id", None)
+        if target_bank_id is not None and (
+            isinstance(target_bank_id, bool) or not isinstance(target_bank_id, int) or target_bank_id <= 0
+        ):
+            raise ClassroomError("target_bank_id must be a positive integer.")
+        source_bank = _bank(request.user, bank_id)
+        target_bank = _bank(request.user, target_bank_id) if target_bank_id is not None else None
+        definition = get_object_or_404(ActivityDefinition, pk=definition_id)
+        copied = copy_question(
+            actor=request.user,
+            source_bank=source_bank,
+            definition=definition,
+            title=body.pop("title", None),
+            metadata=body.pop("metadata", None),
+            target_bank=target_bank,
+        )
+        return JsonResponse(_question_detail(copied), status=201)
+
+    return _mutate(request, command_type, action)

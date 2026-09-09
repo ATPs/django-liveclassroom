@@ -234,6 +234,10 @@ class FlowBuilderView(TeacherRequiredMixin, LocaleContextMixin, TemplateView):
         return context
 
 
+class DeckWorkspaceView(TeacherRequiredMixin, LocaleContextMixin, TemplateView):
+    template_name = "liveclassroom/decks.html"
+
+
 def health(request):
     """A dependency-free endpoint for deployment health checks."""
     return JsonResponse({"status": "ok", "service": "liveclassroom"})

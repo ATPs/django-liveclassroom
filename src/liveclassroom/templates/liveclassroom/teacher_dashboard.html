@@ -24,6 +24,7 @@
    <h1>{% translate "Start a live classroom" %}</h1>
    <h2>{% translate "Your sessions" %}</h2>
    <a href="{% url 'liveclassroom:flow-builder' %}?lang={{ active_lang|urlencode }}">{% translate "Flow Builder" %}</a>
+   <a href="{% url 'liveclassroom:deck-workspace' %}?lang={{ active_lang|urlencode }}">{% translate "Slide decks" %}</a>
   </section>
 </div>
 {% endblock %}

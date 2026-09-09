@@ -9,6 +9,7 @@ from django.db.migrations.executor import MigrationExecutor
 def test_question_bank_migration_preserves_definition_history():
     previous = [("liveclassroom", "0006_activity_question_metadata")]
     current = [("liveclassroom", "0007_question_banks")]
+    final = [("liveclassroom", "0010_assessmentdefinition_assessmentitem_and_more")]
     executor = MigrationExecutor(connection)
     try:
         executor.migrate(previous)
@@ -30,4 +31,4 @@ def test_question_bank_migration_preserves_definition_history():
         bank = apps.get_model("liveclassroom", "QuestionBank").objects.create(owner_id=user.id, title="New bank")
         apps.get_model("liveclassroom", "QuestionBankItem").objects.create(bank_id=bank.id, definition_id=definition.pk)
     finally:
-        MigrationExecutor(connection).migrate(current)
+        MigrationExecutor(connection).migrate(final)

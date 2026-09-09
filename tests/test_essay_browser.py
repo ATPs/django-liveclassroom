@@ -1,14 +1,15 @@
 """Browser coverage for authoring and responding to an essay activity."""
 
 import re
+
 import pytest
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.test import Client
 from django.urls import reverse
 
-from tests.test_browser_workflows import _chromium_or_skip, database_call
 from liveclassroom.services.flows import create_flow
+from tests.test_browser_workflows import _chromium_or_skip, database_call
 
 
 def _session_cookie(user) -> str:
@@ -46,7 +47,9 @@ def test_teacher_creates_and_reopens_essay_editor_on_mobile(live_server):
         )
         assert saved == [("liveclassroom.essay", {"prompt": "Explain your reasoning.", "max_length": 120})]
 
-        page.locator(".lc-builder-step-card").filter(has_text="Reflection").get_by_role("button", name="Edit", exact=True).click()
+        page.locator(".lc-builder-step-card").filter(has_text="Reflection").get_by_role(
+            "button", name="Edit", exact=True
+        ).click()
         editor = page.locator(".lc-builder-main form.lc-form")
         assert editor.get_by_label("Maximum response length", exact=True).input_value() == "120"
         page.set_viewport_size({"width": 390, "height": 844})

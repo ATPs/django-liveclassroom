@@ -1,0 +1,12 @@
+{% extends liveclassroom_base_template %}
+{% load i18n %}
+{% block title %}{% translate "Slide decks" %} · LiveClassroom{% endblock %}
+{% block content %}
+<section class="lc-card lc-wide" data-deck-workspace
+ data-api-root="{% url 'liveclassroom:api-v1-decks' %}"
+ data-assets-url="{% url 'liveclassroom:api-v1-assets' %}"
+ data-preview-template="{% url 'liveclassroom:deck-preview' 0 %}"
+ data-locale="{{ active_lang|default:'en' }}">
+  <h1>{% translate "Slide decks" %}</h1>
+</section>
+{% endblock %}

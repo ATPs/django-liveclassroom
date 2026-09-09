@@ -139,6 +139,9 @@ The second section is visible after navigation.
         assert slide_frame.locator("img").count() >= 1
         assert slide_frame.locator(".callout").count() >= 1
         assert slide_frame.locator(".mermaid").count() >= 1
+        # VaultPub loads KaTeX dynamically after the slide shell is mounted.
+        # Wait for the rendered node instead of racing that optional module.
+        slide_frame.locator(".katex").first.wait_for()
         assert slide_frame.locator(".katex").count() >= 1
 
         page.get_by_role("button", name="Next page", exact=True).click()

@@ -1,11 +1,12 @@
 from .activity import ActivityDefinition, ActivityDefinitionRevision, AuthoringCommandReceipt
+from .assessments import AssessmentDefinition, AssessmentItem
 from .assets import ClassroomAsset
 from .authoring import AuthoringAttachment, AuthoringJob, AuthoringMessage, AuthoringThread
 from .content import Flow, FlowStep
 from .course import Course, CourseMembership, TeachingCourse
-from .demos import DemoLesson
-from .decks import Deck, DeckSlide, DeckSlideAsset
 from .deck_snapshots import DeckSnapshot, DeckSnapshotAsset
+from .decks import Deck, DeckSlide, DeckSlideAsset
+from .demos import DemoLesson
 from .plans import FlowShare, FlowSnapshot, SessionPlanStep, SnapshotAsset
 from .question_banks import QuestionBank, QuestionBankItem
 from .session import (
@@ -42,6 +43,8 @@ __all__ = [
     "AuthoringJob",
     "AuthoringMessage",
     "AuthoringThread",
+    "AssessmentDefinition",
+    "AssessmentItem",
     "Flow",
     "FlowSnapshot",
     "SnapshotAsset",

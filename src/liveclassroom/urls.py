@@ -2,6 +2,7 @@ from django.urls import path
 
 from . import (
     api,
+    api_assessments,
     api_assets,
     api_authoring,
     api_decks,
@@ -10,6 +11,7 @@ from . import (
     api_plans,
     api_question_banks,
     api_review,
+    deck_views,
     document_views,
     fragment_views,
     views,
@@ -18,6 +20,22 @@ from . import (
 app_name = "liveclassroom"
 
 urlpatterns = [
+    path("api/v1/assessments/", api_assessments.assessments, name="api-v1-assessments"),
+    path(
+        "api/v1/assessments/<int:assessment_id>/",
+        api_assessments.assessment_detail,
+        name="api-v1-assessment-detail",
+    ),
+    path(
+        "api/v1/assessments/<int:assessment_id>/items/",
+        api_assessments.assessment_items,
+        name="api-v1-assessment-items",
+    ),
+    path(
+        "api/v1/assessments/<int:assessment_id>/copy/",
+        api_assessments.assessment_copy,
+        name="api-v1-assessment-copy",
+    ),
     path(
         "api/v1/activity-definitions/<int:revision_id>/fragments/<str:field>/",
         fragment_views.definition_fragment,
@@ -47,6 +65,11 @@ urlpatterns = [
         "api/v1/question-banks/<int:bank_id>/questions/<int:definition_id>/",
         api_question_banks.question_bank_question,
         name="api-v1-question-bank-question",
+    ),
+    path(
+        "api/v1/question-banks/<int:bank_id>/questions/<int:definition_id>/copy/",
+        api_question_banks.question_bank_question_copy,
+        name="api-v1-question-bank-question-copy",
     ),
     path(
         "api/v1/documents/<uuid:asset_id>/",
@@ -140,6 +163,8 @@ urlpatterns = [
     path("help/", views.HelpView.as_view(), name="help"),
     path("teacher/", views.TeacherDashboardView.as_view(), name="teacher-dashboard"),
     path("teacher/builder/", views.FlowBuilderView.as_view(), name="flow-builder"),
+    path("teacher/decks/", views.DeckWorkspaceView.as_view(), name="deck-workspace"),
+    path("teacher/decks/<int:deck_id>/preview/", deck_views.preview, name="deck-preview"),
     path("teacher/flows/<int:flow_id>/builder/", views.FlowBuilderView.as_view(), name="flow-builder-detail"),
     path("teacher/sessions/<int:session_id>/", views.TeacherConsoleView.as_view(), name="teacher-console"),
     path("teacher/sessions/<int:session_id>/student-view/", views.StudentView.as_view(), name="student-view"),
@@ -189,6 +214,7 @@ urlpatterns = [
         api_assets.session_asset_content,
         name="api-v1-session-asset-content",
     ),
+    path("api/v1/assets/", api_assets.assets, name="api-v1-assets"),
     path("api/v1/assets/<uuid:asset_id>/content/", api_assets.asset_content, name="api-v1-asset-content"),
     path("api/v1/sessions/<int:session_id>/join-account/", api.join_account, name="api-v1-join-account"),
     path(

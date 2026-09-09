@@ -6,9 +6,11 @@ import { mountStudentSession } from "./surfaces/student/StudentSession.js";
 import { mountClassroomDisplay } from "./surfaces/display/ClassroomDisplay.js";
 import { mountTeacherConsole } from "./surfaces/teacher/TeacherConsole.js";
 import { mountStudentView } from "./surfaces/teacher/StudentView.js";
+import { mountDeckWorkspace } from "./surfaces/decks/DeckWorkspace.js";
 
 if (typeof document !== "undefined") {
   for (const el of document.querySelectorAll<HTMLElement>("[data-teacher-workspace]")) mountTeacherWorkspace(el);
+  for (const el of document.querySelectorAll<HTMLElement>("[data-deck-workspace]")) mountDeckWorkspace(el);
   for (const element of document.querySelectorAll<HTMLElement>("[data-liveclassroom-app]")) {
     const audience = element.dataset.audience;
     if (audience === "student" && element.dataset.stateUrl) mountStudentSession(element);
@@ -28,4 +30,5 @@ export {
   mountBuilder,
   mountAiChat,
   mountStudentView,
+  mountDeckWorkspace,
 };

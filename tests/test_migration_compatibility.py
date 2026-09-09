@@ -8,7 +8,9 @@ from django.db.migrations.loader import MigrationLoader
 @pytest.mark.django_db
 def test_fresh_schema_has_canonical_lesson_session_and_public_demo_tables():
     loader = MigrationLoader(connection)
-    assert loader.graph.leaf_nodes("liveclassroom") == [("liveclassroom", "0009_deck_snapshots")]
+    assert loader.graph.leaf_nodes("liveclassroom") == [
+        ("liveclassroom", "0010_assessmentdefinition_assessmentitem_and_more")
+    ]
     assert sorted(key for key in loader.disk_migrations if key[0] == "liveclassroom") == [
         ("liveclassroom", "0001_initial"),
         ("liveclassroom", "0002_public_demo_lessons"),
@@ -19,6 +21,7 @@ def test_fresh_schema_has_canonical_lesson_session_and_public_demo_tables():
         ("liveclassroom", "0007_question_banks"),
         ("liveclassroom", "0008_native_decks"),
         ("liveclassroom", "0009_deck_snapshots"),
+        ("liveclassroom", "0010_assessmentdefinition_assessmentitem_and_more"),
     ]
     tables = set(connection.introspection.table_names())
     assert {
@@ -33,6 +36,8 @@ def test_fresh_schema_has_canonical_lesson_session_and_public_demo_tables():
         "liveclassroom_deckslide",
         "liveclassroom_decksnapshot",
         "liveclassroom_decksnapshotasset",
+        "liveclassroom_assessmentdefinition",
+        "liveclassroom_assessmentitem",
     } <= tables
     assert {"liveclassroom_flowitem", "liveclassroom_question"}.isdisjoint(tables)
     with connection.cursor() as cursor:

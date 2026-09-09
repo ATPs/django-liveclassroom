@@ -73,6 +73,17 @@ def _asset_response(asset: ClassroomAsset) -> dict:
     return asset_descriptor(asset, content_url=content_url, download_url=f"{content_url}?download=1")
 
 
+@require_GET
+def assets(request):
+    """List only the current teacher's reusable files for native deck authoring."""
+    from .services.permissions import can_teach
+
+    if not can_teach(request.user):
+        return _error("Teacher access is required.", 403, code="permission_denied")
+    assets = [_asset_response(asset) for asset in ClassroomAsset.objects.filter(owner=request.user)]
+    return JsonResponse({"assets": assets})
+
+
 @require_POST
 def flow_file(request, flow_id: int):
     """Create one private asset and a reusable file step in a single command."""

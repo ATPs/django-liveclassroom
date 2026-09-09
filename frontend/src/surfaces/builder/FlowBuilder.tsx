@@ -7,6 +7,7 @@ import { getLocale, type Locale, type TranslationKey } from "../../locales.js";
 import { LanguageSwitcher, LocaleProvider, useLocale, useT } from "../../i18n.js";
 import { mountAiChat } from "../../ai_chat.js";
 import { FilePicker } from "../FilePicker.js";
+import { QuestionBankWorkspace } from "../questions/QuestionBankWorkspace.js";
 
 export type FlowSummary = {
   id: number;
@@ -698,6 +699,7 @@ function FlowBuilder({
   const [status, setStatus] = useState<{ msg: string; error: boolean } | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [draftPrompt, setDraftPrompt] = useState("");
+  const [questionPickerOpen, setQuestionPickerOpen] = useState(false);
 
   const currentFlowRef = useRef<FlowDetail | null>(null);
   currentFlowRef.current = currentFlow;
@@ -795,6 +797,18 @@ function FlowBuilder({
       await loadFlow(flow.id);
     } catch (err) {
       showStatus(err instanceof Error ? err.message : t("failedSaveSessionFlow"), true);
+    }
+  };
+
+  const addQuestionFromBank = async (definitionId: number) => {
+    if (!currentFlow) return;
+    try {
+      await postJson(apiUrl(`flows/${currentFlow.id}/steps/`), { activity_definition_id: definitionId }, globalThis.crypto?.randomUUID?.());
+      setQuestionPickerOpen(false);
+      showStatus(locale.startsWith("zh") ? "题目已加入教案。" : "Question added to lesson.");
+      await loadFlow(currentFlow.id);
+    } catch (err) {
+      showStatus(err instanceof Error ? err.message : (locale.startsWith("zh") ? "无法加入题目。" : "Unable to add question."), true);
     }
   };
 
@@ -913,6 +927,7 @@ function FlowBuilder({
               <div className="lc-builder-steps-header">
                 <h3>{t("steps")}</h3>
                 {editable ? <button type="button" className="lc-btn-sm lc-btn-primary" onClick={() => setAddStepOpen((v) => !v)}>+ {t("addStep")}</button> : null}
+                {editable ? <button type="button" className="lc-btn-sm lc-btn-outline" onClick={() => setQuestionPickerOpen((v) => !v)}>{locale.startsWith("zh") ? "从题库加入" : "Add from question bank"}</button> : null}
               </div>
               {editable && addStepOpen && currentFlow ? (
                 <AddStepForm
@@ -927,6 +942,11 @@ function FlowBuilder({
                   }}
                   onCancel={() => setAddStepOpen(false)}
                 />
+              ) : null}
+              {editable && currentFlow && questionPickerOpen ? (
+                <div className="lc-card lc-question-picker">
+                  <QuestionBankWorkspace apiRoot={apiRoot} picker onPick={addQuestionFromBank} />
+                </div>
               ) : null}
               {editable && currentFlow ? (
                 <FilePicker

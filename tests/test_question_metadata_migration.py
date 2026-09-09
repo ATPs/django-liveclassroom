@@ -7,6 +7,7 @@ from django.db.migrations.executor import MigrationExecutor
 def test_metadata_migration_preserves_existing_definition_revision_and_flow():
     old_target = [("liveclassroom", "0005_teaching_course_organization")]
     new_target = [("liveclassroom", "0006_activity_question_metadata")]
+    final_target = [("liveclassroom", "0010_assessmentdefinition_assessmentitem_and_more")]
     executor = MigrationExecutor(connection)
     try:
         executor.migrate(old_target)
@@ -67,4 +68,4 @@ def test_metadata_migration_preserves_existing_definition_revision_and_flow():
         assert apps.get_model("liveclassroom", "LiveSession").objects.filter(pk=session.id).exists()
         assert apps.get_model("liveclassroom", "Submission").objects.filter(pk=submission.id).exists()
     finally:
-        MigrationExecutor(connection).migrate(new_target)
+        MigrationExecutor(connection).migrate(final_target)
