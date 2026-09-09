@@ -252,7 +252,7 @@ def _course_value(data: Mapping[str, Any]) -> Any:
 def create_assessment(*, actor, data: Mapping[str, Any]) -> AssessmentDefinition:
     if not can_teach(actor) or not isinstance(data, Mapping):
         raise ClassroomError("An authenticated teacher is required to create an assessment.")
-    allowed = {"title", "instructions", "course_id", "class_id", "settings", "items"}
+    allowed = {"title", "instructions", "course_id", "class_id", "settings", "items", "sections"}
     if set(data) - allowed:
         raise ClassroomError("Unsupported assessment fields.")
     course = _course(actor, _course_value(data))
@@ -266,6 +266,12 @@ def create_assessment(*, actor, data: Mapping[str, Any]) -> AssessmentDefinition
         settings=settings,
     )
     _write_items(assessment, rows)
+    from .assessment_sections import ensure_default_sections, set_sections
+
+    if "sections" in data:
+        set_sections(actor=actor, assessment=assessment, sections=data["sections"])
+    else:
+        ensure_default_sections(assessment)
     return assessment
 
 
@@ -285,7 +291,7 @@ def update_assessment(
     _owner(actor, assessment)
     if not isinstance(data, Mapping) or not data:
         raise ClassroomError("Assessment changes are required.")
-    allowed = {"title", "instructions", "course_id", "class_id", "settings"}
+    allowed = {"title", "instructions", "course_id", "class_id", "settings", "sections"}
     if set(data) - allowed:
         raise ClassroomError("Unsupported assessment fields.")
     locked = AssessmentDefinition.objects.select_for_update().get(pk=assessment.pk)
@@ -298,6 +304,10 @@ def update_assessment(
         locked.course = _course(actor, _course_value(data))
     if "settings" in data:
         locked.settings = _settings(data["settings"])
+    if "sections" in data:
+        from .assessment_sections import _write_sections, normalize_sections
+
+        _write_sections(locked, normalize_sections(actor=actor, assessment=locked, sections=data["sections"]))
     locked.version += 1
     locked.save()
     return locked
@@ -312,6 +322,11 @@ def replace_items(
     _expected_version(locked, expected_version)
     rows = _item_rows(actor, items)
     _write_items(locked, rows)
+    from .assessment_sections import _write_sections, default_sections
+
+    # Replacing the fixed item list is the legacy authoring operation.  Keep
+    # its established ordering and give it the compatibility default section.
+    _write_sections(locked, default_sections(locked))
     locked.version += 1
     locked.save(update_fields=["version", "updated_at"])
     return locked
@@ -340,6 +355,45 @@ def copy_assessment(*, actor, assessment: AssessmentDefinition, title: str | Non
             for item in source.items.all()
         ]
     )
+    from .assessment_sections import _write_sections, default_sections, sections_payload
+
+    source_sections = sections_payload(source)
+    if source_sections and any(entry["kind"] == "pool" for section in source_sections for entry in section["entries"]):
+        old_to_new = {
+            str(source_item.key): copied_item
+            for source_item, copied_item in zip(source.items.all(), copied.items.all())
+        }
+        copied_sections = []
+        for section in source_sections:
+            entries = []
+            for entry in section["entries"]:
+                if entry["kind"] == "fixed":
+                    new_item = old_to_new.get(entry["item_key"])
+                    if new_item is None:
+                        continue
+                    entries.append(
+                        {
+                            "key": entry["key"],
+                            "position": entry["position"],
+                            "kind": "fixed",
+                            "item_key": str(new_item.key),
+                        }
+                    )
+                else:
+                    entries.append(entry)
+            copied_sections.append(
+                {
+                    "key": section["key"],
+                    "title": section["title"],
+                    "position": section["position"],
+                    "entries": entries,
+                }
+            )
+        from .assessment_sections import normalize_sections
+
+        _write_sections(copied, normalize_sections(actor=actor, assessment=copied, sections=copied_sections))
+    else:
+        _write_sections(copied, default_sections(copied))
     return copied
 
 
@@ -363,6 +417,8 @@ def item_payload(item: AssessmentItem, *, include_revision: bool = True) -> dict
 def assessment_payload(assessment: AssessmentDefinition, *, include_revision: bool = True) -> dict[str, Any]:
     items = [item_payload(item, include_revision=include_revision) for item in assessment.items.all()]
     total = sum((item.points for item in assessment.items.all()), Decimal("0"))
+    from .assessment_sections import sections_payload
+
     return {
         "id": assessment.id,
         "title": assessment.title,
@@ -370,6 +426,7 @@ def assessment_payload(assessment: AssessmentDefinition, *, include_revision: bo
         "course_id": assessment.course_id,
         "version": assessment.version,
         "settings": deepcopy(assessment.settings),
+        "sections": sections_payload(assessment, include_private=include_revision),
         "items": items,
         "total_points": _plain_decimal(total),
         "updated_at": assessment.updated_at.isoformat(),

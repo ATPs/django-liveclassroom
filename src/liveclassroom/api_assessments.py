@@ -7,6 +7,7 @@ from django.views.decorators.http import require_http_methods
 
 from .api import _authoring_replay, _body, _error, _record_authoring
 from .models import AssessmentDefinition
+from .services.assessment_sections import replace_sections
 from .services.assessments import (
     assessment_payload,
     copy_assessment,
@@ -136,6 +137,40 @@ def assessment_items(request, assessment_id: int):
         return JsonResponse(assessment_payload(updated))
 
     return _mutate(request, "assessment.replace_items", action)
+
+
+@require_http_methods(["GET", "PUT"])
+def assessment_sections(request, assessment_id: int):
+    """Read or atomically replace the ordered section/pool draft."""
+    denied = _access(request)
+    if denied is not None:
+        return denied
+    try:
+        assessment = _assessment(request.user, assessment_id)
+    except Http404:
+        return _error("Not found.", 404, code="not_found")
+    if request.method == "GET":
+        payload = assessment_payload(assessment)
+        return JsonResponse(
+            {"assessment_id": assessment.id, "version": assessment.version, "sections": payload["sections"]}
+        )
+
+    def action():
+        body = _body(request)
+        if set(body) != {"expected_version", "sections"}:
+            raise ClassroomError("expected_version and sections are required.")
+        updated = replace_sections(
+            actor=request.user,
+            assessment=assessment,
+            expected_version=body["expected_version"],
+            sections=body["sections"],
+        )
+        updated = AssessmentDefinition.objects.prefetch_related(
+            "items__question_revision__definition", "sections__entries__item", "sections__entries__bank"
+        ).get(pk=updated.pk)
+        return JsonResponse(assessment_payload(updated))
+
+    return _mutate(request, "assessment.replace_sections", action)
 
 
 @require_http_methods(["POST"])
