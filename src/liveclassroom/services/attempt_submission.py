@@ -52,6 +52,7 @@ class AttemptSubmissionResult(dict):
     def __init__(self, payload: dict[str, Any], attempt: AssessmentAttempt):
         super().__init__(payload)
         self.attempt = attempt
+        self.finalized_now = False
 
 
 def _aware_now(value: datetime | None) -> datetime:
@@ -214,7 +215,9 @@ def submit_attempt(
         lambda: _send_submitted(locked.pk, getattr(actor, "pk", None), reason, payload),
         robust=True,
     )
-    return AttemptSubmissionResult(payload, locked)
+    result = AttemptSubmissionResult(payload, locked)
+    result.finalized_now = True
+    return result
 
 
 __all__ = [

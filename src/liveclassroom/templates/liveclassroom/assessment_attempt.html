@@ -1,0 +1,15 @@
+{% extends liveclassroom_base_template %}
+{% load i18n %}
+{% block title %}{{ run.title }} · LiveClassroom{% endblock %}
+{% block content %}
+  <section class="lc-card lc-wide" data-student-assessment
+    data-run-id="{{ run.public_id }}"
+    data-run-url="{{ run_url }}"
+    data-start-url="{{ start_url }}"
+    data-locale="{{ active_lang|default:'en' }}"
+    data-authenticated="true">
+    <p class="lc-kicker">{% translate "Student assessment" %}</p>
+    <h1>{{ run.title }}</h1>
+    <p>{% translate "Loading assessment instructions…" %}</p>
+  </section>
+{% endblock %}

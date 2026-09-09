@@ -22,6 +22,7 @@ from liveclassroom.models import (
     CourseMembership,
 )
 
+from .assessment_timing import assessment_deadline, ensure_assessment_can_start, server_now
 from .classroom import ClassroomError
 
 
@@ -231,7 +232,7 @@ def save_attempt_answer(
 
 @transaction.atomic
 def start_or_resume_attempt(
-    *, actor, run: AssessmentRun, request_id, new_attempt: bool = False
+    *, actor, run: AssessmentRun, request_id, new_attempt: bool = False, now=None
 ) -> tuple[AssessmentAttempt, bool]:
     """Return an active attempt, or create a deliberately requested next one."""
     if not isinstance(new_attempt, bool):
@@ -240,6 +241,8 @@ def start_or_resume_attempt(
     locked_run = AssessmentRun.objects.select_for_update().get(pk=run.pk)
     if not _can_access(actor, locked_run):
         raise ClassroomError("You do not have access to this assessment.")
+    current_now = server_now(now)
+    run_settings = locked_run.manifest.get("settings", {}) if isinstance(locked_run.manifest, dict) else {}
     request_hash = _hash_request(new_attempt=new_attempt)
     receipt = (
         AttemptStartReceipt.objects.filter(run=locked_run, user=actor, request_id=request_id)
@@ -252,12 +255,20 @@ def start_or_resume_attempt(
         if receipt.attempt is None:
             raise ClassroomError("The start request did not complete; retry with a new request_id.")
         return receipt.attempt, False
+    ensure_assessment_can_start(now=current_now, settings=run_settings)
     active = (
         AssessmentAttempt.objects.select_for_update()
         .filter(run=locked_run, user=actor, status=AssessmentAttempt.Status.IN_PROGRESS)
         .first()
     )
     if active is not None:
+        if active.deadline_at is not None and current_now >= active.deadline_at:
+            # A delayed worker must not leave a resumed attempt writable.  Use
+            # the same idempotent finalizer as the scheduled expiry command.
+            from .assessment_timing import finalize_due_attempt
+
+            if finalize_due_attempt(attempt=active, now=current_now) is not None:
+                active.refresh_from_db()
         AttemptStartReceipt.objects.create(
             run=locked_run, user=actor, request_id=request_id, request_hash=request_hash, attempt=active
         )
@@ -287,6 +298,9 @@ def start_or_resume_attempt(
         if active is not None:
             return active, False
         raise ClassroomError("The attempt changed concurrently; retry.") from exc
+    attempt.deadline_at = assessment_deadline(started_at=attempt.started_at, settings=run_settings)
+    if attempt.deadline_at is not None:
+        attempt.save(update_fields=["deadline_at"])
     rows = _item_rows(locked_run)
     for row in rows:
         row.attempt = attempt

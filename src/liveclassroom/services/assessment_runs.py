@@ -120,7 +120,7 @@ def run_payload(run: AssessmentRun, *, include_manifest: bool = False) -> dict[s
 
 
 def available_run_payload(run: AssessmentRun) -> dict[str, Any]:
-    """Safe pre-attempt metadata; content stays unavailable until task 24."""
+    """Safe landing metadata; assigned content is returned only after start."""
     manifest = run.manifest if isinstance(run.manifest, dict) else {}
     return {
         "public_id": str(run.public_id),
@@ -128,5 +128,5 @@ def available_run_payload(run: AssessmentRun) -> dict[str, Any]:
         "instructions": manifest.get("instructions", ""),
         "audience": run.audience,
         "course_id": run.course_id,
-        "attempt_available": False,
+        "attempt_available": True,
     }

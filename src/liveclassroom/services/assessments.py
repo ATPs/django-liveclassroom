@@ -19,6 +19,7 @@ from liveclassroom.models import (
 )
 from liveclassroom.registry import activity_registry
 
+from .assessment_timing import TIMING_FIELDS, normalize_timing_settings
 from .classroom import ClassroomError
 from .permissions import can_author_course, can_teach, can_use_activity_definition
 
@@ -27,7 +28,7 @@ MAX_TITLE_LENGTH = 200
 MAX_INSTRUCTIONS_LENGTH = 20_000
 MAX_POINTS = Decimal("1000")
 DEFAULT_POINTS = Decimal("1")
-SUPPORTED_SETTINGS = frozenset({"max_attempts", "pass_percent", "audience"})
+SUPPORTED_SETTINGS = frozenset({"max_attempts", "pass_percent", "audience"}) | TIMING_FIELDS
 AUDIENCES = frozenset({"authenticated_link", "class"})
 
 
@@ -115,6 +116,8 @@ def _settings(value: Any) -> dict[str, Any]:
         if not isinstance(audience, str) or audience not in AUDIENCES:
             raise ClassroomError("audience must be authenticated_link or class.")
         result["audience"] = audience
+    timing = normalize_timing_settings({key: value[key] for key in TIMING_FIELDS if key in value})
+    result.update(timing)
     return result
 
 

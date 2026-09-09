@@ -1856,6 +1856,60 @@
   #liveclassroom-root .lc-question-filters .lc-form-row { flex-direction: column; align-items: stretch; }
 }
 
+/* ---------------------------------------------------------------------------
+ * Student assessment attempts
+ * ------------------------------------------------------------------------- */
+#liveclassroom-root .lc-student-assessment-root { width: min(100%, 72rem); margin: 0 auto; }
+#liveclassroom-root .lc-student-assessment-header { margin: 1rem 0 1.25rem; }
+#liveclassroom-root .lc-student-assessment-header h1 { margin-bottom: .5rem; }
+#liveclassroom-root .lc-student-assessment-header .lc-markdown-body { max-width: 70ch; }
+#liveclassroom-root .lc-student-assessment-landing,
+#liveclassroom-root .lc-student-assessment-submitted { max-width: 48rem; margin: 1rem 0; }
+#liveclassroom-root .lc-student-assessment-layout { display: grid; grid-template-columns: minmax(10rem, 14rem) minmax(0, 1fr); gap: 1.25rem; align-items: start; }
+#liveclassroom-root .lc-student-assessment-nav { position: sticky; top: 1rem; }
+#liveclassroom-root .lc-student-assessment-nav h2 { margin-top: 0; font-size: 1.05rem; }
+#liveclassroom-root .lc-student-assessment-nav ol { display: grid; gap: .35rem; list-style: none; margin: 0; padding: 0; }
+#liveclassroom-root .lc-student-assessment-nav button { display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: 2.75rem; padding: .55rem .7rem; border: 1px solid var(--lc-border); border-radius: var(--lc-radius); background: var(--lc-surface-2); color: var(--lc-text); text-align: left; }
+#liveclassroom-root .lc-student-assessment-nav button span { display: inline-grid; width: 1.45rem; height: 1.45rem; place-items: center; margin-right: .4rem; border-radius: 50%; background: var(--lc-surface-3); }
+#liveclassroom-root .lc-student-assessment-nav button small { color: var(--lc-accent); font-size: 1rem; }
+#liveclassroom-root .lc-student-assessment-nav button.lc-assessment-nav-current { border-color: var(--lc-accent); background: var(--lc-accent-soft); color: var(--lc-accent); font-weight: 650; }
+#liveclassroom-root .lc-student-assessment-main { min-width: 0; display: grid; gap: 1rem; }
+#liveclassroom-root .lc-student-assessment-question { display: grid; gap: 1rem; }
+#liveclassroom-root .lc-student-assessment-question-heading { display: flex; align-items: flex-start; gap: .75rem; }
+#liveclassroom-root .lc-student-assessment-question-heading h2 { margin: 0 0 .2rem; font-size: 1.25rem; }
+#liveclassroom-root .lc-assessment-response-options { display: grid; gap: .55rem; margin: 0; padding: 0; border: 0; }
+#liveclassroom-root .lc-assessment-response-options legend { margin-bottom: .15rem; font-weight: 650; }
+#liveclassroom-root .lc-assessment-option { display: flex; align-items: flex-start; gap: .65rem; min-height: 2.8rem; padding: .65rem .75rem; border: 1px solid var(--lc-border); border-radius: var(--lc-radius); background: var(--lc-surface-2); }
+#liveclassroom-root .lc-assessment-option input { margin-top: .25rem; flex: 0 0 auto; }
+#liveclassroom-root .lc-assessment-answer-label { display: grid; gap: .35rem; font-weight: 650; }
+#liveclassroom-root .lc-assessment-answer-label input,
+#liveclassroom-root .lc-assessment-answer-label textarea { width: 100%; box-sizing: border-box; }
+#liveclassroom-root .lc-assessment-answer-label textarea { min-height: 8rem; resize: vertical; }
+#liveclassroom-root .lc-assessment-answer-label small { color: var(--lc-text-2); font-weight: 400; }
+#liveclassroom-root .lc-assessment-ranking { display: grid; gap: .45rem; margin: 0; padding-left: 1.5rem; }
+#liveclassroom-root .lc-assessment-ranking li { display: flex; align-items: center; justify-content: space-between; gap: .7rem; min-height: 2.75rem; padding: .35rem .5rem; border-bottom: 1px solid var(--lc-border); }
+#liveclassroom-root .lc-assessment-save-status { display: flex; align-items: center; flex-wrap: wrap; gap: .6rem; margin: 0; color: var(--lc-text-2); font-size: .9rem; }
+#liveclassroom-root .lc-assessment-save-offline,
+#liveclassroom-root .lc-assessment-save-retry,
+#liveclassroom-root .lc-assessment-save-conflict { color: var(--lc-danger); }
+#liveclassroom-root .lc-assessment-save-saved { color: var(--lc-accent); }
+#liveclassroom-root .lc-assessment-readonly-answer { margin: 0; color: var(--lc-text-2); }
+#liveclassroom-root .lc-student-assessment-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: .6rem; }
+#liveclassroom-root .lc-assessment-submit-confirm { display: grid; gap: .65rem; }
+#liveclassroom-root .lc-assessment-submit-confirm h2,
+#liveclassroom-root .lc-assessment-submit-confirm p { margin: 0; }
+@media (max-width: 48rem) {
+  #liveclassroom-root .lc-student-assessment-layout { grid-template-columns: 1fr; }
+  #liveclassroom-root .lc-student-assessment-nav { position: static; }
+  #liveclassroom-root .lc-student-assessment-nav ol { display: flex; flex-wrap: wrap; }
+  #liveclassroom-root .lc-student-assessment-nav li { flex: 1 0 3rem; }
+  #liveclassroom-root .lc-student-assessment-nav button { justify-content: center; padding: .45rem; }
+  #liveclassroom-root .lc-student-assessment-nav button span { margin: 0; }
+  #liveclassroom-root .lc-student-assessment-nav button small { display: none; }
+  #liveclassroom-root .lc-student-assessment-actions { justify-content: stretch; }
+  #liveclassroom-root .lc-student-assessment-actions button { flex: 1 1 8rem; }
+}
+
 #liveclassroom-root .lc-assessment-root { width: min(100%, 90rem); margin: 0 auto; }
 #liveclassroom-root .lc-assessment-layout { display: grid; grid-template-columns: minmax(13rem, 18rem) minmax(0, 1fr); gap: 1rem; margin-top: 1rem; align-items: start; }
 #liveclassroom-root .lc-assessment-list { position: sticky; top: 1rem; }

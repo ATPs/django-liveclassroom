@@ -49,7 +49,12 @@ def attempt_detail(request, public_id):
     if denied is not None:
         return denied
     try:
-        return JsonResponse(attempt_payload(own_attempt(request.user, public_id)))
+        attempt = own_attempt(request.user, public_id)
+        from .services.assessment_timing import finalize_due_attempt
+
+        if finalize_due_attempt(attempt=attempt) is not None:
+            attempt = own_attempt(request.user, public_id)
+        return JsonResponse(attempt_payload(attempt))
     except ClassroomError:
         return _error("Not found.", 404, code="not_found")
 
