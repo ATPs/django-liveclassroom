@@ -301,6 +301,59 @@
   min-width: 0;
 }
 
+#liveclassroom-root .lc-teaching-courses {
+  width: 100%;
+  min-width: 0;
+  padding: 1rem 0 1.5rem;
+  border-bottom: 1px solid var(--lc-border);
+}
+
+#liveclassroom-root .lc-teaching-course-list {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+#liveclassroom-root .lc-teaching-course {
+  min-width: 0;
+  padding: 1rem 0;
+  border-top: 1px solid var(--lc-border);
+}
+
+#liveclassroom-root .lc-teaching-course-classes,
+#liveclassroom-root .lc-ungrouped-classes {
+  margin-top: 0.75rem;
+}
+
+#liveclassroom-root .lc-compact-list {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0;
+  list-style: none;
+}
+
+#liveclassroom-root .lc-compact-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+#liveclassroom-root .lc-teaching-course-attach {
+  align-items: end;
+}
+
+@media (max-width: 30rem) {
+  #liveclassroom-root .lc-teaching-course-attach {
+    align-items: stretch;
+  }
+
+  #liveclassroom-root .lc-teaching-course-attach > * {
+    width: 100%;
+  }
+}
+
 #liveclassroom-root .lc-plan-step {
   padding: 1rem 0;
   border-top: 1px solid var(--lc-border);

@@ -1,10 +1,60 @@
 from django.urls import path
 
-from . import api, api_assets, api_authoring, api_flows, api_organization, api_plans, api_review, views
+from . import api, api_assets, api_authoring, api_flows, api_organization, api_plans, api_review, document_views, views
 
 app_name = "liveclassroom"
 
 urlpatterns = [
+    path(
+        "api/v1/documents/<uuid:asset_id>/",
+        document_views.document_note,
+        name="api-v1-document-root",
+    ),
+    path(
+        "api/v1/documents/<uuid:asset_id>/__slides__/<path:note_path>",
+        document_views.document_slides,
+        name="api-v1-document-slides",
+    ),
+    path(
+        "api/v1/documents/<uuid:asset_id>/__api__/slides/<path:note_path>",
+        document_views.document_slides_payload,
+        name="api-v1-document-slides-payload",
+    ),
+    path(
+        "api/v1/documents/<uuid:asset_id>/__assets__/<path:resource_path>",
+        document_views.document_resource,
+        name="api-v1-document-resource",
+    ),
+    path(
+        "api/v1/documents/<uuid:asset_id>/<path:note_path>",
+        document_views.document_note,
+        name="api-v1-document-note",
+    ),
+    path(
+        "api/v1/session-documents/<int:session_id>/<int:revision_id>/<uuid:asset_id>/",
+        document_views.session_document_note,
+        name="api-v1-session-document-root",
+    ),
+    path(
+        "api/v1/session-documents/<int:session_id>/<int:revision_id>/<uuid:asset_id>/__slides__/<path:note_path>",
+        document_views.session_document_slides,
+        name="api-v1-session-document-slides",
+    ),
+    path(
+        "api/v1/session-documents/<int:session_id>/<int:revision_id>/<uuid:asset_id>/__api__/slides/<path:note_path>",
+        document_views.session_document_slides_payload,
+        name="api-v1-session-document-slides-payload",
+    ),
+    path(
+        "api/v1/session-documents/<int:session_id>/<int:revision_id>/<uuid:asset_id>/__assets__/<path:resource_path>",
+        document_views.session_document_resource,
+        name="api-v1-session-document-resource",
+    ),
+    path(
+        "api/v1/session-documents/<int:session_id>/<int:revision_id>/<uuid:asset_id>/<path:note_path>",
+        document_views.session_document_note,
+        name="api-v1-session-document-note",
+    ),
     path(
         "api/v1/teaching-courses/",
         api_organization.teaching_courses,

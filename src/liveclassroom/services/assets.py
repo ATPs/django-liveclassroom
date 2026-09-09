@@ -203,3 +203,35 @@ def discard_uploaded_asset(asset: ClassroomAsset) -> None:
     """Remove a newly stored upload when its enclosing command cannot complete."""
     if asset.source == ClassroomAsset.Source.UPLOAD and asset.content_file:
         asset.content_file.delete(save=False)
+
+
+def can_read_session_asset(request, session, revision) -> bool:
+    """Apply the exact live-session file visibility boundary to one run revision."""
+    from liveclassroom.api import _act_as_context, _participant_for_request
+    from liveclassroom.models import LiveSession, Participant, SessionChannelState
+
+    from .classroom import can_view_session
+
+    try:
+        act_as_participant, _active = _act_as_context(request, session)
+    except ClassroomError:
+        return False
+    if act_as_participant is None and can_view_session(request.user, session):
+        return True
+    participant = act_as_participant or _participant_for_request(request, session)
+    if participant is None or participant.admission_state != Participant.AdmissionState.ADMITTED:
+        return False
+    activity = revision.activity
+    if activity.current_revision_id != revision.id:
+        return False
+    if activity.reviewable:
+        return True
+    if session.status == LiveSession.Status.ENDED:
+        return False
+    participant_state = session.channel_states.filter(channel=SessionChannelState.Channel.PARTICIPANTS).first()
+    return bool(
+        participant_state
+        and participant_state.current_activity_id == activity.id
+        and participant_state.current_revision_id == revision.id
+        and participant_state.show_prompt
+    )

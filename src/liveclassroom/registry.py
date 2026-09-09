@@ -9,8 +9,11 @@ import uuid
 from collections import Counter
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
+from decimal import Decimal, DecimalException
 from typing import Any
 from urllib.parse import urlsplit
+
+from .services.grading import score_choice, score_numeric, score_short_text
 
 
 @dataclass(frozen=True)
@@ -156,6 +159,99 @@ def _choice_definition(definition: dict[str, Any]) -> dict[str, Any]:
 def _true_false_definition(definition: dict[str, Any]) -> dict[str, Any]:
     result = _copy_definition(definition)
     result["options"] = [{"id": "true", "text": "True"}, {"id": "false", "text": "False"}]
+    return result
+
+
+def _grading_key(definition: dict[str, Any]) -> tuple[str | None, Any]:
+    if "answer" in definition:
+        return "answer", definition["answer"]
+    if "correct_answer" in definition:
+        return "correct_answer", definition["correct_answer"]
+    return None, None
+
+
+def _empty_grading_key(value: Any) -> bool:
+    return value is None or value == [] or (isinstance(value, str) and not value.strip())
+
+
+def _graded_choice_definition(
+    definition: dict[str, Any], *, multiple: bool = False, true_false: bool = False
+) -> dict[str, Any]:
+    result = _true_false_definition(definition) if true_false else _choice_definition(definition)
+    key, expected = _grading_key(result)
+    if "partial_credit" in result:
+        if not isinstance(result["partial_credit"], bool):
+            raise ValueError("partial_credit must be a boolean.")
+        if not multiple:
+            raise ValueError("partial_credit is supported only for multiple choice.")
+    if key is None or _empty_grading_key(expected):
+        return result
+    values = [expected] if isinstance(expected, str) else expected
+    if not isinstance(values, list) or not values:
+        raise ValueError("The grading answer must be a choice id or list of choice ids.")
+    normalized: list[str] = []
+    for value in values:
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("Grading choice ids must be nonblank strings.")
+        cleaned = value.strip()
+        if cleaned not in normalized:
+            normalized.append(cleaned)
+    if not multiple and len(normalized) != 1:
+        raise ValueError("Single-choice grading requires exactly one answer id.")
+    option_ids = {option["id"] for option in result["options"]}
+    if any(value not in option_ids for value in normalized):
+        raise ValueError("A grading answer is not part of this activity.")
+    result[key] = normalized if isinstance(expected, list) else normalized[0]
+    return result
+
+
+def _finite_decimal(value: Any, *, field: str) -> Decimal:
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        raise ValueError(f"{field} must be a finite number or numeric string.")
+    if isinstance(value, str) and not value.strip():
+        raise ValueError(f"{field} must be a finite number or numeric string.")
+    try:
+        number = Decimal(str(value))
+    except (DecimalException, ValueError) as exc:
+        raise ValueError(f"{field} must be a finite number or numeric string.") from exc
+    if not number.is_finite():
+        raise ValueError(f"{field} must be finite.")
+    return number
+
+
+def _graded_numeric_definition(definition: dict[str, Any]) -> dict[str, Any]:
+    result = _numeric_definition(definition)
+    key, expected = _grading_key(result)
+    if key is None or _empty_grading_key(expected):
+        if "tolerance" in result:
+            raise ValueError("tolerance requires a grading answer.")
+        return result
+    _finite_decimal(expected, field="answer")
+    if "tolerance" in result and _finite_decimal(result["tolerance"], field="tolerance") < 0:
+        raise ValueError("tolerance must be nonnegative.")
+    return result
+
+
+def _graded_text_definition(definition: dict[str, Any]) -> dict[str, Any]:
+    result = _text_definition(definition)
+    key, expected = _grading_key(result)
+    if "case_sensitive" in result and not isinstance(result["case_sensitive"], bool):
+        raise ValueError("case_sensitive must be a boolean.")
+    if key is None or _empty_grading_key(expected):
+        if "case_sensitive" in result:
+            raise ValueError("case_sensitive requires a grading answer.")
+        return result
+    values = [expected] if isinstance(expected, str) else expected
+    if not isinstance(values, list) or not values:
+        raise ValueError("The grading answer must be text or a list of accepted text.")
+    normalized: list[str] = []
+    for value in values:
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("Accepted text answers must be nonblank strings.")
+        cleaned = value.strip()
+        if cleaned not in normalized:
+            normalized.append(cleaned)
+    result[key] = normalized[0] if isinstance(expected, str) else normalized
     return result
 
 
@@ -961,36 +1057,36 @@ def _media_definition(definition: dict[str, Any]) -> dict[str, Any]:
 for _activity_type in (
     ActivityType(
         "liveclassroom.single_choice",
-        validate_definition=_choice_definition,
+        validate_definition=_graded_choice_definition,
         normalize_submission=_normalize_choice,
         validate_submission=_validate_single_choice,
         aggregate_submissions=_aggregate,
         aggregate_public_submissions=_aggregate_public_choices,
-        score_submission=_score_choice,
+        score_submission=score_choice,
         export_submission=_plain_export,
         capabilities=frozenset({"choices", "correctness", "aggregate"}),
         frontend_manifest=_manifest("single_choice"),
     ),
     ActivityType(
         "liveclassroom.multiple_choice",
-        validate_definition=_choice_definition,
+        validate_definition=lambda definition: _graded_choice_definition(definition, multiple=True),
         normalize_submission=_normalize_multiple,
         validate_submission=_validate_multiple_choice,
         aggregate_submissions=_aggregate,
         aggregate_public_submissions=_aggregate_public_choices,
-        score_submission=_score_choice,
+        score_submission=score_choice,
         export_submission=_plain_export,
         capabilities=frozenset({"choices", "correctness", "aggregate"}),
         frontend_manifest=_manifest("multiple_choice"),
     ),
     ActivityType(
         "liveclassroom.true_false",
-        validate_definition=_true_false_definition,
+        validate_definition=lambda definition: _graded_choice_definition(definition, true_false=True),
         normalize_submission=_normalize_choice,
         validate_submission=_validate_single_choice,
         aggregate_submissions=_aggregate,
         aggregate_public_submissions=_aggregate_public_choices,
-        score_submission=_score_choice,
+        score_submission=score_choice,
         export_submission=_plain_export,
         capabilities=frozenset({"choices", "correctness", "aggregate"}),
         frontend_manifest=_manifest("true_false"),
@@ -1008,24 +1104,26 @@ for _activity_type in (
     ),
     ActivityType(
         "liveclassroom.short_text",
-        validate_definition=_text_definition,
+        validate_definition=_graded_text_definition,
         normalize_submission=_normalize_text,
         validate_submission=_validate_text,
         aggregate_submissions=_aggregate,
         aggregate_public_submissions=_aggregate_public_text,
+        score_submission=score_short_text,
         export_submission=_plain_export,
-        capabilities=frozenset({"text", "aggregate"}),
+        capabilities=frozenset({"text", "aggregate", "correctness"}),
         frontend_manifest=_manifest("short_text"),
     ),
     ActivityType(
         "liveclassroom.numeric",
-        validate_definition=_numeric_definition,
+        validate_definition=_graded_numeric_definition,
         normalize_submission=_normalize_numeric,
         validate_submission=_validate_numeric,
         aggregate_submissions=_aggregate,
         aggregate_public_submissions=_aggregate_public_numeric,
+        score_submission=score_numeric,
         export_submission=_plain_export,
-        capabilities=frozenset({"numeric", "aggregate"}),
+        capabilities=frozenset({"numeric", "aggregate", "correctness"}),
         frontend_manifest=_manifest("numeric"),
     ),
     ActivityType(

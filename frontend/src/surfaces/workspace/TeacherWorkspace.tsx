@@ -1,7 +1,7 @@
 import * as React from "react";
 import { useCallback, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { getJson, postJson } from "../../protocol.js";
+import { deleteJson, getJson, patchJson, postJson } from "../../protocol.js";
 import { getLocale, type Locale } from "../../locales.js";
 import { LanguageSwitcher, LocaleProvider, useLocale } from "../../i18n.js";
 
@@ -27,6 +27,16 @@ type CourseDetail = CourseSummary & {
   members: CourseMember[];
   lesson_ids: number[];
 };
+
+type TeachingCourseSummary = {
+  id: number;
+  title: string;
+  description: string;
+  owner_id: number;
+};
+type TeachingClassSummary = { id: number; title: string };
+type TeachingCourseDetail = TeachingCourseSummary & { classes: TeachingClassSummary[] };
+type TeachingCoursesPayload = { teaching_courses: TeachingCourseSummary[] };
 
 type SessionSummary = {
   id: number;
@@ -104,6 +114,20 @@ type WorkspaceTextKey =
   | "noLessons"
   | "noSharedLessons"
   | "noClasses"
+  | "courses"
+  | "createCourse"
+  | "courseTitle"
+  | "saveCourse"
+  | "deleteCourse"
+  | "deleteCourseConfirm"
+  | "attachMove"
+  | "detachClass"
+  | "chooseManageableClass"
+  | "groupedClasses"
+  | "ungroupedClasses"
+  | "noCourses"
+  | "noGroupedClasses"
+  | "noUngroupedClasses"
   | "noRecentSessions"
   | "status"
   | "class"
@@ -188,6 +212,20 @@ const workspaceCopy: Record<Locale, Record<WorkspaceTextKey, string>> = {
     noLessons: "No lessons yet.",
     noSharedLessons: "No lessons have been shared with you.",
     noClasses: "No classes yet.",
+    courses: "Courses",
+    createCourse: "Create course",
+    courseTitle: "Course title",
+    saveCourse: "Save course",
+    deleteCourse: "Delete course",
+    deleteCourseConfirm: "Delete \"{title}\"? Classes and their data will remain.",
+    attachMove: "Attach or move class",
+    detachClass: "Detach",
+    chooseManageableClass: "Choose a class",
+    groupedClasses: "Classes in this course",
+    ungroupedClasses: "Ungrouped classes",
+    noCourses: "No courses yet.",
+    noGroupedClasses: "No classes in this course.",
+    noUngroupedClasses: "All manageable classes are grouped.",
     noRecentSessions: "No recent sessions.",
     status: "Status",
     class: "Class",
@@ -271,6 +309,20 @@ const workspaceCopy: Record<Locale, Record<WorkspaceTextKey, string>> = {
     noLessons: "还没有教案。",
     noSharedLessons: "还没有分享给你的教案。",
     noClasses: "还没有班级。",
+    courses: "课程",
+    createCourse: "创建课程",
+    courseTitle: "课程名称",
+    saveCourse: "保存课程",
+    deleteCourse: "删除课程",
+    deleteCourseConfirm: "删除“{title}”吗？班级及其数据会保留。",
+    attachMove: "加入或移动班级",
+    detachClass: "移出课程",
+    chooseManageableClass: "选择班级",
+    groupedClasses: "课程中的班级",
+    ungroupedClasses: "未分组班级",
+    noCourses: "还没有课程。",
+    noGroupedClasses: "此课程还没有班级。",
+    noUngroupedClasses: "所有可管理班级都已分组。",
     noRecentSessions: "还没有最近课堂。",
     status: "状态",
     class: "班级",
@@ -861,10 +913,186 @@ function CourseCard({
   );
 }
 
+function TeachingCourseCard({
+  teachingCourse,
+  manageableClasses,
+  apiRoot,
+  run,
+  busy,
+  refresh,
+}: {
+  teachingCourse: TeachingCourseDetail;
+  manageableClasses: CourseSummary[];
+  apiRoot: string;
+  run: RunAction;
+  busy: string | null;
+  refresh: () => Promise<void>;
+}) {
+  const t = useWorkspaceText();
+  const [title, setTitle] = useState(teachingCourse.title);
+  const [description, setDescription] = useState(teachingCourse.description);
+  const [classId, setClassId] = useState("");
+
+  useEffect(() => {
+    setTitle(teachingCourse.title);
+    setDescription(teachingCourse.description);
+  }, [teachingCourse.description, teachingCourse.title]);
+
+  const save = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!title.trim()) return;
+    void run(`teaching-course-save-${teachingCourse.id}`, async (key) => {
+      await patchJson(endpoint(apiRoot, `teaching-courses/${teachingCourse.id}/`), {
+        title: title.trim(),
+        description,
+      }, key);
+      await refresh();
+    });
+  };
+
+  const remove = () => {
+    if (!window.confirm(t("deleteCourseConfirm").replace("{title}", teachingCourse.title))) return;
+    void run(`teaching-course-delete-${teachingCourse.id}`, async (key) => {
+      await deleteJson(endpoint(apiRoot, `teaching-courses/${teachingCourse.id}/`), key);
+      await refresh();
+    });
+  };
+
+  const attach = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!classId) return;
+    void run(`teaching-course-attach-${teachingCourse.id}-${classId}`, async (key) => {
+      await postJson(endpoint(apiRoot, `teaching-courses/${teachingCourse.id}/classes/`), {
+        class_id: Number(classId),
+      }, key);
+      setClassId("");
+      await refresh();
+    });
+  };
+
+  const detach = (item: TeachingClassSummary) => {
+    void run(`teaching-course-detach-${teachingCourse.id}-${item.id}`, async (key) => {
+      await deleteJson(endpoint(apiRoot, `teaching-courses/${teachingCourse.id}/classes/${item.id}/`), key);
+      await refresh();
+    });
+  };
+
+  return (
+    <article className="lc-teaching-course">
+      <h3>{teachingCourse.title}</h3>
+      <form className="lc-form" onSubmit={save}>
+        <div className="lc-form-row">
+          <div className="lc-form-group">
+            <label htmlFor={`teaching-course-title-${teachingCourse.id}`}>{t("courseTitle")}</label>
+            <input id={`teaching-course-title-${teachingCourse.id}`} className="lc-input" value={title} onChange={(event) => setTitle(event.target.value)} required maxLength={200} />
+          </div>
+          <div className="lc-form-group">
+            <label htmlFor={`teaching-course-description-${teachingCourse.id}`}>{t("description")}</label>
+            <input id={`teaching-course-description-${teachingCourse.id}`} className="lc-input" value={description} onChange={(event) => setDescription(event.target.value)} />
+          </div>
+        </div>
+        <div className="lc-actions">
+          <button type="submit" className="lc-btn-sm lc-btn-primary" disabled={Boolean(busy)}>{t("saveCourse")}</button>
+          <button type="button" className="lc-btn-sm lc-btn-danger" onClick={remove} disabled={Boolean(busy)}>{t("deleteCourse")}</button>
+        </div>
+      </form>
+      <div className="lc-teaching-course-classes">
+        <h4>{t("groupedClasses")}</h4>
+        {teachingCourse.classes.length ? (
+          <ul className="lc-compact-list">
+            {teachingCourse.classes.map((item) => (
+              <li key={item.id}>
+                <span>{item.title}</span>
+                <button type="button" className="lc-btn-sm lc-btn-subtle" onClick={() => detach(item)} disabled={Boolean(busy)}>{t("detachClass")}</button>
+              </li>
+            ))}
+          </ul>
+        ) : <p className="lc-empty-notice">{t("noGroupedClasses")}</p>}
+        <form className="lc-form-row lc-teaching-course-attach" onSubmit={attach}>
+          <div className="lc-form-group">
+            <label htmlFor={`teaching-course-class-${teachingCourse.id}`}>{t("chooseManageableClass")}</label>
+            <select id={`teaching-course-class-${teachingCourse.id}`} className="lc-select" value={classId} onChange={(event) => setClassId(event.target.value)}>
+              <option value="">{t("chooseManageableClass")}</option>
+              {manageableClasses.map((item) => <option key={item.id} value={String(item.id)}>{item.title}</option>)}
+            </select>
+          </div>
+          <button type="submit" className="lc-btn-sm lc-btn-outline" disabled={!classId || Boolean(busy)}>{t("attachMove")}</button>
+        </form>
+      </div>
+    </article>
+  );
+}
+
+function TeachingCoursesSection({
+  teachingCourses,
+  classes,
+  apiRoot,
+  run,
+  busy,
+  refresh,
+}: {
+  teachingCourses: TeachingCourseDetail[];
+  classes: CourseSummary[];
+  apiRoot: string;
+  run: RunAction;
+  busy: string | null;
+  refresh: () => Promise<void>;
+}) {
+  const t = useWorkspaceText();
+  const manageableClasses = classes.filter((item) => item.can_manage === true);
+  const groupedIds = new Set(teachingCourses.flatMap((item) => item.classes.map((classItem) => classItem.id)));
+  const ungrouped = manageableClasses.filter((item) => !groupedIds.has(item.id));
+
+  return (
+    <section className="lc-teaching-courses" aria-labelledby="teaching-courses-heading">
+      <h2 id="teaching-courses-heading">{t("courses")}</h2>
+      <form className="lc-form" onSubmit={(event) => {
+        event.preventDefault();
+        const formElement = event.currentTarget;
+        const form = new FormData(formElement);
+        const title = String(form.get("title") ?? "").trim();
+        if (!title) return;
+        void run("teaching-course-create", async (key) => {
+          await postJson(endpoint(apiRoot, "teaching-courses/"), {
+            title,
+            description: String(form.get("description") ?? ""),
+          }, key);
+          formElement.reset();
+          await refresh();
+        });
+      }}>
+        <div className="lc-form-row">
+          <div className="lc-form-group">
+            <label htmlFor="workspace-new-course-title">{t("courseTitle")}</label>
+            <input id="workspace-new-course-title" name="title" className="lc-input" required maxLength={200} />
+          </div>
+          <div className="lc-form-group">
+            <label htmlFor="workspace-new-course-description">{t("description")}</label>
+            <input id="workspace-new-course-description" name="description" className="lc-input" />
+          </div>
+        </div>
+        <button type="submit" className="lc-btn-sm lc-btn-primary" disabled={Boolean(busy)}>{t("createCourse")}</button>
+      </form>
+      {teachingCourses.length ? (
+        <div className="lc-teaching-course-list">
+          {teachingCourses.map((item) => (
+            <TeachingCourseCard key={item.id} teachingCourse={item} manageableClasses={manageableClasses} apiRoot={apiRoot} run={run} busy={busy} refresh={refresh} />
+          ))}
+        </div>
+      ) : <p className="lc-empty-notice">{t("noCourses")}</p>}
+      <div className="lc-ungrouped-classes">
+        <h3>{t("ungroupedClasses")}</h3>
+        {ungrouped.length ? <ul>{ungrouped.map((item) => <li key={item.id}>{item.title}</li>)}</ul> : <p className="lc-empty-notice">{t("noUngroupedClasses")}</p>}
+      </div>
+    </section>
+  );
+}
+
 function TeacherWorkspace({ apiRoot, builderUrl }: { apiRoot: string; builderUrl: string }) {
   const t = useWorkspaceText();
   const [tab, setTab] = useState<"lessons" | "shared" | "classes" | "recent">("lessons");
   const [courses, setCourses] = useState<CourseSummary[]>([]);
+  const [teachingCourses, setTeachingCourses] = useState<TeachingCourseDetail[]>([]);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [flows, setFlows] = useState<FlowSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -874,11 +1102,18 @@ function TeacherWorkspace({ apiRoot, builderUrl }: { apiRoot: string; builderUrl
   const [composer, setComposer] = useState<{ flowId?: number | null; sourceSessionId?: number | null; label: string } | null>(null);
 
   const loadAll = useCallback(async () => {
-    const [workspace, flowData] = await Promise.all([
+    const [workspace, flowData, teachingCourseData] = await Promise.all([
       getJson<WorkspacePayload>(endpoint(apiRoot, "workspace/")),
       getJson<{ flows: FlowSummary[] }>(endpoint(apiRoot, "flows/")),
+      getJson<TeachingCoursesPayload>(endpoint(apiRoot, "teaching-courses/")),
     ]);
+    const teachingCourseDetails = await Promise.all(
+      (teachingCourseData.teaching_courses ?? []).map((item) => (
+        getJson<TeachingCourseDetail>(endpoint(apiRoot, `teaching-courses/${item.id}/`))
+      )),
+    );
     setCourses(workspace.courses ?? []);
+    setTeachingCourses(teachingCourseDetails);
     setSessions(workspace.sessions ?? []);
     setFlows(flowData.flows ?? []);
   }, [apiRoot]);
@@ -984,6 +1219,7 @@ function TeacherWorkspace({ apiRoot, builderUrl }: { apiRoot: string; builderUrl
       </nav>
       {loading ? <p>{t("loading")}</p> : tab === "classes" ? (
         <>
+          <TeachingCoursesSection teachingCourses={teachingCourses} classes={courses} apiRoot={apiRoot} run={run} busy={busy} refresh={refresh} />
           <section className="lc-workspace-create-class">
             <h2>{t("createClass")}</h2>
             <form className="lc-form" onSubmit={(event) => {

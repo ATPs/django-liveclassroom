@@ -14,6 +14,37 @@ from liveclassroom.models import ActivityDefinition, Course, Flow, FlowStep
 from liveclassroom.registry import activity_registry
 
 
+def _normalize_choice_answer_aliases(type_key: str, definition: dict[str, Any]) -> dict[str, Any]:
+    """Map legacy visible option-text answers to the canonical generated IDs."""
+    if type_key not in {"liveclassroom.single_choice", "liveclassroom.multiple_choice"}:
+        return definition
+    key = "answer" if "answer" in definition else "correct_answer" if "correct_answer" in definition else None
+    if key is None:
+        return definition
+    options = definition.get("options", definition.get("choices"))
+    if not isinstance(options, list):
+        return definition
+    aliases: dict[str, str] = {}
+    for index, option in enumerate(options):
+        if isinstance(option, str):
+            aliases[option.strip()] = chr(ord("A") + index)
+        elif isinstance(option, dict):
+            option_id = option.get("id")
+            text = option.get("text")
+            if isinstance(option_id, str) and isinstance(text, str):
+                aliases[text.strip()] = option_id.strip()
+    expected = definition[key]
+    if isinstance(expected, str):
+        normalized = aliases.get(expected.strip(), expected)
+    elif isinstance(expected, list):
+        normalized = [aliases.get(value.strip(), value) if isinstance(value, str) else value for value in expected]
+    else:
+        return definition
+    result = dict(definition)
+    result[key] = normalized
+    return result
+
+
 def parse_json_flow(source: str | dict[str, Any]) -> dict[str, Any]:
     """Parse and validate a JSON flow definition before touching the database."""
     if isinstance(source, str):
@@ -77,6 +108,8 @@ def parse_json_flow(source: str | dict[str, Any]) -> dict[str, Any]:
             def_payload["prompt"] = def_payload["question"]
             def_payload["stem_markdown"] = def_payload["question"]
 
+        def_payload = _normalize_choice_answer_aliases(type_key, def_payload)
+
         if not step_title:
             prompt_candidate = def_payload.get("prompt") or def_payload.get("stem_markdown")
             if prompt_candidate and isinstance(prompt_candidate, str):
@@ -90,11 +123,13 @@ def parse_json_flow(source: str | dict[str, Any]) -> dict[str, Any]:
         except (ValueError, KeyError, TypeError) as exc:
             raise ImportError(f"Invalid activity definition in step {index} ({type_key}): {exc}") from exc
 
-        parsed_steps.append({
-            "type_key": type_key,
-            "title": step_title,
-            "definition": validated_def,
-        })
+        parsed_steps.append(
+            {
+                "type_key": type_key,
+                "title": step_title,
+                "definition": validated_def,
+            }
+        )
 
     return {
         "title": title,

@@ -174,6 +174,27 @@ export async function putJson<T>(
   return payload;
 }
 
+export async function patchJson<T>(
+  url: string,
+  body: Record<string, unknown> = {},
+  idempotencyKey?: string,
+): Promise<T> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "X-CSRFToken": csrfToken(),
+  };
+  if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
+  const response = await fetch(url, {
+    method: "PATCH",
+    credentials: "same-origin",
+    headers,
+    body: JSON.stringify(body),
+  });
+  const payload = await response.json().catch(() => ({})) as T & ApiErrorPayload;
+  if (!response.ok) throw new ApiError(payload.detail ?? "Request failed", payload.code, response.status);
+  return payload;
+}
+
 export async function deleteJson<T>(
   url: string,
   idempotencyKey?: string,
