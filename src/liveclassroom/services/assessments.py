@@ -18,6 +18,7 @@ from liveclassroom.models import (
     Course,
 )
 from liveclassroom.registry import activity_registry
+from liveclassroom.release_policy import normalize_release_policy
 
 from .assessment_timing import TIMING_FIELDS, normalize_timing_settings
 from .classroom import ClassroomError
@@ -28,7 +29,7 @@ MAX_TITLE_LENGTH = 200
 MAX_INSTRUCTIONS_LENGTH = 20_000
 MAX_POINTS = Decimal("1000")
 DEFAULT_POINTS = Decimal("1")
-SUPPORTED_SETTINGS = frozenset({"max_attempts", "pass_percent", "audience"}) | TIMING_FIELDS
+SUPPORTED_SETTINGS = frozenset({"max_attempts", "pass_percent", "audience", "release_policy"}) | TIMING_FIELDS
 AUDIENCES = frozenset({"authenticated_link", "class"})
 
 
@@ -118,6 +119,10 @@ def _settings(value: Any) -> dict[str, Any]:
         result["audience"] = audience
     timing = normalize_timing_settings({key: value[key] for key in TIMING_FIELDS if key in value})
     result.update(timing)
+    if "release_policy" in value:
+        result["release_policy"] = normalize_release_policy(
+            value["release_policy"], closes_at=result.get("closes_at")
+        )
     return result
 
 

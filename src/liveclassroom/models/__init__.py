@@ -31,6 +31,7 @@ from .grading import (
 )
 from .plans import FlowShare, FlowSnapshot, SessionPlanStep, SnapshotAsset
 from .question_banks import QuestionBank, QuestionBankItem
+from .result_release import AssessmentResultRelease, ResultRelease
 from .session import (
     ActivityRunRevision,
     CommandReceipt,
@@ -82,6 +83,8 @@ __all__ = [
     "AttemptGrade",
     "AttemptItemGrade",
     "GradeDecision",
+    "AssessmentResultRelease",
+    "ResultRelease",
     "Flow",
     "FlowSnapshot",
     "SnapshotAsset",

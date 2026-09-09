@@ -14,6 +14,7 @@ from .services.attempts import (
     start_or_resume_attempt,
 )
 from .services.classroom import ClassroomError
+from .services.result_release import student_result_payload
 
 
 def _user(request):
@@ -54,6 +55,8 @@ def attempt_detail(request, public_id):
 
         if finalize_due_attempt(attempt=attempt) is not None:
             attempt = own_attempt(request.user, public_id)
+        if attempt.status == AssessmentAttempt.Status.SUBMITTED:
+            return JsonResponse(student_result_payload(attempt=attempt))
         return JsonResponse(attempt_payload(attempt))
     except ClassroomError:
         return _error("Not found.", 404, code="not_found")
