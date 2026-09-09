@@ -127,7 +127,7 @@ def test_pool_publication_rejects_insufficient_and_overlapping_rules_atomically(
 
 
 @pytest.mark.django_db
-def test_pool_rules_are_mount_safe_in_sections_api_and_attempts_are_gated():
+def test_pool_rules_are_mount_safe_in_sections_api_and_attempts_are_assigned():
     owner = get_user_model().objects.create_user(username="pool-api")
     fixed = _question(owner, "fixed")
     candidate = _question(owner, "candidate")
@@ -163,5 +163,5 @@ def test_pool_rules_are_mount_safe_in_sections_api_and_attempts_are_gated():
         data=json.dumps({"request_id": str(uuid4())}),
         content_type="application/json",
     )
-    assert start.status_code == 403
-    assert "pooled" in start.json()["detail"].casefold()
+    assert start.status_code == 201
+    assert len(start.json()["items"]) == 2
