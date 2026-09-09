@@ -5,6 +5,7 @@ from .content import Flow, FlowStep
 from .course import Course, CourseMembership, TeachingCourse
 from .demos import DemoLesson
 from .decks import Deck, DeckSlide, DeckSlideAsset
+from .deck_snapshots import DeckSnapshot, DeckSnapshotAsset
 from .plans import FlowShare, FlowSnapshot, SessionPlanStep, SnapshotAsset
 from .question_banks import QuestionBank, QuestionBankItem
 from .session import (
@@ -31,6 +32,8 @@ __all__ = [
     "Deck",
     "DeckSlide",
     "DeckSlideAsset",
+    "DeckSnapshot",
+    "DeckSnapshotAsset",
     "ActivityDefinition",
     "ActivityDefinitionRevision",
     "ClassroomAsset",
