@@ -8,3 +8,4 @@ class LiveClassroomConfig(AppConfig):
 
     def ready(self) -> None:
         import liveclassroom.checks  # noqa: F401
+        import liveclassroom.services.assessment_grading  # noqa: F401
