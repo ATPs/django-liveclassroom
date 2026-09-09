@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 from copy import deepcopy
-from decimal import Decimal
 from uuid import UUID
 
 from django.db import IntegrityError, transaction
@@ -110,26 +109,6 @@ def _limit(run: AssessmentRun) -> int | None:
     if value is None:
         return None
     return value if isinstance(value, int) and not isinstance(value, bool) and value >= 1 else 1
-
-
-def _item_rows(run: AssessmentRun) -> list[AssessmentAttemptItem]:
-    manifest = run.manifest if isinstance(run.manifest, dict) else {}
-    source_items = manifest.get("items") if isinstance(manifest, dict) else None
-    if not isinstance(source_items, list) or not source_items:
-        raise ClassroomError("The published assessment has no usable questions.")
-    rows = []
-    for position, item in enumerate(source_items, 1):
-        if not isinstance(item, dict):
-            raise ClassroomError("The published assessment is invalid.")
-        try:
-            key = UUID(str(item["key"]))
-            points = Decimal(str(item["points"]))
-        except (KeyError, ValueError, ArithmeticError) as exc:
-            raise ClassroomError("The published assessment is invalid.") from exc
-        if not points.is_finite() or points <= 0:
-            raise ClassroomError("The published assessment is invalid.")
-        rows.append(AssessmentAttemptItem(key=key, position=position, points=points, manifest=deepcopy(item)))
-    return rows
 
 
 @transaction.atomic
@@ -239,14 +218,6 @@ def start_or_resume_attempt(
         raise ClassroomError("new_attempt must be a boolean.")
     request_id = _request_uuid(request_id)
     locked_run = AssessmentRun.objects.select_for_update().get(pk=run.pk)
-    manifest = locked_run.manifest if isinstance(locked_run.manifest, dict) else {}
-    sections = manifest.get("sections", []) if isinstance(manifest, dict) else []
-    if any(
-        isinstance(section, dict)
-        and any(isinstance(entry, dict) and entry.get("kind") == "pool" for entry in section.get("entries", []))
-        for section in sections
-    ):
-        raise ClassroomError("Pooled assessment attempts are unavailable until question assignment is enabled.")
     if not _can_access(actor, locked_run):
         raise ClassroomError("You do not have access to this assessment.")
     current_now = server_now(now)
@@ -309,10 +280,9 @@ def start_or_resume_attempt(
     attempt.deadline_at = assessment_deadline(started_at=attempt.started_at, settings=run_settings)
     if attempt.deadline_at is not None:
         attempt.save(update_fields=["deadline_at"])
-    rows = _item_rows(locked_run)
-    for row in rows:
-        row.attempt = attempt
-    AssessmentAttemptItem.objects.bulk_create(rows)
+    from .attempt_assignment import assign_attempt_items
+
+    assign_attempt_items(run=locked_run, attempt=attempt)
     AttemptStartReceipt.objects.create(
         run=locked_run, user=actor, request_id=request_id, request_hash=request_hash, attempt=attempt
     )
