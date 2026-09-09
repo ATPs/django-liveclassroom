@@ -1,5 +1,6 @@
 from .activity import ActivityDefinition, ActivityDefinitionRevision, AuthoringCommandReceipt
 from .assessments import AssessmentDefinition, AssessmentItem, AssessmentRun, AssessmentRunAsset
+from .attempts import AssessmentAttempt, AssessmentAttemptItem, AttemptStartReceipt
 from .assets import ClassroomAsset
 from .authoring import AuthoringAttachment, AuthoringJob, AuthoringMessage, AuthoringThread
 from .content import Flow, FlowStep
@@ -47,6 +48,9 @@ __all__ = [
     "AssessmentItem",
     "AssessmentRun",
     "AssessmentRunAsset",
+    "AssessmentAttempt",
+    "AssessmentAttemptItem",
+    "AttemptStartReceipt",
     "Flow",
     "FlowSnapshot",
     "SnapshotAsset",

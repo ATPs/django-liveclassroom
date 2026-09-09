@@ -4,6 +4,7 @@ from . import (
     api,
     api_assessment_runs,
     api_assessments,
+    api_attempts,
     api_assets,
     api_authoring,
     api_decks,
@@ -22,6 +23,12 @@ from . import (
 app_name = "liveclassroom"
 
 urlpatterns = [
+    path(
+        "api/v1/assessment-runs/<uuid:public_id>/attempts/",
+        api_attempts.start_attempt,
+        name="api-v1-assessment-attempts",
+    ),
+    path("api/v1/attempts/<uuid:public_id>/", api_attempts.attempt_detail, name="api-v1-attempt-detail"),
     path(
         "api/v1/assessments/<int:assessment_id>/runs/",
         api_assessment_runs.assessment_runs,
