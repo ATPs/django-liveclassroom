@@ -19,6 +19,7 @@ import { FileActivity } from "../../activities/FileActivity.js";
 import { NativeDeckView } from "../../activities/NativeDeckView.js";
 import { activityContent, activityKind, activityTitle, choicesFor, presentationTitle, selectedChoices, stringValue } from "../../activities/activityData.js";
 import { FilePicker } from "../FilePicker.js";
+import { PresentationSourcePicker } from "./PresentationSourcePicker.js";
 
 type TeacherBootstrap = Bootstrap & {
   capabilities: string[];
@@ -356,7 +357,7 @@ function BuiltinTeacherActivityView({
   );
 }
 
-type PresenterStep = { id: number; position: number; title: string; activity_id: number | null; snapshot?: Record<string, unknown> };
+type PresenterStep = { id: number; key?: string; position: number; title: string; activity_id: number | null; snapshot?: Record<string, unknown> };
 
 function PresenterStage({
   state, steps, stateUrl, onRefresh, canManage, onError, onPreviewChange, deliveryChannel,
@@ -453,12 +454,13 @@ type DeckSummary = { id: number; title: string; version: number };
 type DeckSnapshotSummary = { id: number; source_version: number; title: string; slides?: unknown[] };
 
 function NativeDeckPresenter({
-  bootstrap, state, stateUrl, onRefresh,
+  bootstrap, state, stateUrl, onRefresh, planSteps,
 }: {
   bootstrap: TeacherBootstrap;
   state: SessionState | null;
   stateUrl: string;
   onRefresh: () => Promise<void>;
+  planSteps: Array<{ key?: string; id: number; position: number; title: string }>;
 }) {
   const locale = useLocale();
   const tr = (en: string, zh: string) => locale.startsWith("zh") ? zh : en;
@@ -505,20 +507,23 @@ function NativeDeckPresenter({
     }
   };
 
-  return <details className="lc-console-panel" data-native-deck-presenter>
-    <summary>{tr("Native decks", "原生幻灯片")}</summary>
-    <label>{tr("Deck", "幻灯片")}{" "}
-      <select value={deckId ?? ""} onChange={(event) => setDeckId(event.target.value ? Number(event.target.value) : null)}>
-        <option value="">{tr("Choose a deck", "选择幻灯片")}</option>
-        {decks.map((deck) => <option value={deck.id} key={deck.id}>{deck.title}</option>)}
-      </select>
-    </label>
-    {selectedDeck ? <div className="lc-actions">
-      {snapshots.map((snapshot) => <button type="button" key={snapshot.id} disabled={pending || state?.session.status !== "live"} onClick={() => void present(snapshot)}>{tr("Present", "展示")} {snapshot.title} ({snapshot.slides?.length ?? "?"})</button>)}
-      {!snapshots.length ? <p>{tr("Create a snapshot from the deck editor first.", "请先在幻灯片编辑器中创建快照。")} </p> : null}
-    </div> : null}
-    {status ? <p role="status" className="lc-builder-status-error">{status}</p> : null}
-  </details>;
+  return <>
+    <details className="lc-console-panel" data-native-deck-presenter>
+      <summary>{tr("Native decks", "原生幻灯片")}</summary>
+      <label>{tr("Deck", "幻灯片")}{" "}
+        <select value={deckId ?? ""} onChange={(event) => setDeckId(event.target.value ? Number(event.target.value) : null)}>
+          <option value="">{tr("Choose a deck", "选择幻灯片")}</option>
+          {decks.map((deck) => <option value={deck.id} key={deck.id}>{deck.title}</option>)}
+        </select>
+      </label>
+      {selectedDeck ? <div className="lc-actions">
+        {snapshots.map((snapshot) => <button type="button" key={snapshot.id} disabled={pending || state?.session.status !== "live"} onClick={() => void present(snapshot)}>{tr("Present", "展示")} {snapshot.title} ({snapshot.slides?.length ?? "?"})</button>)}
+        {!snapshots.length ? <p>{tr("Create a snapshot from the deck editor first.", "请先在幻灯片编辑器中创建快照。")} </p> : null}
+      </div> : null}
+      {status ? <p role="status" className="lc-builder-status-error">{status}</p> : null}
+    </details>
+    <PresentationSourcePicker stateUrl={stateUrl} snapshots={snapshots} steps={planSteps} onRefresh={onRefresh} />
+  </>;
 }
 
 function LiveResults({
@@ -791,7 +796,7 @@ function TeacherConsole({ bootstrap }: { bootstrap: TeacherBootstrap }) {
       {canManage && <LifecycleControls state={state} run={run} startingStepId={previewStep?.id ?? planSteps[0]?.id ?? null} pending={commandPending} onStarted={() => setPreviewStep(null)} />}
       {state?.session.status === "paused" ? <p role="status">{t("classPaused")}</p> : null}
       <PresenterStage state={state} steps={planSteps} stateUrl={stateUrl} onRefresh={sync.refresh} canManage={canManage} onError={setStatus} onPreviewChange={setPreviewStep} deliveryChannel={studentsHeld ? "display" : "both"} />
-      {canManage ? <NativeDeckPresenter bootstrap={bootstrap} state={state} stateUrl={stateUrl} onRefresh={sync.refresh} /> : null}
+      {canManage ? <NativeDeckPresenter bootstrap={bootstrap} state={state} stateUrl={stateUrl} onRefresh={sync.refresh} planSteps={planSteps} /> : null}
       {studentsHeld && state?.channels?.participants?.activity ? <div className="lc-audience-held" role="status">
         <span>{t("studentsHeld")} <strong>{activityTitle(state.channels.participants.activity, t("activity"))}</strong></span>
         <button type="button" disabled={commandPending || state.session.status !== "live"} onClick={() => {

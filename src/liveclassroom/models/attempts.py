@@ -7,6 +7,7 @@ import uuid
 from django.conf import settings
 from django.db import models
 from django.db.models import Q
+from django.utils import timezone
 
 
 class AssessmentAttempt(models.Model):
@@ -64,4 +65,65 @@ class AttemptStartReceipt(models.Model):
     class Meta:
         constraints = [
             models.UniqueConstraint(fields=["run", "user", "request_id"], name="lc_attempt_start_receipt_once")
+        ]
+
+
+class AnswerRevision(models.Model):
+    """One immutable answer saved for an assessment attempt item.
+
+    Revisions are deliberately separate from the assignment manifest.  The
+    latest row is the current answer, while every earlier row remains
+    available to finalization and audit code.  Saves and finalization acquire
+    the attempt lock before this item lock.
+    """
+
+    item = models.ForeignKey(
+        AssessmentAttemptItem, on_delete=models.CASCADE, related_name="answer_revisions"
+    )
+    version = models.PositiveIntegerField()
+    answer = models.JSONField(default=dict)
+    request_id = models.UUIDField()
+    request_hash = models.CharField(max_length=64)
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="liveclassroom_answer_revisions",
+    )
+    saved_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ("item", "version")
+        constraints = [
+            models.UniqueConstraint(fields=["item", "version"], name="lc_answer_revision_once"),
+        ]
+        indexes = [models.Index(fields=["item", "version"], name="lc_answer_item_version_idx")]
+
+    def __str__(self) -> str:
+        return f"{self.item_id}: answer v{self.version}"
+
+
+class AttemptAnswerReceipt(models.Model):
+    """The idempotent result of one attempt answer command.
+
+    Request IDs are scoped to an attempt, so a lost response can be retried
+    after later answers have been written without creating another revision.
+    """
+
+    attempt = models.ForeignKey(
+        AssessmentAttempt, on_delete=models.CASCADE, related_name="answer_receipts"
+    )
+    request_id = models.UUIDField()
+    request_hash = models.CharField(max_length=64)
+    revision = models.ForeignKey(
+        AnswerRevision, on_delete=models.CASCADE, related_name="request_receipts"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["attempt", "request_id"], name="lc_attempt_answer_receipt_once"
+            )
         ]

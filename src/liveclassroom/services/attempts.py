@@ -9,12 +9,15 @@ from decimal import Decimal
 from uuid import UUID
 
 from django.db import IntegrityError, transaction
+from django.db.models import Prefetch
 from django.utils import timezone
 
 from liveclassroom.models import (
+    AnswerRevision,
     AssessmentAttempt,
     AssessmentAttemptItem,
     AssessmentRun,
+    AttemptAnswerReceipt,
     AttemptStartReceipt,
     CourseMembership,
 )
@@ -22,11 +25,65 @@ from liveclassroom.models import (
 from .classroom import ClassroomError
 
 
+class AttemptAnswerConflict(ClassroomError):
+    """A retry or optimistic version check cannot write a new answer."""
+
+    status_code = 409
+
+    def __init__(self, message: str, *, code: str = "stale_revision", current=None):
+        super().__init__(message)
+        self.code = code
+        self.current = current
+
+
 def _request_uuid(value) -> UUID:
     try:
         return UUID(str(value))
     except (ValueError, AttributeError) as exc:
         raise ClassroomError("request_id must be a UUID.") from exc
+
+
+def _item_uuid(value) -> UUID:
+    try:
+        return UUID(str(value))
+    except (ValueError, AttributeError) as exc:
+        raise ClassroomError("item_key must be a UUID.") from exc
+
+
+def _expected_version(value) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ClassroomError("expected_version must be a nonnegative integer.")
+    return value
+
+
+def _answer_request_hash(*, item_key: UUID, expected_version: int, answer) -> str:
+    try:
+        encoded = json.dumps(
+            {"item_key": str(item_key), "expected_version": expected_version, "answer": answer},
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    except (TypeError, ValueError) as exc:
+        raise ClassroomError("answer must contain only JSON values.") from exc
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _latest_answer(item: AssessmentAttemptItem) -> AnswerRevision | None:
+    """Return the current answer, using the prefetch cache when available."""
+    cached = getattr(item, "_prefetched_objects_cache", {}).get("answer_revisions")
+    if cached is not None:
+        return cached[0] if cached else None
+    return item.answer_revisions.order_by("-version").first()
+
+
+def _current_answer_payload(item: AssessmentAttemptItem) -> dict:
+    revision = _latest_answer(item)
+    return {
+        "item_key": str(item.key),
+        "version": revision.version if revision is not None else 0,
+        "answer": deepcopy(revision.answer) if revision is not None else None,
+    }
 
 
 def _hash_request(*, new_attempt: bool) -> str:
@@ -72,6 +129,104 @@ def _item_rows(run: AssessmentRun) -> list[AssessmentAttemptItem]:
             raise ClassroomError("The published assessment is invalid.")
         rows.append(AssessmentAttemptItem(key=key, position=position, points=points, manifest=deepcopy(item)))
     return rows
+
+
+@transaction.atomic
+def save_attempt_answer(
+    *, actor, attempt: AssessmentAttempt, item_key, answer, expected_version, request_id, now=None
+) -> AnswerRevision:
+    """Append one validated answer revision and make the command replayable.
+
+    The attempt is locked before its item, matching finalization's lock order.
+    That makes two tabs serialize their version checks and prevents a slower
+    request from replacing a newer answer.  A receipt is checked before the
+    optimistic version so a lost response can always replay its original row.
+    """
+    if not getattr(actor, "is_authenticated", False):
+        raise ClassroomError("Authentication required.")
+    item_uuid = _item_uuid(item_key)
+    expected = _expected_version(expected_version)
+    request_uuid = _request_uuid(request_id)
+    if not isinstance(answer, dict):
+        raise ClassroomError("answer must be an object.")
+    request_hash = _answer_request_hash(item_key=item_uuid, expected_version=expected, answer=answer)
+    current_now = timezone.now() if now is None else now
+    if timezone.is_naive(current_now):
+        current_now = timezone.make_aware(current_now, timezone.get_current_timezone())
+
+    locked_attempt = (
+        AssessmentAttempt.objects.select_for_update().select_related("run").get(pk=attempt.pk)
+    )
+    if locked_attempt.user_id != actor.pk:
+        raise ClassroomError("You do not have permission to save this answer.")
+    receipt = (
+        AttemptAnswerReceipt.objects.select_related("revision__item")
+        .filter(attempt=locked_attempt, request_id=request_uuid)
+        .first()
+    )
+    if receipt is not None:
+        if receipt.request_hash != request_hash:
+            raise AttemptAnswerConflict(
+                "This request_id was already used with different input.", code="idempotency_conflict"
+            )
+        # A valid receipt always points at this attempt, but retain this check
+        # as a defense against manually corrupted database rows.
+        if receipt.revision.item.attempt_id != locked_attempt.pk:
+            raise ClassroomError("The saved answer receipt is invalid.")
+        return receipt.revision
+
+    try:
+        item = AssessmentAttemptItem.objects.select_for_update().get(
+            attempt=locked_attempt, key=item_uuid
+        )
+    except AssessmentAttemptItem.DoesNotExist as exc:
+        raise ClassroomError("The assessment item was not found.") from exc
+
+    if locked_attempt.status != AssessmentAttempt.Status.IN_PROGRESS:
+        raise AttemptAnswerConflict("This attempt is already finalized.", code="attempt_closed")
+    if locked_attempt.deadline_at is not None and current_now >= locked_attempt.deadline_at:
+        raise AttemptAnswerConflict("The answer deadline has passed.", code="attempt_closed")
+
+    latest = _latest_answer(item)
+    current_version = latest.version if latest is not None else 0
+    if expected != current_version:
+        raise AttemptAnswerConflict(
+            "The answer changed; refresh before saving.",
+            current=_current_answer_payload(item),
+        )
+
+    source = item.manifest if isinstance(item.manifest, dict) else {}
+    type_key = source.get("type_key")
+    if isinstance(type_key, str) and "." not in type_key:
+        type_key = f"liveclassroom.{type_key}"
+    if not isinstance(type_key, str) or not type_key:
+        raise ClassroomError("The assessment item has no answer type.")
+    try:
+        from liveclassroom.registry import activity_registry
+
+        activity_type = activity_registry.get(type_key)
+        normalized = activity_type.normalize(deepcopy(answer))
+        definition = source.get("payload", {})
+        normalized = activity_type.validate_answer(normalized, definition)
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ClassroomError(str(exc)) from exc
+
+    revision = AnswerRevision.objects.create(
+        item=item,
+        version=current_version + 1,
+        answer=deepcopy(normalized),
+        request_id=request_uuid,
+        request_hash=request_hash,
+        actor=actor,
+        saved_at=current_now,
+    )
+    AttemptAnswerReceipt.objects.create(
+        attempt=locked_attempt,
+        request_id=request_uuid,
+        request_hash=request_hash,
+        revision=revision,
+    )
+    return revision
 
 
 @transaction.atomic
@@ -157,6 +312,7 @@ def _public_manifest(item: AssessmentAttemptItem) -> dict:
             return [redact(child) for child in value]
         return value
 
+    answer_revision = _latest_answer(item)
     return {
         "key": str(item.key),
         "position": item.position,
@@ -166,8 +322,8 @@ def _public_manifest(item: AssessmentAttemptItem) -> dict:
         "payload": redact(payload),
         "metadata": redact(deepcopy(source.get("metadata", {}))),
         "asset_id": source.get("asset_id"),
-        "answer_version": 0,
-        "answer": None,
+        "answer_version": answer_revision.version if answer_revision is not None else 0,
+        "answer": deepcopy(answer_revision.answer) if answer_revision is not None else None,
     }
 
 
@@ -180,6 +336,7 @@ def attempt_payload(attempt: AssessmentAttempt) -> dict:
         "started_at": attempt.started_at.isoformat(),
         "deadline_at": attempt.deadline_at.isoformat() if attempt.deadline_at else None,
         "submitted_at": attempt.submitted_at.isoformat() if attempt.submitted_at else None,
+        "finalization_reason": attempt.finalization_reason or None,
         "server_now": timezone.now().isoformat(),
         "items": [_public_manifest(item) for item in attempt.items.all()],
     }
@@ -188,7 +345,10 @@ def attempt_payload(attempt: AssessmentAttempt) -> dict:
 def own_attempt(actor, public_id) -> AssessmentAttempt:
     try:
         attempt = (
-            AssessmentAttempt.objects.prefetch_related("items")
+            AssessmentAttempt.objects.prefetch_related(
+                "items",
+                Prefetch("items__answer_revisions", queryset=AnswerRevision.objects.order_by("-version")),
+            )
             .select_related("run")
             .get(public_id=public_id, user=actor)
         )

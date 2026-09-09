@@ -7,7 +7,7 @@ from django.db.migrations.executor import MigrationExecutor
 def test_teaching_course_migration_preserves_populated_cohorts_and_history():
     old_target = [("liveclassroom", "0004_liveactivity_runtime_state")]
     new_target = [("liveclassroom", "0005_teaching_course_organization")]
-    final_target = [("liveclassroom", "0010_assessmentdefinition_assessmentitem_and_more")]
+    final_target = [("liveclassroom", "0013_attempt_answer_revisions")]
     executor = MigrationExecutor(connection)
     try:
         executor.migrate(old_target)

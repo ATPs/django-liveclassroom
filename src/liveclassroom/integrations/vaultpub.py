@@ -19,6 +19,11 @@ class VaultPubProvider:
     """Parse and embed portal Slide View URLs without exposing source paths."""
 
     key: str = "vaultpub"
+    # Discovery is host-owned.  The reusable fallback can still resolve a URL
+    # supplied by a teacher, but it must not imply that the whole vault is
+    # browseable from the package.
+    search_supported: bool = False
+    navigation_supported: bool = True
     portal_prefix: str = "/database/vaultpub"
     grant_factory: object | None = None
     revoke_factory: object | None = None
@@ -105,6 +110,7 @@ class VaultPubProvider:
             "kind": reference.kind,
             "title": note_path.rsplit("/", 1)[-1].removesuffix(".md"),
             "note_path": note_path,
+            "slide_capable": True,
             "source_fingerprint": hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
         }
 

@@ -9,7 +9,7 @@ from django.db.migrations.loader import MigrationLoader
 def test_fresh_schema_has_canonical_lesson_session_and_public_demo_tables():
     loader = MigrationLoader(connection)
     assert loader.graph.leaf_nodes("liveclassroom") == [
-        ("liveclassroom", "0010_assessmentdefinition_assessmentitem_and_more")
+        ("liveclassroom", "0013_attempt_answer_revisions")
     ]
     assert sorted(key for key in loader.disk_migrations if key[0] == "liveclassroom") == [
         ("liveclassroom", "0001_initial"),
@@ -22,6 +22,9 @@ def test_fresh_schema_has_canonical_lesson_session_and_public_demo_tables():
         ("liveclassroom", "0008_native_decks"),
         ("liveclassroom", "0009_deck_snapshots"),
         ("liveclassroom", "0010_assessmentdefinition_assessmentitem_and_more"),
+        ("liveclassroom", "0011_assessment_runs"),
+        ("liveclassroom", "0012_assessment_attempts"),
+        ("liveclassroom", "0013_attempt_answer_revisions"),
     ]
     tables = set(connection.introspection.table_names())
     assert {
@@ -38,6 +41,9 @@ def test_fresh_schema_has_canonical_lesson_session_and_public_demo_tables():
         "liveclassroom_decksnapshotasset",
         "liveclassroom_assessmentdefinition",
         "liveclassroom_assessmentitem",
+        "liveclassroom_assessmentrun",
+        "liveclassroom_assessmentattempt",
+        "liveclassroom_answerrevision",
     } <= tables
     assert {"liveclassroom_flowitem", "liveclassroom_question"}.isdisjoint(tables)
     with connection.cursor() as cursor:

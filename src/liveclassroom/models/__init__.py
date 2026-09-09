@@ -1,7 +1,13 @@
 from .activity import ActivityDefinition, ActivityDefinitionRevision, AuthoringCommandReceipt
 from .assessments import AssessmentDefinition, AssessmentItem, AssessmentRun, AssessmentRunAsset
 from .assets import ClassroomAsset
-from .attempts import AssessmentAttempt, AssessmentAttemptItem, AttemptStartReceipt
+from .attempts import (
+    AnswerRevision,
+    AssessmentAttempt,
+    AssessmentAttemptItem,
+    AttemptAnswerReceipt,
+    AttemptStartReceipt,
+)
 from .authoring import AuthoringAttachment, AuthoringJob, AuthoringMessage, AuthoringThread
 from .content import Flow, FlowStep
 from .course import Course, CourseMembership, TeachingCourse
@@ -51,6 +57,8 @@ __all__ = [
     "AssessmentAttempt",
     "AssessmentAttemptItem",
     "AttemptStartReceipt",
+    "AnswerRevision",
+    "AttemptAnswerReceipt",
     "Flow",
     "FlowSnapshot",
     "SnapshotAsset",

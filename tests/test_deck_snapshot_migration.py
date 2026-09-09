@@ -7,7 +7,7 @@ from django.db.migrations.executor import MigrationExecutor
 def test_deck_snapshot_migration_preserves_native_decks():
     old = [("liveclassroom", "0008_native_decks")]
     new = [("liveclassroom", "0009_deck_snapshots")]
-    final = [("liveclassroom", "0010_assessmentdefinition_assessmentitem_and_more")]
+    final = [("liveclassroom", "0013_attempt_answer_revisions")]
     executor = MigrationExecutor(connection)
     try:
         executor.migrate(old)
