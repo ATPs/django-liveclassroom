@@ -21,6 +21,14 @@ from .course import Course, CourseMembership, TeachingCourse
 from .deck_snapshots import DeckSnapshot, DeckSnapshotAsset
 from .decks import Deck, DeckSlide, DeckSlideAsset
 from .demos import DemoLesson
+from .grading import (
+    AssessmentAttemptGrade,
+    AssessmentGradeDecision,
+    AssessmentItemGrade,
+    AttemptGrade,
+    AttemptItemGrade,
+    GradeDecision,
+)
 from .plans import FlowShare, FlowSnapshot, SessionPlanStep, SnapshotAsset
 from .question_banks import QuestionBank, QuestionBankItem
 from .session import (
@@ -68,6 +76,12 @@ __all__ = [
     "AttemptStartReceipt",
     "AnswerRevision",
     "AttemptAnswerReceipt",
+    "AssessmentAttemptGrade",
+    "AssessmentItemGrade",
+    "AssessmentGradeDecision",
+    "AttemptGrade",
+    "AttemptItemGrade",
+    "GradeDecision",
     "Flow",
     "FlowSnapshot",
     "SnapshotAsset",
