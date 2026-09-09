@@ -37,12 +37,14 @@ export function ActivityEditor({ initial, onSave, onCancel }: {
   const [completion, setCompletion] = useState(JSON.stringify(content.completion ?? {}, null, 2));
   const [minimum, setMinimum] = useState(String(content.minimum ?? ""));
   const [maximum, setMaximum] = useState(String(content.maximum ?? ""));
+  const [essayMaxLength, setEssayMaxLength] = useState(String(content.max_length ?? 10000));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const choice = ["single_choice", "multiple_choice", "poll", "ranking", "true_false"].some(k => kind === `liveclassroom.${k}`);
   const numeric = ["liveclassroom.numeric", "liveclassroom.rating"].includes(kind);
   const gradedChoice = ["liveclassroom.single_choice", "liveclassroom.multiple_choice", "liveclassroom.true_false"].includes(kind);
   const shortText = kind === "liveclassroom.short_text";
+  const essay = kind === "liveclassroom.essay";
   const optionIds = options.split("\n").map((line, index) => {
     const match = /^([^:]+):/.exec(line.trim());
     return match ? match[1].trim() : line.trim() ? String.fromCharCode(65 + index) : "";
@@ -58,6 +60,7 @@ export function ActivityEditor({ initial, onSave, onCancel }: {
   const kinds = [
     ["short_text", "Short text", "简答"], ["single_choice", "Single choice", "单选"],
     ["multiple_choice", "Multiple choice", "多选"], ["true_false", "True / false", "判断"],
+    ["essay", "Essay response", "长文本回答"],
     ["poll", "Poll", "投票"], ["numeric", "Numeric", "数值"], ["rating", "Rating", "评分"],
     ["ranking", "Ranking", "排序"], ["word_cloud", "Word cloud", "词云"],
     ["bash_simulator", "Bash simulator", "Bash 模拟器"],
@@ -83,6 +86,9 @@ export function ActivityEditor({ initial, onSave, onCancel }: {
       delete next.partial_credit;
       delete next.tolerance;
       delete next.case_sensitive;
+      delete next.auto_grade;
+      delete next.automatic_grading;
+      delete next.automatic_grading_enabled;
       if (gradedChoice && answer.trim()) {
         const values = answer.split(",").map(v => v.trim()).filter(Boolean);
         next.answer = kind === "liveclassroom.multiple_choice" ? values : values[0];
@@ -95,6 +101,15 @@ export function ActivityEditor({ initial, onSave, onCancel }: {
       if (shortText && answer.trim()) {
         next.answer = [...new Map(answer.split("\n").map(value => value.trim()).filter(Boolean).map(value => [value, value])).values()];
         next.case_sensitive = caseSensitive;
+      }
+      if (essay) {
+        const parsedMaxLength = Number(essayMaxLength);
+        if (!Number.isInteger(parsedMaxLength) || parsedMaxLength < 1 || parsedMaxLength > 50000) {
+          throw new Error(tr("Essay maximum length must be an integer from 1 to 50000", "长文本最大长度必须是 1 到 50000 之间的整数"));
+        }
+        next.max_length = parsedMaxLength;
+        delete next.answer;
+        delete next.correct_answer;
       }
       if (explanation.trim()) next.explanation_markdown = explanation.trim(); else delete next.explanation_markdown;
       if (kind === "liveclassroom.markdown") next.markdown = markdown;
@@ -145,6 +160,7 @@ export function ActivityEditor({ initial, onSave, onCancel }: {
     {kind === "liveclassroom.multiple_choice" && <label><input type="checkbox" checked={partialCredit} onChange={e => setPartialCredit(e.target.checked)} /> {tr("Allow partial credit", "允许部分得分")}</label>}
     {kind === "liveclassroom.numeric" && <><label>{tr("Correct number (optional)", "正确数值（可选）")}<input aria-label={tr("Correct number", "正确数值")} inputMode="decimal" value={answer} onChange={e => setAnswer(e.target.value)} /></label><label>{tr("Tolerance (optional)", "误差范围（可选）")}<input aria-label={tr("Tolerance", "误差范围")} type="number" min={0} step="any" value={tolerance} onChange={e => setTolerance(e.target.value)} disabled={!answer.trim()} /></label></>}
     {shortText && <><label>{tr("Accepted answers (one per line, optional)", "可接受答案（每行一个，可选）")}<textarea aria-label={tr("Accepted answers", "可接受答案")} rows={4} value={answer} onChange={e => setAnswer(e.target.value)} /></label><label><input type="checkbox" checked={caseSensitive} onChange={e => setCaseSensitive(e.target.checked)} disabled={!answer.trim()} /> {tr("Case sensitive", "区分大小写")}</label></>}
+    {essay && <label>{tr("Maximum response length", "回答最大长度")}<input aria-label={tr("Maximum response length", "回答最大长度")} type="number" min={1} max={50000} step={1} value={essayMaxLength} onChange={e => setEssayMaxLength(e.target.value)} /><small>{tr("Essay answers are reviewed manually.", "长文本回答需要教师手动评分。")}</small></label>}
     {numeric && <><label>{tr("Minimum", "最小值")}<input type="number" value={minimum} onChange={e => setMinimum(e.target.value)} /></label><label>{tr("Maximum", "最大值")}<input type="number" value={maximum} onChange={e => setMaximum(e.target.value)} /></label></>}
     {kind === "liveclassroom.markdown" && <label>Markdown<textarea aria-label="Markdown" rows={8} value={markdown} onChange={e => setMarkdown(e.target.value)} /></label>}
     {kind === "liveclassroom.media" && <><label>{tr("Media URL", "媒体链接")}<input type="text" value={url} onChange={e => setUrl(e.target.value)} /></label><label><input type="checkbox" checked={vaultpub} onChange={e => setVaultpub(e.target.checked)} /> {tr("VaultPub Slide View", "VaultPub 幻灯片视图")}</label></>}

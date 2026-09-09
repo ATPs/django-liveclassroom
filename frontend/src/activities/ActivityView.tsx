@@ -15,7 +15,7 @@ import {
   stringValue,
   submitUrl,
 } from "./activityData.js";
-import { MarkdownView } from "./MarkdownView.js";
+import { MarkdownView, markdownFragmentFor } from "./MarkdownView.js";
 import { FileActivity } from "./FileActivity.js";
 import { MediaView, TimerDisplay } from "./renderers.js";
 import { ChoiceAnswerForm, RankingAnswerForm, TextAnswerForm } from "./AnswerForms.js";
@@ -26,6 +26,7 @@ const RESPONSE_KINDS = [
   "true_false",
   "poll",
   "short_text",
+  "essay",
   "word_cloud",
   "numeric",
   "rating",
@@ -48,10 +49,11 @@ export function Prompt({ activity }: { activity: ActivityState }) {
   const prompt = questionPrompt(activity);
   const content = activityContent(activity);
   const markdown = stringValue(content.markdown, stringValue(activity.definition.markdown));
+  const promptFragment = markdownFragmentFor(activity, "prompt");
   return (
     <>
-      {prompt ? <p>{prompt}</p> : null}
-      {markdown && markdown !== prompt ? <MarkdownView markdown={markdown} /> : null}
+      {prompt ? <MarkdownView markdown={prompt} fragment={promptFragment} /> : null}
+      {markdown && markdown !== prompt ? <MarkdownView markdown={markdown} fragment={promptFragment} /> : null}
     </>
   );
 }
@@ -65,6 +67,7 @@ export function RevealedFeedback({ activity }: { activity: ActivityState }) {
     ? rawAnswer.map((value) => labels.get(String(value)) ?? String(value)).join(", ")
     : labels.get(String(rawAnswer)) ?? displayAnswer(rawAnswer);
   const explanation = stringValue(content.explanation_markdown, stringValue(content.explanation));
+  const explanationFragment = markdownFragmentFor(activity, "explanation");
   return (
     <>
       {answer ? (
@@ -72,7 +75,7 @@ export function RevealedFeedback({ activity }: { activity: ActivityState }) {
           {t("correctAnswer")}: {answer}
         </p>
       ) : null}
-      {explanation ? <MarkdownView markdown={explanation} /> : null}
+      {explanation ? <MarkdownView markdown={explanation} fragment={explanationFragment} /> : null}
     </>
   );
 }
@@ -99,7 +102,7 @@ function ResponseForm({
   if (["single_choice", "multiple_choice", "true_false", "poll"].includes(kind)) {
     return <ChoiceAnswerForm activity={activity} state={state} stateUrl={stateUrl} onSubmitted={refresh} />;
   }
-  if (["short_text", "word_cloud", "numeric", "rating"].includes(kind)) {
+  if (["short_text", "essay", "word_cloud", "numeric", "rating"].includes(kind)) {
     return <TextAnswerForm activity={activity} state={state} stateUrl={stateUrl} onSubmitted={refresh} />;
   }
   if (kind === "ranking") {
@@ -151,7 +154,7 @@ function BuiltinActivityView({
     return (
       <>
         {heading}
-        {md ? <MarkdownView markdown={md} /> : <Prompt activity={activity} />}
+        {md ? <MarkdownView markdown={md} fragment={markdownFragmentFor(activity, "prompt")} /> : <Prompt activity={activity} />}
       </>
     );
   }

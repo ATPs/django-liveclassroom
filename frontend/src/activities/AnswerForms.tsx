@@ -165,7 +165,10 @@ export function TextAnswerForm({ activity, state, stateUrl, onSubmitted }: FormP
   const field = kind === "numeric" ? "value" : kind === "rating" ? "rating" : "text";
   const initial = answerText(answerFor(activity, state), field);
   const { canSubmit, notice, setNotice, submitting, submit } = useSubmit(activity, state, stateUrl, onSubmitted);
-  const asTextarea = kind === "short_text" || kind === "word_cloud";
+  const asTextarea = kind === "short_text" || kind === "word_cloud" || kind === "essay";
+  const essay = kind === "essay";
+  const essayMaxLength = numberValue(content.max_length) ?? 10000;
+  const [essayText, setEssayText] = useState(initial);
   const [rating, setRating] = useState(initial);
   const ratingMinimum = numberValue(content.minimum) ?? 1;
   const ratingMaximum = numberValue(content.maximum) ?? 5;
@@ -178,8 +181,8 @@ export function TextAnswerForm({ activity, state, stateUrl, onSubmitted }: FormP
     event.preventDefault();
     if (!canSubmit || submitting) return;
     const input = event.currentTarget.elements.namedItem(field) as HTMLInputElement | HTMLTextAreaElement;
-    const raw = input.value.trim();
-    if (!raw) {
+    const raw = essay ? input.value : input.value.trim();
+    if (!raw.trim()) {
       setNotice(t("answerRequired"));
       return;
     }
@@ -213,7 +216,16 @@ export function TextAnswerForm({ activity, state, stateUrl, onSubmitted }: FormP
           <input type="hidden" name={field} value={rating} />
         </fieldset>
       ) : asTextarea ? (
-        <label>{t("textAnswer")}<textarea name={field} defaultValue={initial} maxLength={numberValue(content.max_length) ?? undefined} disabled={!canSubmit || submitting} /></label>
+        <label>{essay ? t("essayResponse") : t("textAnswer")}<textarea
+          name={field}
+          value={essay ? essayText : undefined}
+          defaultValue={essay ? undefined : initial}
+          maxLength={essay ? essayMaxLength : numberValue(content.max_length) ?? undefined}
+          rows={essay ? 8 : undefined}
+          aria-describedby={essay ? `essay-count-${activity.id}` : undefined}
+          onChange={essay ? (event) => setEssayText(event.target.value) : undefined}
+          disabled={!canSubmit || submitting}
+        />{essay ? <small id={`essay-count-${activity.id}`} className="lc-essay-counter">{essayText.length} / {essayMaxLength} {t("characters")}</small> : null}</label>
       ) : (
         <label>{stringValue(content.label, t("numericAnswer"))}<input name={field} defaultValue={initial} disabled={!canSubmit || submitting} {...numericProps} /></label>
       )}

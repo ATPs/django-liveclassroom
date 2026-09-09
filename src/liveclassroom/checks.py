@@ -34,6 +34,7 @@ KNOWN_CAPABILITIES: frozenset[str] = frozenset(
     {
         "choices",
         "correctness",
+        "manual",
         "aggregate",
         "text",
         "numeric",

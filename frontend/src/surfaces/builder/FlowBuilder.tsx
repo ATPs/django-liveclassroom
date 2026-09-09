@@ -53,6 +53,7 @@ export type ActivityTypeInfo = {
     | "trueFalse"
     | "poll"
     | "shortText"
+    | "essay"
     | "numeric"
     | "rating"
     | "ranking"
@@ -69,6 +70,7 @@ const ACTIVITY_TYPES: ActivityTypeInfo[] = [
   { type_key: "liveclassroom.true_false", labelKey: "trueFalse" },
   { type_key: "liveclassroom.poll", labelKey: "poll" },
   { type_key: "liveclassroom.short_text", labelKey: "shortText" },
+  { type_key: "liveclassroom.essay", labelKey: "essay" },
   { type_key: "liveclassroom.numeric", labelKey: "numeric" },
   { type_key: "liveclassroom.rating", labelKey: "rating" },
   { type_key: "liveclassroom.ranking", labelKey: "ranking" },
@@ -137,6 +139,8 @@ function StepPreview({ step }: { step: FlowStep }) {
           </div>
           {answerText ? <p className="lc-preview-answer">{t("correctAnswer")}: {answerText}</p> : null}
         </>
+      ) : typeKey === "liveclassroom.essay" ? (
+        <textarea className="lc-preview-input lc-essay-preview" rows={4} placeholder={t("essayResponse")} disabled />
       ) : typeKey === "liveclassroom.short_text" || typeKey === "liveclassroom.word_cloud" ? (
         <input type="text" className="lc-preview-input" placeholder={typeKey === "liveclassroom.word_cloud" ? t("previewEnterWord") : t("previewEnterAnswer")} disabled />
       ) : typeKey === "liveclassroom.numeric" ? (
@@ -292,10 +296,11 @@ function AddStepForm({
     const prompt = (fields.prompt ?? "").trim();
     const isChoice = ["liveclassroom.single_choice", "liveclassroom.multiple_choice", "liveclassroom.poll", "liveclassroom.ranking"].includes(type);
     const isText = ["liveclassroom.short_text", "liveclassroom.word_cloud"].includes(type);
+    const isEssay = type === "liveclassroom.essay";
     const isNum = type === "liveclassroom.numeric" || type === "liveclassroom.rating";
     const isBashSimulator = type === "liveclassroom.bash_simulator";
 
-    if ((isChoice || isText || isNum || isBashSimulator || type === "liveclassroom.true_false") && !prompt && !title) {
+    if ((isChoice || isText || isEssay || isNum || isBashSimulator || type === "liveclassroom.true_false") && !prompt && !title) {
       setError(t("validationError"));
       return;
     }
@@ -336,6 +341,14 @@ function AddStepForm({
           },
         },
       };
+    } else if (isEssay) {
+      const maxLength = Number(fields.maxLength || "10000");
+      if (!Number.isInteger(maxLength) || maxLength < 1 || maxLength > 50000) {
+        setError(t("essayLengthInvalid"));
+        return;
+      }
+      const definition: Record<string, unknown> = { prompt: prompt || title, max_length: maxLength };
+      payload = { kind: "activity", title: title || prompt, activity_definition: { title: title || prompt, type_key: type, definition } };
     } else if (isText) {
       const definition: Record<string, unknown> = { prompt: prompt || title };
       if (type === "liveclassroom.short_text" && (fields.answer ?? "").trim()) {
@@ -490,6 +503,18 @@ function AddStepForm({
                 <option value="true">{t("trueValue")}</option>
                 <option value="false">{t("falseValue")}</option>
               </select>
+            </div>
+          </>
+        ) : type === "liveclassroom.essay" ? (
+          <>
+            <div className="lc-form-group">
+              <label>{t("promptLabel")}: </label>
+              {area("prompt", 4)}
+            </div>
+            <div className="lc-form-group">
+              <label>{t("maxLengthLabel")}: </label>
+              {input("maxLength", { type: "number", min: 1, max: 50000, step: 1, value: fields.maxLength ?? "10000" })}
+              <small>{t("manualGradingRequired")}</small>
             </div>
           </>
         ) : type === "liveclassroom.short_text" || type === "liveclassroom.word_cloud" ? (

@@ -496,6 +496,28 @@ def _public_activity(
                 content.pop("url", None)
                 content["media_disabled"] = True
             snapshot["content"] = content
+    if revision is not None and request is not None and session is not None and show_prompt:
+        # The URL identifies a fixed run revision, but the fragment endpoint
+        # repeats participant and release checks on every request.  Do not add
+        # a link for a field that the normal public payload has redacted.
+        from .fragment_views import fragment_markdown, revision_key
+
+        fields = ["prompt"]
+        if show_explanation:
+            fields.extend(["explanation", "feedback_correct", "feedback_incorrect"])
+        urls = {
+            field: {
+                "url": reverse(
+                    "liveclassroom:api-v1-session-fragment",
+                    args=[session.id, revision.id, field],
+                ),
+                "revision_key": revision_key(revision),
+            }
+            for field in fields
+            if fragment_markdown(revision, field) is not None
+        }
+        if urls:
+            snapshot["fragment_urls"] = urls
     return {
         "id": activity.id,
         "state": activity.state,

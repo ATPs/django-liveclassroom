@@ -1406,6 +1406,9 @@
 #liveclassroom-root .lc-ranking-list { margin: 0; padding: 0; list-style: none; }
 #liveclassroom-root .lc-ranking-item { display: flex; align-items: center; justify-content: space-between; gap: .75rem; min-height: 44px; padding: .5rem .75rem; border-bottom: 1px solid var(--lc-border); }
 #liveclassroom-root .lc-form-hint { color: var(--lc-text-2); margin: 0 0 .75rem; }
+#liveclassroom-root .lc-essay-counter { display: block; color: var(--lc-text-2); margin-top: .25rem; }
+#liveclassroom-root .lc-essay-response { white-space: pre-wrap; min-width: 16rem; }
+#liveclassroom-root .lc-manual-grading-notice { color: var(--lc-text-2); font-weight: 600; }
 #liveclassroom-root .lc-rating-control { border: 0; padding: 0; margin: 0 0 1rem; }
 #liveclassroom-root .lc-rating-endpoints { display: flex; justify-content: space-between; gap: 1rem; color: var(--lc-text-2); font-size: .9rem; }
 #liveclassroom-root .lc-rating-options { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .5rem; }
@@ -1557,6 +1560,29 @@
 #liveclassroom-root .lc-markdown-body ol {
   padding-left: 1.5rem;
   margin: 0.5rem 0;
+}
+
+/* VaultPub fragments arrive as already-sanitized article HTML. Keep their
+ * content inside the activity surface on narrow screens and avoid importing
+ * VaultPub's document-level layout into the host page. */
+#liveclassroom-root .lc-markdown-vaultpub article,
+#liveclassroom-root .lc-markdown-vaultpub .markdown-body {
+  max-width: 100%;
+}
+#liveclassroom-root .lc-markdown-vaultpub table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+}
+#liveclassroom-root .lc-markdown-vaultpub img,
+#liveclassroom-root .lc-markdown-vaultpub video {
+  max-width: 100%;
+  height: auto;
+}
+#liveclassroom-root .lc-markdown-vaultpub pre {
+  max-width: 100%;
+  overflow-x: auto;
 }
 
 /* ---------------------------------------------------------------------------

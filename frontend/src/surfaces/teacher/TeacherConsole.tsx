@@ -343,6 +343,7 @@ function BuiltinTeacherActivityView({
   return (
     <>
       {heading}
+      {kind === "essay" ? <p className="lc-manual-grading-notice" role="status">{t("manualGradingRequired")}</p> : null}
       <Prompt activity={activity} />
       {kind === "word_cloud" ? <WordCloud aggregate={aggregate as never} isTeacher /> : null}
       <RevealedFeedback activity={activity} />
@@ -472,6 +473,7 @@ function LiveResults({
     <section id="results">
       <h2>{t("results")}</h2>
       <p id="activity-status">{activity ? t("responsesForCurrentActivity") : t("noActivityPublished")}</p>
+      {activity && activityKind(activity) === "essay" ? <p className="lc-manual-grading-notice" role="status">{t("manualGradingRequired")}</p> : null}
       <div id="result-summary">
         {current ? (
           <>
@@ -638,7 +640,7 @@ function AnalyticsPanel({ stateUrl, analytics, activity }: { stateUrl: string; a
               responses.map((response, index) => (
                 <tr key={index}>
                   <td>{String(response.display_name)}</td>
-                  <td>{readableResponse(response.answer, activity, tr("Completed", "已完成"))}</td>
+                  <td className={activity && activityKind(activity) === "essay" ? "lc-essay-response" : undefined}>{readableResponse(response.answer, activity, tr("Completed", "已完成"))}</td>
                   <td>{response.is_stale ? t("staleColumn") : t("current")}</td>
                 </tr>
               ))

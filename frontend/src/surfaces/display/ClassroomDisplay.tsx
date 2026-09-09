@@ -6,7 +6,7 @@ import { LanguageSwitcher, LocaleProvider, useT } from "../../i18n.js";
 import { useSessionState } from "../../hooks/useSessionState.js";
 import { isBuiltinActivity, PluginActivityView, Prompt, RevealedFeedback } from "../../activities/ActivityView.js";
 import { AggregateView, MediaView, TimerDisplay, WordCloud } from "../../activities/renderers.js";
-import { MarkdownView } from "../../activities/MarkdownView.js";
+import { MarkdownView, markdownFragmentFor } from "../../activities/MarkdownView.js";
 import { FileActivity } from "../../activities/FileActivity.js";
 import {
   activityContent,
@@ -97,7 +97,7 @@ function BuiltinDisplayActivity({
     return (
       <>
         {heading}
-        {md ? <MarkdownView markdown={md} /> : <Prompt activity={activity} />}
+        {md ? <MarkdownView markdown={md} fragment={markdownFragmentFor(activity, "prompt")} /> : <Prompt activity={activity} />}
       </>
     );
   }

@@ -41,6 +41,7 @@ def test_builtin_activity_types_registered_with_complete_manifests():
         "liveclassroom.true_false",
         "liveclassroom.poll",
         "liveclassroom.short_text",
+        "liveclassroom.essay",
         "liveclassroom.numeric",
         "liveclassroom.rating",
         "liveclassroom.ranking",

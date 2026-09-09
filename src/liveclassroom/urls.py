@@ -11,12 +11,23 @@ from . import (
     api_question_banks,
     api_review,
     document_views,
+    fragment_views,
     views,
 )
 
 app_name = "liveclassroom"
 
 urlpatterns = [
+    path(
+        "api/v1/activity-definitions/<int:revision_id>/fragments/<str:field>/",
+        fragment_views.definition_fragment,
+        name="api-v1-definition-fragment",
+    ),
+    path(
+        "api/v1/sessions/<int:session_id>/activity-revisions/<int:revision_id>/fragments/<str:field>/",
+        fragment_views.session_fragment,
+        name="api-v1-session-fragment",
+    ),
     path("api/v1/decks/", api_decks.decks, name="api-v1-decks"),
     path("api/v1/decks/<int:deck_id>/", api_decks.deck_detail, name="api-v1-deck-detail"),
     path("api/v1/decks/<int:deck_id>/slides/", api_decks.deck_slides, name="api-v1-deck-slides"),

@@ -904,6 +904,84 @@ def _markdown_definition(definition: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+ESSAY_MAX_LENGTH = 50_000
+
+
+def _essay_definition(definition: dict[str, Any]) -> dict[str, Any]:
+    """Validate a long-text activity while keeping it explicitly ungraded.
+
+    Essays are deliberately separate from ``short_text``. The latter accepts
+    an optional answer key and has an automatic matcher; an essay definition
+    must never accidentally acquire either contract through copied editor
+    fields. The returned definition contains the stable default so consumers
+    can enforce the same limit without repeating the fallback.
+    """
+    result = _copy_definition(definition)
+    prompt = result.get("prompt", result.get("stem_markdown"))
+    if not isinstance(prompt, str) or not prompt.strip():
+        raise ValueError("An essay prompt must be non-empty text.")
+    result["prompt"] = prompt.strip()
+    result.pop("stem_markdown", None)
+
+    forbidden = {
+        "answer",
+        "correct_answer",
+        "case_sensitive",
+        "partial_credit",
+        "tolerance",
+        "auto_grade",
+        "automatic_grading",
+        "automatic_grading_enabled",
+    }
+    present = sorted(key for key in forbidden if key in result)
+    if present:
+        raise ValueError(f"Essay activities do not support grading field(s): {', '.join(present)}.")
+
+    max_length = result.get("max_length", 10_000)
+    if isinstance(max_length, bool) or not isinstance(max_length, int):
+        raise ValueError("Essay max_length must be an integer.")
+    if not 1 <= max_length <= ESSAY_MAX_LENGTH:
+        raise ValueError("Essay max_length must be between 1 and 50000.")
+    result["max_length"] = max_length
+    return result
+
+
+def _normalize_essay(answer: dict[str, Any]) -> dict[str, Any]:
+    """Normalize an essay without changing meaningful whitespace.
+
+    Leading/trailing whitespace is retained intentionally: only the stripped
+    value is used to decide whether the response is empty. This preserves
+    pasted paragraphs, indentation, and line breaks for teacher review/export.
+    """
+    result = _copy_definition(answer)
+    text = result.get("text")
+    if not isinstance(text, str):
+        raise ValueError("An essay answer must contain text.")
+    if not text.strip():
+        raise ValueError("An essay answer cannot be empty.")
+    if len(text) > ESSAY_MAX_LENGTH:
+        raise ValueError("An essay answer is too long.")
+    result["text"] = text
+    return result
+
+
+def _validate_essay(answer: dict[str, Any], definition: dict[str, Any]) -> dict[str, Any]:
+    """Apply the definition-specific length limit to one preserved response."""
+    text = answer.get("text")
+    if not isinstance(text, str):
+        raise ValueError("An essay answer must contain text.")
+    if not text.strip():
+        raise ValueError("An essay answer cannot be empty.")
+    max_length = definition.get("max_length", 10_000)
+    if isinstance(max_length, bool) or not isinstance(max_length, int):
+        raise ValueError("Essay max_length must be an integer.")
+    if not 1 <= max_length <= ESSAY_MAX_LENGTH:
+        raise ValueError("Essay max_length must be between 1 and 50000.")
+    if len(text) > max_length:
+        raise ValueError("The essay answer exceeds the configured maximum length.")
+    return answer
+
+
 _FILE_KINDS = frozenset({"markdown", "pdf", "pptx", "video"})
 
 
@@ -1113,6 +1191,15 @@ for _activity_type in (
         export_submission=_plain_export,
         capabilities=frozenset({"text", "aggregate", "correctness"}),
         frontend_manifest=_manifest("short_text"),
+    ),
+    ActivityType(
+        "liveclassroom.essay",
+        validate_definition=_essay_definition,
+        normalize_submission=_normalize_essay,
+        validate_submission=_validate_essay,
+        export_submission=_plain_export,
+        capabilities=frozenset({"text", "manual"}),
+        frontend_manifest=_manifest("essay"),
     ),
     ActivityType(
         "liveclassroom.numeric",
