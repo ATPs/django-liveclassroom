@@ -6,6 +6,7 @@ from . import (
     api_assessments,
     api_assets,
     api_attempts,
+    api_grading,
     api_authoring,
     api_deck_portability,
     api_decks,
@@ -40,6 +41,12 @@ urlpatterns = [
         "api/v1/attempts/<uuid:public_id>/submit/",
         api_attempts.submit,
         name="api-v1-attempt-submit",
+    ),
+    path("api/v1/grading/queue/", api_grading.grading_queue, name="api-v1-grading-queue"),
+    path(
+        "api/v1/attempts/<uuid:public_id>/items/<uuid:item_key>/manual-grade/",
+        api_grading.manual_grade,
+        name="api-v1-manual-grade",
     ),
     path(
         "api/v1/assessments/<int:assessment_id>/runs/",
