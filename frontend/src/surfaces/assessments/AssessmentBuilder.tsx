@@ -6,6 +6,7 @@ import { MarkdownView } from "../../activities/MarkdownView.js";
 import { LanguageSwitcher, LocaleProvider, useLocale } from "../../i18n.js";
 import { ApiError, getJson, patchJson, postJson, putJson } from "../../protocol.js";
 import { QuestionBankWorkspace, type QuestionPickerSelection } from "../questions/QuestionBankWorkspace.js";
+import { ManualGradingQueue } from "./ManualGradingQueue.js";
 
 type AssessmentItem = {
   key: string;
@@ -364,6 +365,7 @@ function AssessmentBuilder({ apiRoot }: AssessmentBuilderProps) {
           )}
         </main>
       </div>
+      <ManualGradingQueue apiRoot={apiRoot} />
     </div>
   );
 }

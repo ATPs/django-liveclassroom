@@ -1957,3 +1957,30 @@
   #liveclassroom-root .lc-assessment-item-controls { margin-left: 0; }
   #liveclassroom-root .lc-assessment-item-controls .lc-actions { flex-wrap: wrap; }
 }
+
+#liveclassroom-root .lc-manual-grading-queue { display: grid; gap: .9rem; margin-top: 1.5rem; }
+#liveclassroom-root .lc-manual-grading-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+#liveclassroom-root .lc-manual-grading-header h2,
+#liveclassroom-root .lc-manual-grading-header p { margin: 0; }
+#liveclassroom-root .lc-manual-grading-header > div { display: grid; gap: .25rem; }
+#liveclassroom-root .lc-manual-grading-list { display: grid; gap: .9rem; }
+#liveclassroom-root .lc-manual-grade-card { display: grid; gap: .9rem; }
+#liveclassroom-root .lc-manual-grade-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+#liveclassroom-root .lc-manual-grade-heading h3,
+#liveclassroom-root .lc-manual-grade-heading p { margin: 0; }
+#liveclassroom-root .lc-manual-grade-heading > div { display: grid; gap: .25rem; }
+#liveclassroom-root .lc-manual-grade-prompt,
+#liveclassroom-root .lc-manual-grade-answer { display: grid; gap: .35rem; }
+#liveclassroom-root .lc-manual-grade-prompt h4,
+#liveclassroom-root .lc-manual-grade-answer h4 { margin: 0; font-size: 1rem; }
+#liveclassroom-root .lc-manual-grade-answer pre { margin: 0; padding: .8rem; border-radius: var(--lc-radius); background: var(--lc-surface-2); white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
+#liveclassroom-root .lc-manual-grade-form { display: grid; gap: .7rem; }
+#liveclassroom-root .lc-manual-grade-form label { display: grid; gap: .3rem; font-weight: 650; }
+#liveclassroom-root .lc-manual-grade-points label { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; }
+#liveclassroom-root .lc-manual-grade-points input { width: 7rem; }
+#liveclassroom-root .lc-manual-grade-points span { color: var(--lc-text-2); font-weight: 400; }
+@media (max-width: 48rem) {
+  #liveclassroom-root .lc-manual-grading-header,
+  #liveclassroom-root .lc-manual-grade-heading { flex-direction: column; }
+  #liveclassroom-root .lc-manual-grading-header .lc-btn { width: 100%; }
+}

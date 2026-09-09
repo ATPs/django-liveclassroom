@@ -73,6 +73,7 @@ class AssessmentItemGrade(models.Model):
     source = models.CharField(max_length=32, default="automatic")
     rule_version = models.CharField(max_length=100, default="activity-registry-v1")
     diagnostic_code = models.CharField(max_length=64, blank=True, default="")
+    comment = models.TextField(blank=True, default="")
     graded_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
@@ -115,6 +116,7 @@ class AssessmentGradeDecision(models.Model):
     source = models.CharField(max_length=32, default="automatic")
     rule_version = models.CharField(max_length=100, default="activity-registry-v1")
     diagnostic_code = models.CharField(max_length=64, blank=True, default="")
+    comment = models.TextField(blank=True, default="")
     actor = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         null=True,

@@ -305,6 +305,27 @@ def grade_submitted_attempt(*, attempt: AssessmentAttempt, now: datetime | None 
     return _grade_submitted_attempt(attempt=attempt, now=now, retry_errors=False)
 
 
+@transaction.atomic
+def recompute_attempt_grade(
+    *, attempt: AssessmentAttempt, now: datetime | None = None
+) -> AssessmentAttemptGrade:
+    """Recompute an attempt aggregate from its persisted item results.
+
+    Manual grading and later correction workflows update one item result under
+    the same attempt lock and call this function.  It deliberately does not
+    rescore answers or append a decision, so a manual action cannot create an
+    unrelated automatic result or mutate an immutable retained answer.
+    """
+    current = _aware_now(now)
+    locked = AssessmentAttempt.objects.select_for_update().get(pk=attempt.pk)
+    rows = list(
+        AssessmentItemGrade.objects.filter(item__attempt=locked)
+        .select_for_update()
+        .order_by("item_id")
+    )
+    return _aggregate(locked, rows, current)
+
+
 def _needs_grading(attempt_id: int) -> bool:
     aggregate = AssessmentAttemptGrade.objects.filter(attempt_id=attempt_id).first()
     if aggregate is None:
@@ -365,5 +386,6 @@ __all__ = [
     "RULE_VERSION",
     "grade_pending_attempts",
     "grade_submitted_attempt",
+    "recompute_attempt_grade",
     "score_retained_item",
 ]
