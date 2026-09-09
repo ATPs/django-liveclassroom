@@ -26,7 +26,7 @@ def render_document(
     rejected = _require_read_method(request)
     if rejected is not None:
         return rejected
-    if mode not in {"note", "slides"}:
+    if not isinstance(mode, str) or mode not in {"note", "slides"}:
         raise ValueError("mode must be 'note' or 'slides'")
     return _with_document_state(
         markdown_path=markdown_path,
@@ -158,10 +158,10 @@ def _validated_url_prefix(url_prefix: str) -> str:
     """Accept one caller-controlled same-origin URL path ending in a slash."""
     if not isinstance(url_prefix, str) or not url_prefix:
         raise ValueError("url_prefix must be a same-origin URL path")
-    if "\\" in url_prefix or any(ord(character) < 32 or ord(character) == 127 for character in url_prefix):
-        raise ValueError("url_prefix must be a safe URL path")
     parsed = urlsplit(url_prefix)
     decoded_path = unquote(parsed.path)
+    if "\\" in decoded_path or any(ord(character) < 32 or ord(character) == 127 for character in decoded_path):
+        raise ValueError("url_prefix must be a safe URL path")
     if (
         parsed.scheme
         or parsed.netloc

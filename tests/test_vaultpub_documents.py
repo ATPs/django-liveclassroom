@@ -181,6 +181,17 @@ def test_excluded_note_and_invalid_inputs_do_not_widen_scope(vaultpub_enabled, r
         render_document(request, markdown_path=excluded, url_prefix="/documents/../escape/")
     with pytest.raises(ValueError):
         render_document(request, markdown_path=excluded, url_prefix=_prefix(), mode="other")
+    with pytest.raises(ValueError):
+        render_document(request, markdown_path=excluded, url_prefix=_prefix(), mode=[])
+
+
+@pytest.mark.parametrize("url_prefix", ["/documents/%00/", "/documents/%5cescape/"])
+def test_url_prefix_rejects_encoded_unsafe_characters(
+    vaultpub_enabled, request_factory, tmp_path, url_prefix
+):
+    note = _document(tmp_path)
+    with pytest.raises(ValueError):
+        render_document(request_factory.get("/"), markdown_path=note, url_prefix=url_prefix)
 
 
 @pytest.mark.parametrize("method", ["POST", "PUT", "DELETE"])
