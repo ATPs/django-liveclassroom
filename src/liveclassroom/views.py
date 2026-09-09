@@ -13,7 +13,7 @@ from qrcode.image.svg import SvgPathImage
 
 from .conf import base_template, websocket_path
 from .forms import CreateSessionForm, JoinSessionForm
-from .models import LiveSession
+from .models import AssessmentRun, LiveSession
 from .services.classroom import can_manage_session, can_view_display, can_view_session, session_capabilities
 from .services.permissions import can_teach
 from .services.presentation import presentation_title
@@ -242,6 +242,25 @@ class AssessmentWorkspaceView(TeacherRequiredMixin, LocaleContextMixin, Template
     """Teacher-only workspace for reusable assessment drafts."""
 
     template_name = "liveclassroom/assessments.html"
+
+
+class AssessmentAttemptView(LoginRequiredMixin, LocaleContextMixin, TemplateView):
+    """Render the authenticated student entry point for one published run.
+
+    The page itself does not create an attempt.  The React surface asks the
+    authenticated attempt API to start or resume only after the student
+    explicitly chooses that action.
+    """
+
+    template_name = "liveclassroom/assessment_attempt.html"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        run = get_object_or_404(AssessmentRun, public_id=kwargs["public_id"])
+        context["run"] = run
+        context["run_url"] = reverse("liveclassroom:api-v1-available-assessment-run", args=[run.public_id])
+        context["start_url"] = reverse("liveclassroom:api-v1-assessment-attempts", args=[run.public_id])
+        return context
 
 
 def health(request):

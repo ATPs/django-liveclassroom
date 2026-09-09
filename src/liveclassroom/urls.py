@@ -247,6 +247,11 @@ urlpatterns = [
     path("teacher/builder/", views.FlowBuilderView.as_view(), name="flow-builder"),
     path("teacher/decks/", views.DeckWorkspaceView.as_view(), name="deck-workspace"),
     path("teacher/assessments/", views.AssessmentWorkspaceView.as_view(), name="assessment-workspace"),
+    path(
+        "assessments/runs/<uuid:public_id>/",
+        views.AssessmentAttemptView.as_view(),
+        name="assessment-attempt",
+    ),
     path("teacher/decks/<int:deck_id>/preview/", deck_views.preview, name="deck-preview"),
     path("teacher/flows/<int:flow_id>/builder/", views.FlowBuilderView.as_view(), name="flow-builder-detail"),
     path("teacher/sessions/<int:session_id>/", views.TeacherConsoleView.as_view(), name="teacher-console"),
