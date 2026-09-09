@@ -239,6 +239,14 @@ def start_or_resume_attempt(
         raise ClassroomError("new_attempt must be a boolean.")
     request_id = _request_uuid(request_id)
     locked_run = AssessmentRun.objects.select_for_update().get(pk=run.pk)
+    manifest = locked_run.manifest if isinstance(locked_run.manifest, dict) else {}
+    sections = manifest.get("sections", []) if isinstance(manifest, dict) else []
+    if any(
+        isinstance(section, dict)
+        and any(isinstance(entry, dict) and entry.get("kind") == "pool" for entry in section.get("entries", []))
+        for section in sections
+    ):
+        raise ClassroomError("Pooled assessment attempts are unavailable until question assignment is enabled.")
     if not _can_access(actor, locked_run):
         raise ClassroomError("You do not have access to this assessment.")
     current_now = server_now(now)

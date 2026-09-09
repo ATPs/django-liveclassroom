@@ -219,15 +219,30 @@ def _matches(definition: ActivityDefinition, filters: Mapping[str, Any]) -> bool
     return True
 
 
+def normalize_bank_filters(filters: Mapping[str, Any] | None = None) -> dict[str, str]:
+    """Validate and normalize the small filter vocabulary used by bank pools.
+
+    Keeping this validator shared by bank search and assessment publication
+    prevents a pool from accepting a filter that the teacher workspace cannot
+    preview.  Values are deliberately text-only and bounded; an empty filter
+    is a valid request for all members of a bank.
+    """
+    filters = {} if filters is None else filters
+    if not isinstance(filters, Mapping) or set(filters) - {"q", "topic", "tag", "difficulty", "type_key"}:
+        raise ClassroomError("Unsupported search filters.")
+    return {
+        key: _text(value, key, maximum=200)
+        for key, value in filters.items()
+        if value not in (None, "")
+    }
+
+
 def list_bank_questions(
     *, actor, bank: QuestionBank | None = None, filters: Mapping[str, Any] | None = None
 ) -> list[ActivityDefinition]:
     if not can_teach(actor):
         raise ClassroomError("An authenticated teacher is required to view question banks.")
-    filters = filters or {}
-    if not isinstance(filters, Mapping) or set(filters) - {"q", "topic", "tag", "difficulty", "type_key"}:
-        raise ClassroomError("Unsupported search filters.")
-    normalized = {key: _text(value, key, maximum=200) for key, value in filters.items() if value not in (None, "")}
+    normalized = normalize_bank_filters(filters)
     if bank is None:
         queryset = ActivityDefinition.objects.filter(owner=actor).order_by("-updated_at", "-id")
     else:

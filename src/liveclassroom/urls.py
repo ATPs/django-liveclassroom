@@ -68,6 +68,11 @@ urlpatterns = [
         name="api-v1-assessment-items",
     ),
     path(
+        "api/v1/assessments/<int:assessment_id>/sections/",
+        api_assessments.assessment_sections,
+        name="api-v1-assessment-sections",
+    ),
+    path(
         "api/v1/assessments/<int:assessment_id>/copy/",
         api_assessments.assessment_copy,
         name="api-v1-assessment-copy",

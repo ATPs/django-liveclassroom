@@ -67,6 +67,73 @@ class AssessmentItem(models.Model):
         return f"{self.assessment}: {self.position}"
 
 
+class AssessmentSection(models.Model):
+    """An ordered group of fixed items and/or frozen question pools."""
+
+    key = models.UUIDField(default=uuid.uuid4, editable=False)
+    assessment = models.ForeignKey(
+        AssessmentDefinition, on_delete=models.CASCADE, related_name="sections"
+    )
+    title = models.CharField(max_length=200)
+    position = models.PositiveIntegerField()
+
+    class Meta:
+        ordering = ("position", "id")
+        constraints = [
+            models.UniqueConstraint(fields=["assessment", "key"], name="lc_assessment_section_key_once"),
+            models.UniqueConstraint(
+                fields=["assessment", "position"], name="lc_assessment_section_position_once"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.assessment}: {self.title}"
+
+
+class AssessmentSectionEntry(models.Model):
+    """A fixed assessment item or a question-bank sampling rule."""
+
+    class Kind(models.TextChoices):
+        FIXED = "fixed", "Fixed question"
+        POOL = "pool", "Question pool"
+
+    key = models.UUIDField(default=uuid.uuid4, editable=False)
+    section = models.ForeignKey(AssessmentSection, on_delete=models.CASCADE, related_name="entries")
+    position = models.PositiveIntegerField()
+    kind = models.CharField(max_length=12, choices=Kind.choices)
+    item = models.ForeignKey(
+        AssessmentItem,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="section_entries",
+    )
+    bank = models.ForeignKey(
+        "liveclassroom.QuestionBank",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="assessment_pool_entries",
+    )
+    filters = models.JSONField(default=dict, blank=True)
+    sample_size = models.PositiveIntegerField(null=True, blank=True)
+    points = models.DecimalField(max_digits=16, decimal_places=6, null=True, blank=True)
+    shuffle_options = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ("position", "id")
+        constraints = [
+            models.UniqueConstraint(fields=["section", "key"], name="lc_assessment_section_entry_key_once"),
+            models.UniqueConstraint(
+                fields=["section", "position"], name="lc_assessment_section_entry_position_once"
+            ),
+            models.UniqueConstraint(fields=["section", "item"], name="lc_assessment_section_fixed_item_once"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.section}: {self.position}"
+
+
 class AssessmentRun(models.Model):
     """A published, immutable copy of one assessment draft.
 

@@ -1,5 +1,12 @@
 from .activity import ActivityDefinition, ActivityDefinitionRevision, AuthoringCommandReceipt
-from .assessments import AssessmentDefinition, AssessmentItem, AssessmentRun, AssessmentRunAsset
+from .assessments import (
+    AssessmentDefinition,
+    AssessmentItem,
+    AssessmentRun,
+    AssessmentRunAsset,
+    AssessmentSection,
+    AssessmentSectionEntry,
+)
 from .assets import ClassroomAsset
 from .attempts import (
     AnswerRevision,
@@ -52,6 +59,8 @@ __all__ = [
     "AuthoringThread",
     "AssessmentDefinition",
     "AssessmentItem",
+    "AssessmentSection",
+    "AssessmentSectionEntry",
     "AssessmentRun",
     "AssessmentRunAsset",
     "AssessmentAttempt",
