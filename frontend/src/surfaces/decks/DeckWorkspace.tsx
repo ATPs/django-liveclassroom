@@ -10,6 +10,7 @@ type Asset = { id: string; name: string; kind: string };
 type Slide = { key: string; position: number; markdown: string; notes?: string; asset_ids: string[] };
 type Deck = { id: number; title: string; theme: string; version: number; slides: Slide[] };
 type DeckList = { decks: Deck[] };
+type ImportPreview = { draft: Omit<Deck, "id" | "version"> & { id?: number; version?: number }; errors: { slide: number | null; message: string }[]; valid: boolean };
 
 const newKey = () => crypto.randomUUID();
 const newSlide = (): Slide => ({ key: newKey(), position: 1, markdown: "# New slide", notes: "", asset_ids: [] });
@@ -29,6 +30,9 @@ function DeckWorkspace({ apiRoot, assetsUrl, previewTemplate }: { apiRoot: strin
   const [status, setStatus] = useState("");
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [importText, setImportText] = useState("");
+  const [importPreview, setImportPreview] = useState<ImportPreview | null>(null);
+  const [includeNotes, setIncludeNotes] = useState(false);
 
   const refresh = () => Promise.all([getJson<DeckList>(apiRoot), getJson<{ assets: Asset[] }>(assetsUrl)])
     .then(([deckResult, assetResult]) => {
@@ -62,7 +66,8 @@ function DeckWorkspace({ apiRoot, assetsUrl, previewTemplate }: { apiRoot: strin
   const save = async () => {
     if (!deck || !deck.title.trim()) { setStatus(tr("A deck title is required.", "请填写幻灯片标题。")); return; }
     setSaving(true); setStatus("");
-    const body = { title: deck.title.trim(), theme: deck.theme, slides: cleanSlides(deck.slides).map(({ key, markdown, notes, asset_ids }) => ({ key, markdown, notes, asset_ids })) };
+    const theme = ["default", "light", "dark"].includes(deck.theme) ? deck.theme : "default";
+    const body = { title: deck.title.trim(), theme, slides: cleanSlides(deck.slides).map(({ key, markdown, notes, asset_ids }) => ({ key, markdown, notes, asset_ids })) };
     try {
       let saved: Deck;
       if (!deck.id) saved = await postJson<Deck>(apiRoot, body, crypto.randomUUID());
@@ -85,6 +90,43 @@ function DeckWorkspace({ apiRoot, assetsUrl, previewTemplate }: { apiRoot: strin
     try { await deleteJson(`${apiRoot}${deck.id}/`, crypto.randomUUID()); setDeck(null); setDirty(false); await refresh(); }
     catch (error) { setStatus(error instanceof Error ? error.message : tr("Delete failed.", "删除失败。")); }
   };
+  const previewImport = async () => {
+    setStatus("");
+    try {
+      const result = await postJson<ImportPreview>(`${apiRoot}import/preview/`, {
+        text: importText,
+        assets: assets.map((asset) => asset.id),
+      }, crypto.randomUUID());
+      setImportPreview(result);
+      setStatus(result.valid ? tr("Import is ready. Review it, then create the deck.", "导入已准备好。检查后创建幻灯片。") : tr("Review the import errors before creating a deck.", "创建幻灯片前请检查导入错误。"));
+    } catch (error) {
+      setImportPreview(null);
+      setStatus(error instanceof Error ? error.message : tr("Import preview failed.", "导入预览失败。"));
+    }
+  };
+  const commitImport = async () => {
+    if (!importPreview?.valid) return;
+    try {
+      const saved = await postJson<Deck>(`${apiRoot}import/`, { draft: importPreview.draft }, crypto.randomUUID());
+      await refresh();
+      selectDeck(saved);
+      setImportText("");
+      setImportPreview(null);
+      setStatus(tr("Deck imported.", "幻灯片已导入。"));
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : tr("Deck import failed.", "幻灯片导入失败。"));
+    }
+  };
+  const exportDeck = () => {
+    if (!deck?.id) return;
+    const url = `${apiRoot}${deck.id}/export/?include_notes=${includeNotes ? "1" : "0"}`;
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${deck.title.trim() || "deck"}.md`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  };
 
   return <div className="lc-deck-root">
     <LanguageSwitcher />
@@ -93,13 +135,20 @@ function DeckWorkspace({ apiRoot, assetsUrl, previewTemplate }: { apiRoot: strin
     <div className="lc-deck-layout">
       <aside className="lc-deck-list"><h3>{tr("Your decks", "我的幻灯片")}</h3>{!decks.length && <p>{tr("Create your first deck.", "创建第一份幻灯片。")}</p>}{decks.map((item) => <button key={item.id} className={deck?.id === item.id ? "lc-deck-selected" : ""} onClick={() => selectDeck(item)}>{item.title}</button>)}</aside>
       {deck && <main className="lc-deck-editor">
-        <div className="lc-deck-toolbar"><label>{tr("Title", "标题")}<input value={deck.title} onChange={(event) => edit({ title: event.target.value })} /></label><div className="lc-actions"><button onClick={save} disabled={saving}>{tr("Save", "保存")}</button>{deck.id > 0 && <><button onClick={copy}>{tr("Copy", "复制")}</button><button className="lc-btn-danger" onClick={remove}>{tr("Delete", "删除")}</button></>}</div></div>
+        <div className="lc-deck-toolbar"><label>{tr("Title", "标题")}<input value={deck.title} onChange={(event) => edit({ title: event.target.value })} /></label><label>{tr("Theme", "主题")}<select value={["default", "light", "dark"].includes(deck.theme) ? deck.theme : "default"} onChange={(event) => edit({ theme: event.target.value })}><option value="default">{tr("Default (light)", "默认（浅色）")}</option><option value="light">{tr("Light", "浅色")}</option><option value="dark">{tr("Dark", "深色")}</option></select></label><div className="lc-actions"><button onClick={save} disabled={saving}>{tr("Save", "保存")}</button>{deck.id > 0 && <><button onClick={copy}>{tr("Copy", "复制")}</button><button onClick={exportDeck}>{tr("Export Markdown", "导出 Markdown")}</button><label><input type="checkbox" checked={includeNotes} onChange={(event) => setIncludeNotes(event.target.checked)} /> {tr("Include private notes", "包含私密备注")}</label><button className="lc-btn-danger" onClick={remove}>{tr("Delete", "删除")}</button></>}</div></div>
         <div className="lc-deck-edit-layout"><section className="lc-deck-slides"><div className="lc-actions"><h3>{tr("Slides", "页面")}</h3><button onClick={() => { edit({ slides: [...deck.slides, { ...newSlide(), position: deck.slides.length + 1 }] }); setSelected(deck.slides.length); }}>{tr("Add slide", "添加页面")}</button></div>{deck.slides.map((slide, index) => <button key={slide.key} className={index === selected ? "lc-deck-selected" : ""} onClick={() => setSelected(index)}>{index + 1}. {slide.markdown.split("\n")[0].replace(/^#+\s*/, "") || tr("Slide", "页面")}</button>)}</section>
           {currentSlide && <section className="lc-deck-slide-form"><div className="lc-actions"><button onClick={() => move(-1)} disabled={selected === 0}>{tr("Move up", "上移")}</button><button onClick={() => move(1)} disabled={selected === deck.slides.length - 1}>{tr("Move down", "下移")}</button><button onClick={() => { edit({ slides: deck.slides.filter((_, index) => index !== selected) }); setSelected(Math.max(0, selected - 1)); }} disabled={deck.slides.length === 1}>{tr("Delete slide", "删除页面")}</button></div><label>{tr("Markdown", "Markdown")}<textarea aria-label={tr("Markdown", "Markdown")} rows={13} value={currentSlide.markdown} onChange={(event) => editSlide({ markdown: event.target.value })} /></label><label>{tr("Private presenter notes", "仅演讲者可见的备注")}<textarea aria-label={tr("Private presenter notes", "仅演讲者可见的备注")} rows={4} value={currentSlide.notes ?? ""} onChange={(event) => editSlide({ notes: event.target.value })} /></label><fieldset><legend>{tr("Attached files", "附加文件")}</legend>{!assets.length && <p>{tr("Upload a reusable file from a lesson first.", "请先从教案上传可复用文件。")}</p>}{assets.map((asset) => <label key={asset.id}><input type="checkbox" checked={currentSlide.asset_ids.includes(asset.id)} onChange={(event) => editSlide({ asset_ids: event.target.checked ? [...currentSlide.asset_ids, asset.id] : currentSlide.asset_ids.filter((id) => id !== asset.id) })} /> {asset.name}</label>)}</fieldset></section>}</div>
         <section className="lc-deck-preview"><h3>{tr("Preview", "预览")}</h3><MarkdownView markdown={currentSlide?.markdown ?? ""} />{previewUrl ? <iframe title={tr("Slide preview", "幻灯片预览")} src={previewUrl} className="lc-deck-iframe" /> : <p>{tr("Save to open full VaultPub Slide View.", "保存后可打开完整 VaultPub 幻灯片视图。")}</p>}</section>
       </main>}
       {!deck && <main><p>{tr("Select a deck or create one to start.", "选择或新建幻灯片以开始。")}</p></main>}
     </div>
+    <section className="lc-card lc-deck-portability" aria-label={tr("Markdown import", "Markdown 导入")}>
+      <h3>{tr("Import a VaultPub Markdown deck", "导入 VaultPub Markdown 幻灯片")}</h3>
+      <p>{tr("Use --- between slides. Fenced code separators stay in the same slide. Private notes use the explicit notes markers.", "使用 --- 分隔页面。代码块中的分隔线仍属于同一页面。私密备注使用明确的备注标记。")}</p>
+      <textarea aria-label={tr("Markdown import", "Markdown 导入")} rows={8} value={importText} onChange={(event) => setImportText(event.target.value)} />
+      <div className="lc-actions"><button onClick={previewImport} disabled={!importText.trim()}>{tr("Preview import", "预览导入")}</button><button onClick={commitImport} disabled={!importPreview?.valid}>{tr("Create imported deck", "创建导入幻灯片")}</button></div>
+      {importPreview?.errors.length ? <ul role="alert">{importPreview.errors.map((error, index) => <li key={`${error.slide ?? "document"}-${index}`}>{error.slide ? `${tr("Slide", "页面")} ${error.slide}: ` : ""}{error.message}</li>)}</ul> : null}
+    </section>
   </div>;
 }
 

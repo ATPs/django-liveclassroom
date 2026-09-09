@@ -882,6 +882,11 @@
 #liveclassroom-root .lc-deck-root { width: min(100%, 76rem); }
 #liveclassroom-root .lc-native-deck { width: min(100%, 76rem); margin-inline: auto; }
 #liveclassroom-root .lc-native-deck-header { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; }
+#liveclassroom-root .lc-native-deck-toolbar { display: flex; justify-content: flex-end; gap: .5rem; margin: .65rem 0; }
+#liveclassroom-root .lc-native-deck-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(13rem, 20rem); gap: 1rem; align-items: start; }
+#liveclassroom-root .lc-native-deck-stage { min-width: 0; }
+#liveclassroom-root .lc-native-deck-notes { min-width: 0; padding: 1rem; border: 1px solid var(--lc-accent-border); border-radius: var(--lc-radius); background: var(--lc-accent-soft); white-space: pre-wrap; overflow-wrap: anywhere; }
+#liveclassroom-root .lc-native-deck-notes h3 { margin-top: 0; }
 #liveclassroom-root .lc-native-deck-review { display: flex; gap: .75rem; margin-top: 1rem; }
 #liveclassroom-root .lc-deck-layout,
 #liveclassroom-root .lc-deck-edit-layout { display: grid; gap: 1rem; min-width: 0; }
@@ -899,6 +904,9 @@
 #liveclassroom-root .lc-deck-slide-form fieldset { display: grid; gap: .35rem; min-width: 0; }
 #liveclassroom-root .lc-deck-preview { margin-top: 1.25rem; min-width: 0; }
 #liveclassroom-root .lc-deck-iframe { width: 100%; min-height: 24rem; border: 1px solid var(--lc-border); border-radius: var(--lc-radius); background: var(--lc-surface); }
+#liveclassroom-root .lc-deck-portability { margin-top: 1rem; }
+#liveclassroom-root .lc-deck-portability textarea { width: 100%; box-sizing: border-box; font-family: var(--lc-mono, ui-monospace, monospace); }
+#liveclassroom-root .lc-deck-portability ul { margin: .75rem 0 0; color: var(--lc-danger, #a33); }
 
 @media (max-width: 58rem) {
   #liveclassroom-root .lc-builder-layout {
@@ -911,6 +919,7 @@
   }
   #liveclassroom-root .lc-deck-layout,
   #liveclassroom-root .lc-deck-edit-layout { grid-template-columns: minmax(0, 1fr); }
+  #liveclassroom-root .lc-native-deck-layout { grid-template-columns: minmax(0, 1fr); }
 }
 
 #liveclassroom-root .lc-builder-topbar {

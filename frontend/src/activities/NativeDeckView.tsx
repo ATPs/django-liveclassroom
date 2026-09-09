@@ -8,6 +8,10 @@ type DeckPayload = DeckPresentationState & {
   slides?: Array<{ key?: string; position?: number; markdown?: string }>;
 };
 
+type DeckNotesPayload = {
+  notes?: Array<{ key?: string; notes?: string }>;
+};
+
 /** Render an immutable deck slide from the authorized snapshot payload.
  *
  * The optional VaultPub Slide View remains available at ``slides_url`` for
@@ -28,11 +32,16 @@ export function NativeDeckView({
   const t = useT();
   const [payload, setPayload] = useState<DeckPayload | null>(null);
   const [error, setError] = useState("");
+  const [notes, setNotes] = useState<Record<string, string>>({});
+  const [notesLoading, setNotesLoading] = useState(false);
   const [reviewIndex, setReviewIndex] = useState<number | null>(null);
   const [richUrl, setRichUrl] = useState<string | null>(null);
+  const [fullscreen, setFullscreen] = useState(false);
+  const root = useRef<HTMLElement>(null);
   const frame = useRef<HTMLIFrameElement>(null);
   const frameReady = useRef(false);
   const payloadUrl = useMemo(() => deck.payload_url ?? "", [deck.payload_url]);
+  const notesUrl = useMemo(() => deck.notes_url ?? "", [deck.notes_url]);
   const channel = audience === "student" ? "participants" : "display";
 
   useEffect(() => {
@@ -56,6 +65,32 @@ export function NativeDeckView({
       active = false;
     };
   }, [channel, payloadUrl, t]);
+
+  useEffect(() => {
+    let active = true;
+    setNotes({});
+    setNotesLoading(false);
+    if (audience !== "teacher" || !notesUrl) return undefined;
+    setNotesLoading(true);
+    const url = new URL(notesUrl, window.location.href);
+    url.searchParams.set("channel", channel);
+    void getJson<DeckNotesPayload>(url.toString())
+      .then((result) => {
+        if (!active) return;
+        const next: Record<string, string> = {};
+        for (const item of result.notes ?? []) {
+          if (typeof item.key === "string" && typeof item.notes === "string") next[item.key] = item.notes;
+        }
+        setNotes(next);
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (active) setNotesLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [audience, channel, notesUrl]);
 
   useEffect(() => {
     let active = true;
@@ -86,6 +121,43 @@ export function NativeDeckView({
   }, [deck.slide_index, richUrl]);
 
   useEffect(() => {
+    const onFullscreen = () => setFullscreen(document.fullscreenElement === root.current);
+    document.addEventListener("fullscreenchange", onFullscreen);
+    onFullscreen();
+    return () => document.removeEventListener("fullscreenchange", onFullscreen);
+  }, []);
+
+  const toggleFullscreen = () => {
+    if (document.fullscreenElement) {
+      void document.exitFullscreen().catch(() => undefined);
+    } else {
+      void root.current?.requestFullscreen().catch(() => undefined);
+    }
+  };
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.matches("input, textarea, select, button, [contenteditable='true']")) return;
+      if (event.key === "Escape" && document.fullscreenElement) {
+        event.preventDefault();
+        void document.exitFullscreen().catch(() => undefined);
+        return;
+      }
+      if (audience !== "teacher" || !stateUrl || !["ArrowLeft", "ArrowRight"].includes(event.key)) return;
+      event.preventDefault();
+      const action = event.key === "ArrowLeft" ? "previous" : "next";
+      void postJson(
+        apiEndpoint(stateUrl, "sessions/presentation"),
+        { channels: ["display"], deck_action: action, expected_revision: deck.revision },
+        `deck-key-${action}-${deck.revision}-${crypto.randomUUID()}`,
+      ).catch(() => undefined);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [audience, deck.revision, stateUrl]);
+
+  useEffect(() => {
     const onMessage = (event: MessageEvent<unknown>) => {
       if (!frame.current || event.origin !== window.location.origin || event.source !== frame.current.contentWindow) return;
       if (!event.data || typeof event.data !== "object" || Array.isArray(event.data)) return;
@@ -113,19 +185,30 @@ export function NativeDeckView({
   if (error) return <p role="status">{error || t("unavailable")}</p>;
   if (!payload) return <p role="status">{t("loading")}</p>;
   return (
-    <section className="lc-native-deck" data-deck-snapshot={deck.snapshot_id}>
+    <section ref={root} tabIndex={-1} className="lc-native-deck" data-deck-snapshot={deck.snapshot_id} data-deck-theme={payload.theme}>
       <header className="lc-native-deck-header">
         <h2>{payload.title}</h2>
         <span>{index + 1} / {slides.length || deck.slide_count}</span>
       </header>
-      {richUrl ? <iframe className="lc-native-deck-frame" ref={frame} src={richUrl} sandbox="allow-scripts allow-same-origin" referrerPolicy="same-origin" title={payload.title} onLoad={() => {
-        frameReady.current = false;
-        frame.current?.contentWindow?.postMessage({ protocol: "vaultpub.slide", version: 1, type: "handshake" }, window.location.origin);
-      }} /> : slide ? <MarkdownView markdown={typeof slide.markdown === "string" ? slide.markdown : ""} /> : <p>{t("unavailable")}</p>}
-      {audience === "teacher" && stateUrl ? <nav className="lc-native-deck-controls" aria-label={t("filePresentationControls")}>
-        <button type="button" disabled={deck.slide_index <= 0} onClick={() => void postJson(apiEndpoint(stateUrl, "sessions/presentation"), { channels: ["display"], deck_action: "previous", expected_revision: deck.revision }, `deck-prev-${deck.revision}-${crypto.randomUUID()}`)}>{t("filePreviousPage")}</button>
-        <button type="button" disabled={deck.slide_index >= deck.slide_count - 1} onClick={() => void postJson(apiEndpoint(stateUrl, "sessions/presentation"), { channels: ["display"], deck_action: "next", expected_revision: deck.revision }, `deck-next-${deck.revision}-${crypto.randomUUID()}`)}>{t("fileNextPage")}</button>
-      </nav> : null}
+      <div className="lc-native-deck-toolbar">
+        <button type="button" onClick={toggleFullscreen}>{fullscreen ? t("exitFullscreen") : t("fullscreen")}</button>
+      </div>
+      <div className="lc-native-deck-layout">
+        <div className="lc-native-deck-stage">
+          {richUrl ? <iframe className="lc-native-deck-frame" ref={frame} src={richUrl} sandbox="allow-scripts allow-same-origin" referrerPolicy="same-origin" title={payload.title} onLoad={() => {
+            frameReady.current = false;
+            frame.current?.contentWindow?.postMessage({ protocol: "vaultpub.slide", version: 1, type: "handshake" }, window.location.origin);
+          }} /> : slide ? <MarkdownView markdown={typeof slide.markdown === "string" ? slide.markdown : ""} /> : <p>{t("unavailable")}</p>}
+          {audience === "teacher" && stateUrl ? <nav className="lc-native-deck-controls" aria-label={t("filePresentationControls")}>
+            <button type="button" disabled={deck.slide_index <= 0} onClick={() => void postJson(apiEndpoint(stateUrl, "sessions/presentation"), { channels: ["display"], deck_action: "previous", expected_revision: deck.revision }, `deck-prev-${deck.revision}-${crypto.randomUUID()}`)}>{t("filePreviousPage")}</button>
+            <button type="button" disabled={deck.slide_index >= deck.slide_count - 1} onClick={() => void postJson(apiEndpoint(stateUrl, "sessions/presentation"), { channels: ["display"], deck_action: "next", expected_revision: deck.revision }, `deck-next-${deck.revision}-${crypto.randomUUID()}`)}>{t("fileNextPage")}</button>
+          </nav> : null}
+        </div>
+        {audience === "teacher" && notesUrl ? <aside className="lc-native-deck-notes" data-presenter-notes>
+          <h3>{t("presenterNotes")}</h3>
+          {notesLoading ? <p role="status">{t("loading")}</p> : <p>{notes[slide?.key ?? deck.slide_key] || t("noPresenterNotes")}</p>}
+        </aside> : null}
+      </div>
       {canReview ? (
         <nav className="lc-native-deck-review" aria-label={t("filePresentationControls")}>
           <button type="button" disabled={index <= 0} onClick={() => setReviewIndex(index - 1)}>{t("filePreviousPage")}</button>

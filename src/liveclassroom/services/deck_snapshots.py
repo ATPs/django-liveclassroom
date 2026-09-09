@@ -42,6 +42,25 @@ def deck_snapshot_payload(snapshot: DeckSnapshot, *, include_private: bool = Fal
     return payload
 
 
+def deck_snapshot_notes_payload(snapshot: DeckSnapshot) -> dict:
+    """Serialize retained notes separately from every public snapshot shape."""
+    private = snapshot.private_notes if isinstance(snapshot.private_notes, dict) else {}
+    notes = []
+    for item in snapshot.public_manifest if isinstance(snapshot.public_manifest, list) else []:
+        if not isinstance(item, dict) or not isinstance(item.get("key"), str):
+            continue
+        key = item["key"]
+        value = private.get(key, "")
+        notes.append(
+            {
+                "key": key,
+                "position": item.get("position"),
+                "notes": value if isinstance(value, str) else "",
+            }
+        )
+    return {"snapshot_id": snapshot.id, "notes": notes}
+
+
 @transaction.atomic
 def create_deck_snapshot(*, actor, deck: Deck, expected_version: int) -> DeckSnapshot:
     """Freeze a currently owned deck and retain every local asset it uses."""

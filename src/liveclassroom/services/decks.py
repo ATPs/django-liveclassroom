@@ -17,6 +17,13 @@ MAX_MARKDOWN_LENGTH = 200_000
 MAX_NOTES_LENGTH = 20_000
 THEME_MAX_LENGTH = 80
 
+# Keep the authoring surface intentionally small.  ``default`` is the stable
+# package value and maps to VaultPub's light theme; the other two values are
+# documented upstream themes that are useful for a projector.  Unknown values
+# from old rows are handled as ``default`` at render time.
+DECK_THEME_KEYS = ("default", "light", "dark")
+VAULTPUB_THEME_BY_DECK_THEME = {"default": "light", "light": "light", "dark": "dark"}
+
 
 def _text(value, field, maximum, *, required=False):
     if not isinstance(value, str):
@@ -27,6 +34,35 @@ def _text(value, field, maximum, *, required=False):
     if len(value) > maximum:
         raise ClassroomError(f"{field} is too long.")
     return value
+
+
+def deck_theme(value, *, fallback: str | None = None) -> str:
+    """Validate a small, stable theme allowlist for new deck settings."""
+    if not isinstance(value, str):
+        raise ClassroomError("theme must be text.")
+    value = value.strip().lower()
+    if value not in DECK_THEME_KEYS:
+        if fallback is not None:
+            return fallback
+        raise ClassroomError("theme must be one of: default, light, dark.")
+    return value
+
+
+def vaultpub_theme(value: object) -> str:
+    """Convert a persisted deck key to a safe VaultPub theme identifier."""
+    return VAULTPUB_THEME_BY_DECK_THEME.get(str(value).strip().lower(), "light")
+
+
+def deck_markdown_document(*, slides: Sequence[str], title: str, theme: object = "default") -> str:
+    """Compose public Markdown with upstream Slide View settings.
+
+    The frontmatter is parsed by VaultPub; the body continues to use its
+    documented horizontal-rule slide separators.  Only the validated theme
+    mapping is inserted into the document.
+    """
+    body = "\n\n---\n\n".join(slide for slide in slides if isinstance(slide, str))
+    body = body or f"# {title}\n"
+    return f"---\nslides: true\nslide:\n  theme: {vaultpub_theme(theme)}\n---\n\n{body}"
 
 
 def _owner(actor, deck):
@@ -120,7 +156,7 @@ def create_deck(*, actor, data: Mapping) -> Deck:
         owner=actor,
         title=_text(data.get("title"), "title", 200, required=True),
         course=_course(actor, data.get("course_id")),
-        theme=_text(data.get("theme", "default"), "theme", THEME_MAX_LENGTH, required=True),
+        theme=deck_theme(_text(data.get("theme", "default"), "theme", THEME_MAX_LENGTH, required=True)),
     )
     _write_slides(deck, _slides(actor, data.get("slides", [])))
     return deck
@@ -138,7 +174,7 @@ def update_deck(*, actor, deck: Deck, expected_version: int, data: Mapping) -> D
     if "course_id" in data:
         deck.course = _course(actor, data["course_id"])
     if "theme" in data:
-        deck.theme = _text(data["theme"], "theme", THEME_MAX_LENGTH, required=True)
+        deck.theme = deck_theme(_text(data["theme"], "theme", THEME_MAX_LENGTH, required=True))
     deck.version += 1
     deck.save()
     return deck
@@ -162,7 +198,7 @@ def copy_deck(*, actor, deck: Deck, title: str | None = None) -> Deck:
         owner=actor,
         course=deck.course if deck.course_id and can_author_course(actor, deck.course) else None,
         title=_text(title if title is not None else f"{deck.title} (Copy)", "title", 200, required=True),
-        theme=deck.theme,
+        theme=deck_theme(deck.theme, fallback="default"),
     )
     rows = []
     for slide in deck.slides.prefetch_related("assets").all():
