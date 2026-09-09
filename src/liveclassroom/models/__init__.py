@@ -2,7 +2,7 @@ from .activity import ActivityDefinition, ActivityDefinitionRevision, AuthoringC
 from .assets import ClassroomAsset
 from .authoring import AuthoringAttachment, AuthoringJob, AuthoringMessage, AuthoringThread
 from .content import Flow, FlowStep
-from .course import Course, CourseMembership
+from .course import Course, CourseMembership, TeachingCourse
 from .demos import DemoLesson
 from .plans import FlowShare, FlowSnapshot, SessionPlanStep, SnapshotAsset
 from .session import (
@@ -24,6 +24,7 @@ ActivityRun = LiveActivity
 __all__ = [
     "Course",
     "CourseMembership",
+    "TeachingCourse",
     "DemoLesson",
     "ActivityDefinition",
     "ActivityDefinitionRevision",

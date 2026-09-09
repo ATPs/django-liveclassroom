@@ -1,10 +1,30 @@
 from django.urls import path
 
-from . import api, api_assets, api_authoring, api_flows, api_plans, api_review, views
+from . import api, api_assets, api_authoring, api_flows, api_organization, api_plans, api_review, views
 
 app_name = "liveclassroom"
 
 urlpatterns = [
+    path(
+        "api/v1/teaching-courses/",
+        api_organization.teaching_courses,
+        name="api-v1-teaching-courses",
+    ),
+    path(
+        "api/v1/teaching-courses/<int:teaching_course_id>/",
+        api_organization.teaching_course_detail,
+        name="api-v1-teaching-course-detail",
+    ),
+    path(
+        "api/v1/teaching-courses/<int:teaching_course_id>/classes/",
+        api_organization.teaching_course_classes,
+        name="api-v1-teaching-course-classes",
+    ),
+    path(
+        "api/v1/teaching-courses/<int:teaching_course_id>/classes/<int:class_id>/",
+        api_organization.teaching_course_class,
+        name="api-v1-teaching-course-class",
+    ),
     path("api/v1/activities/<int:activity_id>/review/", api_review.review_settings, name="api-v1-review-settings"),
     path(
         "api/v1/flows/<int:flow_id>/steps/<int:step_id>/edit/", api_plans.lesson_step_edit, name="api-v1-flow-step-edit"

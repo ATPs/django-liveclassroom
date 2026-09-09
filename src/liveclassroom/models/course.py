@@ -2,6 +2,26 @@ from django.conf import settings
 from django.db import models
 
 
+class TeachingCourse(models.Model):
+    """An optional subject/program grouping for existing cohort ``Course`` rows."""
+
+    title = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="liveclassroom_teaching_courses_created",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("title", "id")
+
+    def __str__(self) -> str:
+        return self.title
+
+
 class Course(models.Model):
     title = models.CharField(max_length=200)
     slug = models.SlugField(unique=True)
@@ -10,6 +30,13 @@ class Course(models.Model):
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
         related_name="liveclassroom_courses_created",
+    )
+    teaching_course = models.ForeignKey(
+        TeachingCourse,
+        blank=True,
+        null=True,
+        on_delete=models.SET_NULL,
+        related_name="cohorts",
     )
     session_defaults = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
