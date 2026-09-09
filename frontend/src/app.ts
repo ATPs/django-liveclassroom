@@ -7,10 +7,12 @@ import { mountClassroomDisplay } from "./surfaces/display/ClassroomDisplay.js";
 import { mountTeacherConsole } from "./surfaces/teacher/TeacherConsole.js";
 import { mountStudentView } from "./surfaces/teacher/StudentView.js";
 import { mountDeckWorkspace } from "./surfaces/decks/DeckWorkspace.js";
+import { mountAssessmentBuilder } from "./surfaces/assessments/AssessmentBuilder.js";
 
 if (typeof document !== "undefined") {
   for (const el of document.querySelectorAll<HTMLElement>("[data-teacher-workspace]")) mountTeacherWorkspace(el);
   for (const el of document.querySelectorAll<HTMLElement>("[data-deck-workspace]")) mountDeckWorkspace(el);
+  for (const el of document.querySelectorAll<HTMLElement>("[data-assessment-builder]")) mountAssessmentBuilder(el);
   for (const element of document.querySelectorAll<HTMLElement>("[data-liveclassroom-app]")) {
     const audience = element.dataset.audience;
     if (audience === "student" && element.dataset.stateUrl) mountStudentSession(element);
@@ -31,4 +33,5 @@ export {
   mountAiChat,
   mountStudentView,
   mountDeckWorkspace,
+  mountAssessmentBuilder,
 };

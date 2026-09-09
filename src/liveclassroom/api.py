@@ -64,7 +64,7 @@ from .services.classroom import (
     close_and_show_answer as close_and_show_activity_answer,
 )
 from .services.exports import csv_export, json_archive
-from .services.presentation import presentation_title
+from .services.presentation import native_deck_state_payload, presentation_title
 
 
 def _body(request) -> dict:
@@ -1296,6 +1296,14 @@ def state(request, session_id: int):
         .first()
     )
     activity = channel_state.current_activity if channel_state and channel_state.current_activity_id else None
+    from .services.presentation import native_deck_entry
+
+    channel_has_native_deck = bool(channel_state and native_deck_entry(session, channel))
+    if channel_has_native_deck:
+        # A native deck is an independent delivery surface. Keep the prior
+        # activity record for history, but do not expose it as the current
+        # content for this audience.
+        activity = None
     if not staff_view and session.status == LiveSession.Status.ENDED:
         activity = None
     submission = None
@@ -1319,10 +1327,11 @@ def state(request, session_id: int):
             if other_state.current_activity_id and other_state.show_aggregate
             else None
         )
+        native_deck = native_deck_state_payload(request=request, session=session, state=other_state)
         channels[other_state.channel] = {
             "version": other_state.version,
             "activity": _public_activity(
-                other_state.current_activity,
+                None if native_deck else other_state.current_activity,
                 channel_state=other_state,
                 request=request,
                 session=session,
@@ -1340,6 +1349,7 @@ def state(request, session_id: int):
                 "page": other_state.document_page,
                 "navigation_mode": other_state.document_navigation,
             },
+            "deck": native_deck,
             "aggregate": aggregate,
         }
     current_aggregate = (
@@ -1364,11 +1374,16 @@ def state(request, session_id: int):
             },
             "channel": channel,
             "current_activity": _public_activity(
-                activity,
+                None if channel_has_native_deck else activity,
                 channel_state=channel_state,
                 request=request,
                 session=session,
                 participant=participant,
+            ),
+            "current_deck": (
+                native_deck_state_payload(request=request, session=session, state=channel_state)
+                if channel_state and (staff_view or session.status != LiveSession.Status.ENDED)
+                else None
             ),
             "channels": channels,
             "participant": (

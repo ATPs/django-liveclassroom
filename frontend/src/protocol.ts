@@ -15,6 +15,7 @@ export type SessionState = {
     admission_mode: string;
   };
   current_activity: ActivityState | null;
+  current_deck?: DeckPresentationState | null;
   participant: ParticipantState | null;
   my_submission: SubmissionState | null;
   aggregate: AggregateState | null;
@@ -82,6 +83,7 @@ export type ChannelState = {
   visibility: VisibilityState;
   aggregate: AggregateState | null;
   presentation?: PresentationState;
+  deck?: DeckPresentationState | null;
 };
 
 export type PresentationNavigationMode = "follow" | "paged" | "scroll";
@@ -89,6 +91,20 @@ export type PresentationNavigationMode = "follow" | "paged" | "scroll";
 export type PresentationState = {
   page?: number;
   navigation_mode?: PresentationNavigationMode;
+};
+
+export type DeckPresentationState = {
+  snapshot_id: number;
+  title: string;
+  theme: string;
+  fingerprint: string;
+  slide_count: number;
+  slide_index: number;
+  slide_key: string;
+  revision: number;
+  allow_review: boolean;
+  payload_url?: string;
+  slides_url?: string;
 };
 
 export type ParticipantState = {

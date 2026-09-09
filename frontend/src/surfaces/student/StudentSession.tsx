@@ -15,6 +15,7 @@ import {
 import { useSessionState } from "../../hooks/useSessionState.js";
 import { ActivityView } from "../../activities/ActivityView.js";
 import { activityKind, answerText, choicesFor, selectedChoices } from "../../activities/activityData.js";
+import { NativeDeckView } from "../../activities/NativeDeckView.js";
 
 function JoinPrompt({ onJoined }: { onJoined: (name: string) => Promise<void> }) {
   const t = useT();
@@ -347,15 +348,15 @@ function StudentSession({ bootstrap }: { bootstrap: Bootstrap }) {
           ) : state?.session.status === "paused" ? (
             <>
               <p role="status">{t("studentClassPaused")}</p>
-              <ActivityView activity={state?.current_activity ?? null} state={state} stateUrl={stateUrl} refresh={sync.refresh} />
+              {state?.current_deck && !state.current_activity ? <NativeDeckView deck={state.current_deck} state={state} audience="student" /> : <ActivityView activity={state?.current_activity ?? null} state={state} stateUrl={stateUrl} refresh={sync.refresh} />}
             </>
           ) : bootstrap.preview ? (
             <>
               <p role="status">{t("participantPreview")}: {t("responsesDisabled")}</p>
-              <ActivityView activity={state?.current_activity ?? null} state={state ? { ...state, act_as_active: false } : null} stateUrl={stateUrl} refresh={sync.refresh} />
+              {state?.current_deck && !state.current_activity ? <NativeDeckView deck={state.current_deck} state={state} audience="student" /> : <ActivityView activity={state?.current_activity ?? null} state={state ? { ...state, act_as_active: false } : null} stateUrl={stateUrl} refresh={sync.refresh} />}
             </>
           ) : (
-            <ActivityView activity={state?.current_activity ?? null} state={state} stateUrl={stateUrl} refresh={sync.refresh} />
+            state?.current_deck && !state.current_activity ? <NativeDeckView deck={state.current_deck} state={state} audience="student" /> : <ActivityView activity={state?.current_activity ?? null} state={state} stateUrl={stateUrl} refresh={sync.refresh} />
           )
         ) : needName ? (
           <JoinPrompt onJoined={joinByName} />
