@@ -96,6 +96,11 @@ urlpatterns = [
         name="api-v1-assessment-copy",
     ),
     path(
+        "api/v1/assessments/<int:assessment_id>/preset/",
+        api_assessments.assessment_preset,
+        name="api-v1-assessment-preset",
+    ),
+    path(
         "api/v1/activity-definitions/<int:revision_id>/fragments/<str:field>/",
         fragment_views.definition_fragment,
         name="api-v1-definition-fragment",

@@ -125,7 +125,7 @@ def test_assessment_rejects_foreign_and_unscored_questions_and_settings():
     with pytest.raises(ClassroomError, match="graded"):
         create_assessment(actor=owner, data={"title": "Poll", "items": [{"revision_id": poll.current_revision_id}]})
     with pytest.raises(ClassroomError, match="max_attempts"):
-        create_assessment(actor=owner, data={"title": "Invalid", "settings": {"max_attempts": 2}})
+        create_assessment(actor=owner, data={"title": "Invalid", "settings": {"max_attempts": 0}})
     assert not AssessmentDefinition.objects.filter(owner=owner).exists()
 
 
