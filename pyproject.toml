@@ -30,6 +30,7 @@ dependencies = [
 
 [project.optional-dependencies]
 postgres = ["psycopg>=3.2,<4"]
+vaultpub = ["vaultpub>=1.0,<2"]
 dev = [
   "daphne>=4.1,<5",
   "pytest>=8.3",
