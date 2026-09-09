@@ -133,6 +133,8 @@
 #liveclassroom-root .lc-card {
   position: relative;
   width: min(100%, 42rem);
+  min-width: 0;
+  max-width: 100%;
   padding: 2rem;
   border: 1px solid var(--lc-border);
   border-radius: var(--lc-radius-lg);
@@ -146,6 +148,8 @@
 
 #liveclassroom-root .lc-page-stack {
   width: min(100%, 76rem);
+  min-width: 0;
+  max-width: 100%;
   display: grid;
   gap: 1rem;
   align-items: start;
@@ -880,6 +884,7 @@
     flex-direction: column;
   }
   #liveclassroom-root .lc-builder-sidebar {
+    min-width: 0;
     max-width: 100%;
     width: 100%;
   }
@@ -1495,6 +1500,8 @@
 #liveclassroom-root .lc-file-teacher-controls label { display: inline-flex; align-items: center; gap: .35rem; }
 #liveclassroom-root .lc-file-teacher-controls select { font: inherit; max-width: 13rem; }
 #liveclassroom-root .lc-file-download { display: inline-block; margin-bottom: .75rem; }
+#liveclassroom-root .lc-file-vaultpub-toolbar { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: .75rem; }
+#liveclassroom-root .lc-file-vaultpub-frame { display: block; width: 100%; min-height: min(70vh, 48rem); border: 1px solid var(--lc-border); background: var(--lc-surface); }
 #liveclassroom-root .lc-file-picker { margin: .75rem 0; }
 #liveclassroom-root .lc-file-picker form { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
 #liveclassroom-root .lc-file-picker input, #liveclassroom-root .lc-file-picker select { min-width: 10rem; max-width: 100%; font: inherit; }
@@ -1680,6 +1687,20 @@
  * Responsive tweaks
  * ------------------------------------------------------------------------- */
 @media (max-width: 44rem) {
+  #liveclassroom-root {
+    padding: 1rem;
+  }
+
+  #liveclassroom-root :is(.lc-builder-root, .lc-builder-layout, .lc-builder-main, .lc-builder-topbar, .lc-builder-title-group, .lc-builder-actions) {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  #liveclassroom-root :is(.lc-builder-flow-select-label, .lc-builder-flow-select, .lc-form input, .lc-form select, .lc-form textarea) {
+    min-width: 0;
+    max-width: 100%;
+  }
+
   #liveclassroom-root .lc-lang-switch {
     position: static;
     display: flex;

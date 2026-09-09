@@ -30,7 +30,14 @@ _MAX_PPTX_ENTRIES = 10_000
 _MAX_PPTX_UNCOMPRESSED_BYTES = 250 * 1024 * 1024
 
 
-def asset_descriptor(asset: ClassroomAsset, *, content_url: str | None = None, download_url: str | None = None) -> dict:
+def asset_descriptor(
+    asset: ClassroomAsset,
+    *,
+    content_url: str | None = None,
+    download_url: str | None = None,
+    document_note_url: str | None = None,
+    document_slides_url: str | None = None,
+) -> dict:
     result = {
         "id": str(asset.public_id),
         "name": asset.original_name,
@@ -41,6 +48,10 @@ def asset_descriptor(asset: ClassroomAsset, *, content_url: str | None = None, d
         result["content_url"] = content_url
     if download_url:
         result["download_url"] = download_url
+    if document_note_url:
+        result["document_note_url"] = document_note_url
+    if document_slides_url:
+        result["document_slides_url"] = document_slides_url
     return result
 
 

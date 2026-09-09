@@ -44,3 +44,18 @@ def test_import_markdown_creates_reusable_activity_definitions_and_flow_steps():
 def test_rejects_invalid_quiz():
     with pytest.raises(ImportError, match="at least two choices"):
         parse_markdown("---\ntitle: Bad\n---\n:::quiz\nquestion: bad\nchoices: [only]\n:::")
+
+
+def test_rejects_invalid_quiz_metadata_as_an_import_error():
+    source = """---
+title: Bad metadata
+---
+:::quiz
+question: Pick one
+choices: [One, Two]
+metadata:
+  difficulty: expert
+:::
+"""
+    with pytest.raises(ImportError, match="Invalid quiz metadata"):
+        parse_markdown(source)

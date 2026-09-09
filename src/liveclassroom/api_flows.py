@@ -53,6 +53,14 @@ def _serialize_flow_summary(flow: Flow) -> dict[str, Any]:
 
 
 def _serialize_step(step: FlowStep) -> dict[str, Any]:
+    asset = step.activity_definition.asset
+    document_note_url = None
+    document_slides_url = None
+    if asset and asset.kind == asset.Kind.MARKDOWN:
+        document_note_url = reverse("liveclassroom:api-v1-document-root", args=[asset.public_id])
+        document_slides_url = reverse(
+            "liveclassroom:api-v1-document-slides", args=[asset.public_id, asset.original_name]
+        )
     activity_data = {
         "id": step.activity_definition.id,
         "title": presentation_title(step.activity_definition.title),
@@ -60,10 +68,13 @@ def _serialize_step(step: FlowStep) -> dict[str, Any]:
         "schema_version": step.activity_definition.schema_version,
         "status": step.activity_definition.status,
         "definition": step.activity_definition.definition,
+        "metadata": step.activity_definition.metadata,
         "asset_url": (
-            reverse("liveclassroom:api-v1-asset-content", args=[step.activity_definition.asset.public_id])
-            if step.activity_definition.asset_id else None
+            reverse("liveclassroom:api-v1-asset-content", args=[asset.public_id])
+            if asset else None
         ),
+        "document_note_url": document_note_url,
+        "document_slides_url": document_slides_url,
     }
     return {
         "id": step.id,
@@ -280,6 +291,7 @@ def add_step_api(request, flow_id: int):
                 title=def_title,
                 type_key=type_key,
                 definition=def_content,
+                metadata=inline.get("metadata"),
                 course=flow.course,
             )
         elif body.get("type_key") or (body.get("kind") and body.get("kind") not in ("markdown", "activity")):

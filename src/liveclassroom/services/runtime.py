@@ -93,6 +93,7 @@ def activity_snapshot(item: FlowStep | ActivityDefinition) -> dict[str, Any]:
         "kind": definition.type_key.rsplit(".", 1)[-1],
         "title": definition.title,
         "content": definition.definition,
+        "metadata": definition.metadata,
         "activity_definition_id": definition.id,
         "activity_definition_revision_id": definition.current_revision_id,
     }

@@ -15,6 +15,7 @@ from django.views.decorators.http import require_GET, require_POST
 from .models import (
     ActivityDefinition,
     AuthoringCommandReceipt,
+    ClassroomAsset,
     CommandReceipt,
     FlowStep,
     LiveActivity,
@@ -376,7 +377,7 @@ def _public_activity(
         return False
 
     has_answer = contains_content(snapshot, {"answer", "correct_answer"})
-    has_explanation = contains_content(snapshot, {"explanation", "explanation_markdown"})
+    has_explanation = contains_content(snapshot, {"explanation", "explanation_markdown", "feedback"})
     if isinstance(snapshot.get("title"), str):
         snapshot["title"] = presentation_title(snapshot["title"])
     show_prompt = force_show_prompt or channel_state is None or channel_state.show_prompt
@@ -407,7 +408,7 @@ def _public_activity(
                 if not reveal_answer:
                     hidden_keys.update({"answer", "correct_answer"})
                 if not show_explanation:
-                    hidden_keys.update({"explanation", "explanation_markdown"})
+                    hidden_keys.update({"explanation", "explanation_markdown", "feedback"})
                 return {
                     key: redact(item)
                     for key, item in value.items()
@@ -418,6 +419,13 @@ def _public_activity(
             return value
 
         snapshot = redact(snapshot)
+        metadata = snapshot.get("metadata")
+        if isinstance(metadata, dict):
+            feedback = metadata.get("feedback") if show_explanation else None
+            if isinstance(feedback, dict) and feedback:
+                snapshot["metadata"] = {"feedback": feedback}
+            else:
+                snapshot.pop("metadata", None)
     type_key = snapshot.get("type_key") if isinstance(snapshot, dict) else None
     if not isinstance(type_key, str) or not type_key:
         type_key = f"liveclassroom.{activity.kind}"
@@ -431,6 +439,8 @@ def _public_activity(
             content = dict(content)
             content_url = None
             download_url = None
+            document_note_url = None
+            document_slides_url = None
             if request is not None and session is not None:
                 content_url = reverse(
                     "liveclassroom:api-v1-session-asset-content",
@@ -438,10 +448,21 @@ def _public_activity(
                 )
                 if can_manage_session(request.user, session):
                     download_url = f"{content_url}?download=1"
+                if revision.asset.kind == ClassroomAsset.Kind.MARKDOWN:
+                    document_note_url = reverse(
+                        "liveclassroom:api-v1-session-document-root",
+                        args=[session.id, revision.id, revision.asset.public_id],
+                    )
+                    document_slides_url = reverse(
+                        "liveclassroom:api-v1-session-document-slides",
+                        args=[session.id, revision.id, revision.asset.public_id, revision.asset.original_name],
+                    )
             content["asset"] = asset_descriptor(
                 revision.asset,
                 content_url=content_url,
                 download_url=download_url,
+                document_note_url=document_note_url,
+                document_slides_url=document_slides_url,
             )
             snapshot["content"] = content
     if (

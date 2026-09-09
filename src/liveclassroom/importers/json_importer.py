@@ -12,6 +12,7 @@ from django.utils.text import slugify
 from liveclassroom.importers.markdown import ImportError
 from liveclassroom.models import ActivityDefinition, Course, Flow, FlowStep
 from liveclassroom.registry import activity_registry
+from liveclassroom.services.question_metadata import validate_question_metadata
 
 
 def _normalize_choice_answer_aliases(type_key: str, definition: dict[str, Any]) -> dict[str, Any]:
@@ -120,6 +121,7 @@ def parse_json_flow(source: str | dict[str, Any]) -> dict[str, Any]:
         # Validate through canonical registry before any database writes
         try:
             validated_def = activity_type.validate(def_payload)
+            metadata = validate_question_metadata(step.get("metadata"))
         except (ValueError, KeyError, TypeError) as exc:
             raise ImportError(f"Invalid activity definition in step {index} ({type_key}): {exc}") from exc
 
@@ -128,6 +130,7 @@ def parse_json_flow(source: str | dict[str, Any]) -> dict[str, Any]:
                 "type_key": type_key,
                 "title": step_title,
                 "definition": validated_def,
+                "metadata": metadata,
             }
         )
 
@@ -180,6 +183,7 @@ def import_json_flow(
             type_key=step_data["type_key"],
             title=step_data["title"],
             definition=step_data["definition"],
+            metadata=step_data["metadata"],
             status=ActivityDefinition.Status.READY,
         )
 

@@ -269,6 +269,16 @@ function AddStepForm({
   const [saving, setSaving] = useState(false);
 
   const set = (key: string, value: string) => setFields((prev) => ({ ...prev, [key]: value }));
+  const choiceIds = (fields.options ?? "").split("\n").map((line, index) =>
+    line.trim() ? String.fromCharCode(65 + index) : ""
+  ).filter(Boolean);
+  const selectedAnswers = (fields.answer ?? "").split(/[, ]+/).filter(Boolean);
+  const toggleAnswer = (id: string, checked: boolean) => {
+    const next = checked
+      ? [...selectedAnswers, id].filter((value, index, values) => values.indexOf(value) === index)
+      : selectedAnswers.filter(value => value !== id);
+    set("answer", next.join(", "));
+  };
 
   useEffect(() => {
     if (initialDraft) {
@@ -305,8 +315,11 @@ function AddStepForm({
       const definition: Record<string, unknown> = { prompt: prompt || title, options };
       if ((fields.answer ?? "").trim()) {
         const rawAns = fields.answer.split(/[, ]+/).map((s) => s.trim().toUpperCase()).filter(Boolean);
-        definition.answer = type === "liveclassroom.single_choice" ? [rawAns[0]] : rawAns;
+        // Keep the single-choice shape identical to ActivityEditor and the
+        // registry's canonical form. Multiple choice remains an ordered list.
+        definition.answer = type === "liveclassroom.single_choice" ? rawAns[0] : rawAns;
       }
+      if (type === "liveclassroom.multiple_choice") definition.partial_credit = fields.partialCredit === "true";
       if ((fields.explanation ?? "").trim()) definition.explanation_markdown = fields.explanation.trim();
       payload = { kind: "activity", title: title || prompt, activity_definition: { title: title || prompt, type_key: type, definition } };
     } else if (type === "liveclassroom.true_false") {
@@ -319,12 +332,16 @@ function AddStepForm({
           definition: {
             prompt: prompt || title,
             options: [{ id: "true", text: t("trueValue") }, { id: "false", text: t("falseValue") }],
-            answer: [fields.answer || "true"],
+            ...((fields.answer ?? "").trim() ? { answer: fields.answer } : {}),
           },
         },
       };
     } else if (isText) {
       const definition: Record<string, unknown> = { prompt: prompt || title };
+      if (type === "liveclassroom.short_text" && (fields.answer ?? "").trim()) {
+        definition.answer = [...new Set(fields.answer.split("\n").map((value) => value.trim()).filter(Boolean))];
+        definition.case_sensitive = fields.caseSensitive === "true";
+      }
       if (type === "liveclassroom.word_cloud" && (fields.stopwords ?? "").trim()) {
         definition.stop_words = fields.stopwords.split(/[, ]+/).map((s) => s.trim()).filter(Boolean);
       }
@@ -333,6 +350,10 @@ function AddStepForm({
       const definition: Record<string, unknown> = { prompt: prompt || title };
       if (fields.min) definition.minimum = parseFloat(fields.min);
       if (fields.max) definition.maximum = parseFloat(fields.max);
+      if (type === "liveclassroom.numeric" && (fields.answer ?? "").trim()) {
+        definition.answer = fields.answer.trim();
+        if ((fields.tolerance ?? "").trim()) definition.tolerance = fields.tolerance.trim();
+      }
       payload = { kind: "activity", title: title || prompt, activity_definition: { title: title || prompt, type_key: type, definition } };
     } else if (isBashSimulator) {
       let filesystem: unknown;
@@ -436,11 +457,20 @@ function AddStepForm({
               <label>{t("optionsLabel")}: </label>
               {area("options", 4, "Choice 1\nChoice 2\nChoice 3\nChoice 4")}
             </div>
-            {type === "liveclassroom.single_choice" || type === "liveclassroom.multiple_choice" ? (
+            {type === "liveclassroom.single_choice" ? (
               <div className="lc-form-group">
-                <label>{t("correctAnswer")} (e.g. A or A, B): </label>
-                {input("answer")}
+                <label>{t("correctAnswer")}: </label>
+                <select className="lc-select" value={fields.answer ?? ""} onChange={(e) => set("answer", e.target.value)}>
+                  <option value="">{t("notGraded")}</option>
+                  {choiceIds.map((id) => <option key={id} value={id}>{id}</option>)}
+                </select>
               </div>
+            ) : null}
+            {type === "liveclassroom.multiple_choice" ? (
+              <fieldset><legend>{t("correctAnswer")}</legend>
+                {choiceIds.map((id) => <label key={id}><input type="checkbox" checked={selectedAnswers.includes(id)} onChange={(e) => toggleAnswer(id, e.target.checked)} /> {id}</label>)}
+                <label><input type="checkbox" checked={fields.partialCredit === "true"} onChange={(e) => set("partialCredit", String(e.target.checked))} /> {t("partialCredit")}</label>
+              </fieldset>
             ) : null}
             <div className="lc-form-group">
               <label>{t("explanation")}: </label>
@@ -455,7 +485,8 @@ function AddStepForm({
             </div>
             <div className="lc-form-group">
               <label>{t("correctAnswer")}: </label>
-              <select className="lc-select" value={fields.answer ?? "true"} onChange={(e) => set("answer", e.target.value)}>
+              <select className="lc-select" value={fields.answer ?? ""} onChange={(e) => set("answer", e.target.value)}>
+                <option value="">{t("notGraded")}</option>
                 <option value="true">{t("trueValue")}</option>
                 <option value="false">{t("falseValue")}</option>
               </select>
@@ -472,7 +503,13 @@ function AddStepForm({
                 <label>{t("stopWordsLabel")}: </label>
                 {input("stopwords", { placeholder: "e.g. the, a, is" })}
               </div>
-            ) : null}
+            ) : <>
+              <div className="lc-form-group">
+                <label>{t("acceptedAnswers")}: </label>
+                {area("answer", 4)}
+              </div>
+              <label><input type="checkbox" checked={fields.caseSensitive === "true"} onChange={(e) => set("caseSensitive", String(e.target.checked))} disabled={!(fields.answer ?? "").trim()} /> {t("caseSensitive")}</label>
+            </>}
           </>
         ) : type === "liveclassroom.numeric" || type === "liveclassroom.rating" ? (
           <>
@@ -490,6 +527,10 @@ function AddStepForm({
                 <input type="number" className="lc-input" value={fields.max ?? (type === "liveclassroom.rating" ? "5" : "")} onChange={(e) => set("max", e.target.value)} />
               </div>
             </div>
+            {type === "liveclassroom.numeric" ? <div className="lc-form-row">
+              <div className="lc-form-group"><label>{t("correctNumber")}: </label>{input("answer", { inputMode: "decimal" })}</div>
+              <div className="lc-form-group"><label>{t("numericTolerance")}: </label>{input("tolerance", { type: "number", min: 0, step: "any", disabled: !(fields.answer ?? "").trim() })}</div>
+            </div> : null}
           </>
         ) : type === "liveclassroom.bash_simulator" ? (
           <>

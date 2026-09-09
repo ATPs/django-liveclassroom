@@ -17,7 +17,7 @@ function ChangeContent({value, labels}: {value:unknown;labels?:string[]}) {
   if (!value) return <p>{tr("No step", "无此步骤")}</p>;
   const snapshot=record(record(value).snapshot);
   const content=record(snapshot.content);
-  const fields: Array<[string,string]> = [["prompt",tr("Prompt","题干")],["markdown","Markdown"],["url",tr("URL","链接")],["caption",tr("Caption","说明")],["answer",tr("Correct answer","正确答案")],["explanation_markdown",tr("Explanation","解析")],["duration_seconds",tr("Seconds","秒")],["minimum",tr("Minimum","最小值")],["maximum",tr("Maximum","最大值")]];
+  const fields: Array<[string,string]> = [["prompt",tr("Prompt","题干")],["markdown","Markdown"],["url",tr("URL","链接")],["caption",tr("Caption","说明")],["answer",tr("Correct answer","正确答案")],["partial_credit",tr("Partial credit","部分得分")],["tolerance",tr("Tolerance","误差范围")],["case_sensitive",tr("Case sensitive","区分大小写")],["explanation_markdown",tr("Explanation","解析")],["duration_seconds",tr("Seconds","秒")],["minimum",tr("Minimum","最小值")],["maximum",tr("Maximum","最大值")]];
   return <div style={{overflowWrap:"anywhere"}}><strong>{String(snapshot.title??"")}</strong>
     {fields.filter(([key])=>content[key]!==undefined).map(([key,label])=><p key={key} style={{whiteSpace:"pre-wrap"}}>{label}: {displayAnswer(content[key])}</p>)}
     {Array.isArray(content.options)&&<ul>{content.options.map((option,index)=>{const item=record(option);return <li key={index}>{typeof option==="string"?option:`${item.id}: ${item.text}`}</li>;})}</ul>}

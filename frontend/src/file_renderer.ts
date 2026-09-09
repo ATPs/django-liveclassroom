@@ -8,6 +8,8 @@ type FileAsset = {
   size: number;
   content_url: string;
   download_url?: string;
+  document_note_url?: string;
+  document_slides_url?: string;
 };
 
 type FileRendererOptions = {
@@ -56,6 +58,8 @@ function fileAsset(activity: ActivityState): FileAsset | null {
     size: typeof raw.size === "number" && Number.isFinite(raw.size) ? raw.size : 0,
     content_url: contentUrl,
     download_url: stringValue(raw.download_url) || undefined,
+    document_note_url: stringValue(raw.document_note_url) || undefined,
+    document_slides_url: stringValue(raw.document_slides_url) || undefined,
   };
 }
 
@@ -366,6 +370,87 @@ function renderVideo(host: HTMLElement, url: string, asset: FileAsset): void {
   host.append(video);
 }
 
+async function mountVaultPubMarkdown(
+  host: HTMLElement,
+  asset: FileAsset,
+  options: FileRendererOptions,
+  notice: HTMLElement,
+  signal: AbortSignal,
+): Promise<(() => void) | null> {
+  const noteUrl = asset.document_note_url ? sameOriginUrl(asset.document_note_url) : null;
+  const slidesUrl = asset.document_slides_url ? sameOriginUrl(asset.document_slides_url) : null;
+  if (!noteUrl || !slidesUrl) return null;
+  const available = await fetch(slidesUrl, { method: "HEAD", credentials: "same-origin", signal });
+  if (!available.ok) return null;
+
+  notice.textContent = t("fileLoading", options.locale);
+  const toolbar = document.createElement("div");
+  toolbar.className = "lc-file-vaultpub-toolbar";
+  const note = document.createElement("button");
+  note.type = "button";
+  note.textContent = t("fileDocumentNote", options.locale);
+  const slides = document.createElement("button");
+  slides.type = "button";
+  slides.textContent = t("fileDocumentSlides", options.locale);
+  const previous = document.createElement("button");
+  previous.type = "button";
+  previous.textContent = t("filePreviousPage", options.locale);
+  const next = document.createElement("button");
+  next.type = "button";
+  next.textContent = t("fileNextPage", options.locale);
+  const frame = document.createElement("iframe");
+  frame.className = "lc-file-vaultpub-frame";
+  frame.title = `${asset.name} — ${t("fileDocumentSlides", options.locale)}`;
+  frame.loading = "lazy";
+  frame.referrerPolicy = "same-origin";
+  frame.sandbox.add("allow-scripts", "allow-same-origin");
+  let slideMode = true;
+  const post = (command: "previous" | "next" | "go_to", index?: number) => {
+    frame.contentWindow?.postMessage(
+      { protocol: "vaultpub.slide", version: 1, type: "command", command, ...(index === undefined ? {} : { index }) },
+      window.location.origin,
+    );
+  };
+  const setMode = (useSlides: boolean) => {
+    slideMode = useSlides;
+    previous.hidden = !useSlides;
+    next.hidden = !useSlides;
+    frame.title = `${asset.name} — ${t(useSlides ? "fileDocumentSlides" : "fileDocumentNote", options.locale)}`;
+    frame.src = useSlides ? `${slidesUrl}${slidesUrl.includes("?") ? "&" : "?"}embed=1` : noteUrl;
+  };
+  note.addEventListener("click", () => setMode(false));
+  slides.addEventListener("click", () => setMode(true));
+  previous.addEventListener("click", () => post("previous"));
+  next.addEventListener("click", () => post("next"));
+  frame.addEventListener("load", () => {
+    notice.remove();
+    if (slideMode) frame.contentWindow?.postMessage(
+      { protocol: "vaultpub.slide", version: 1, type: "handshake" },
+      window.location.origin,
+    );
+  });
+  const onMessage = (event: MessageEvent<unknown>) => {
+    if (event.origin !== window.location.origin || event.source !== frame.contentWindow) return;
+    const message = record(event.data);
+    if (message.protocol !== "vaultpub.slide" || message.version !== 1) return;
+    if (message.type === "ready") {
+      post("go_to", presentationFor(options).page);
+    } else if (
+      message.type === "slide-changed"
+      && options.audience === "teacher"
+      && options.presentationEndpoint
+      && typeof message.index === "number"
+    ) {
+      void postJson(options.presentationEndpoint, { channels: ["display"], page: Math.floor(message.index) + 1 });
+    }
+  };
+  window.addEventListener("message", onMessage);
+  toolbar.append(note, slides, previous, next);
+  host.append(toolbar, frame);
+  setMode(true);
+  return () => window.removeEventListener("message", onMessage);
+}
+
 export function mountFileActivity(options: FileRendererOptions): () => void {
   const asset = fileAsset(options.activity);
   const host = document.createElement("section");
@@ -376,6 +461,7 @@ export function mountFileActivity(options: FileRendererOptions): () => void {
   const controller = new AbortController();
   const objectUrls = new Set<string>();
   let documentRenderer: PagedDocument | undefined;
+  let vaultpubCleanup: (() => void) | undefined;
 
   if (!asset) {
     notice.textContent = t("fileUnavailable", options.locale);
@@ -400,6 +486,10 @@ export function mountFileActivity(options: FileRendererOptions): () => void {
         return;
       }
       if (kind === "markdown") {
+        vaultpubCleanup = await mountVaultPubMarkdown(
+          host, asset, options, notice, controller.signal,
+        ) ?? undefined;
+        if (vaultpubCleanup) return;
         const response = await fetchAsset(contentUrl, controller.signal);
         const markdown = await response.text();
         if (!host.isConnected || controller.signal.aborted) return;
@@ -424,6 +514,7 @@ export function mountFileActivity(options: FileRendererOptions): () => void {
   return () => {
     controller.abort();
     documentRenderer?.destroy?.();
+    vaultpubCleanup?.();
     for (const objectUrl of objectUrls) URL.revokeObjectURL(objectUrl);
   };
 }

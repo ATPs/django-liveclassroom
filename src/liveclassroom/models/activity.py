@@ -29,6 +29,7 @@ class ActivityDefinition(models.Model):
     schema_version = models.PositiveSmallIntegerField(default=1)
     title = models.CharField(max_length=200)
     definition = models.JSONField(default=dict)
+    metadata = models.JSONField(default=dict, blank=True)
     asset = models.ForeignKey(
         "liveclassroom.ClassroomAsset",
         null=True,
@@ -62,6 +63,7 @@ class ActivityDefinitionRevision(models.Model):
     revision = models.PositiveIntegerField()
     schema_version = models.PositiveSmallIntegerField(default=1)
     payload = models.JSONField(default=dict)
+    metadata = models.JSONField(default=dict, blank=True)
     asset = models.ForeignKey(
         "liveclassroom.ClassroomAsset",
         null=True,
@@ -124,8 +126,10 @@ def validate_activity_definition_before_save(sender, instance, **kwargs):
     """Keep direct ORM and admin writes behind the activity registry policy."""
     try:
         from liveclassroom.registry import activity_registry
+        from liveclassroom.services.question_metadata import validate_question_metadata
 
         instance.definition = activity_registry.get(instance.type_key).validate(instance.definition)
+        instance.metadata = validate_question_metadata(instance.metadata)
     except (KeyError, TypeError, ValueError) as exc:
         raise ValidationError({"definition": str(exc)}) from exc
 
@@ -139,6 +143,7 @@ def create_initial_activity_revision(sender, instance, created, **kwargs):
             revision=1,
             schema_version=instance.schema_version,
             payload=instance.definition,
+            metadata=instance.metadata,
             asset=instance.asset,
             changed_by=instance.owner,
         )

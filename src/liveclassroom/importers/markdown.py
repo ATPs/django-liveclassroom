@@ -11,6 +11,7 @@ from django.utils.text import slugify
 
 from liveclassroom.models import ActivityDefinition, Flow, FlowStep
 from liveclassroom.registry import activity_registry
+from liveclassroom.services.question_metadata import validate_question_metadata
 
 
 class ImportError(ValueError):
@@ -22,6 +23,7 @@ class ParsedItem:
     type_key: str
     title: str
     content: dict
+    metadata: dict
 
 
 @dataclass(frozen=True)
@@ -80,6 +82,10 @@ def _question(payload: dict) -> dict:
     option_ids = {option["id"] for option in options}
     if question_type != "poll" and any(value not in option_ids for value in normalized_answer):
         raise ImportError("Every answer must name an option id or option text.")
+    try:
+        metadata = validate_question_metadata(payload.get("metadata"))
+    except ValueError as exc:
+        raise ImportError(f"Invalid quiz metadata: {exc}") from exc
     return {
         "type_key": f"liveclassroom.{question_type}",
         "title": stem[:80],
@@ -90,6 +96,7 @@ def _question(payload: dict) -> dict:
             "answer": normalized_answer,
             "explanation": payload.get("explanation", "").strip(),
         },
+        "metadata": metadata,
     }
 
 
@@ -112,13 +119,13 @@ def parse_markdown(source: str, *, fallback_slug: str | None = None) -> ParsedFl
         for quiz in _QUIZ.finditer(section):
             markdown = section[cursor : quiz.start()].strip()
             if markdown:
-                items.append(ParsedItem("liveclassroom.markdown", "", {"markdown": markdown}))
+                items.append(ParsedItem("liveclassroom.markdown", "", {"markdown": markdown}, {}))
             payload = _question(_yaml(quiz.group(1), "quiz directive"))
-            items.append(ParsedItem(payload["type_key"], payload["title"], payload["definition"]))
+            items.append(ParsedItem(payload["type_key"], payload["title"], payload["definition"], payload["metadata"]))
             cursor = quiz.end()
         markdown = section[cursor:].strip()
         if markdown:
-            items.append(ParsedItem("liveclassroom.markdown", "", {"markdown": markdown}))
+            items.append(ParsedItem("liveclassroom.markdown", "", {"markdown": markdown}, {}))
     if not items:
         raise ImportError("The course file contains no importable content.")
     return ParsedFlow(title, slug, str(metadata.get("description", "")).strip(), tuple(items))
@@ -162,6 +169,7 @@ def import_markdown_flow(
             type_key=item.type_key,
             title=item.title or "Markdown",
             definition=definition,
+            metadata=item.metadata,
             status=ActivityDefinition.Status.READY,
         )
         FlowStep.objects.create(

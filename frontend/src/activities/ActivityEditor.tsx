@@ -17,7 +17,16 @@ export function ActivityEditor({ initial, onSave, onCancel }: {
   const [title, setTitle] = useState(initial?.title ?? "");
   const [prompt, setPrompt] = useState(String(content.prompt ?? ""));
   const [options, setOptions] = useState(((content.options ?? []) as Array<{id:string;text:string}>).map(o => `${o.id}: ${o.text}`).join("\n"));
-  const [answer, setAnswer] = useState(Array.isArray(content.answer) ? content.answer.join(", ") : String(content.answer ?? ""));
+  const storedAnswer = content.answer ?? content.correct_answer;
+  const initialKind = String(initial?.type_key ?? "liveclassroom.short_text");
+  const [answer, setAnswer] = useState(
+    Array.isArray(storedAnswer)
+      ? storedAnswer.join(initialKind === "liveclassroom.short_text" ? "\n" : ", ")
+      : String(storedAnswer ?? ""),
+  );
+  const [partialCredit, setPartialCredit] = useState(content.partial_credit === true);
+  const [tolerance, setTolerance] = useState(String(content.tolerance ?? ""));
+  const [caseSensitive, setCaseSensitive] = useState(content.case_sensitive === true);
   const [explanation, setExplanation] = useState(String(content.explanation_markdown ?? ""));
   const [markdown, setMarkdown] = useState(String(content.markdown ?? ""));
   const [url, setUrl] = useState(String(content.url ?? ""));
@@ -32,6 +41,19 @@ export function ActivityEditor({ initial, onSave, onCancel }: {
   const [error, setError] = useState("");
   const choice = ["single_choice", "multiple_choice", "poll", "ranking", "true_false"].some(k => kind === `liveclassroom.${k}`);
   const numeric = ["liveclassroom.numeric", "liveclassroom.rating"].includes(kind);
+  const gradedChoice = ["liveclassroom.single_choice", "liveclassroom.multiple_choice", "liveclassroom.true_false"].includes(kind);
+  const shortText = kind === "liveclassroom.short_text";
+  const optionIds = options.split("\n").map((line, index) => {
+    const match = /^([^:]+):/.exec(line.trim());
+    return match ? match[1].trim() : line.trim() ? String.fromCharCode(65 + index) : "";
+  }).filter(Boolean);
+  const selectedAnswers = answer.split(",").map(value => value.trim()).filter(Boolean);
+  const toggleAnswer = (id: string, checked: boolean) => {
+    const next = checked
+      ? [...selectedAnswers, id].filter((value, index, values) => values.indexOf(value) === index)
+      : selectedAnswers.filter(value => value !== id);
+    setAnswer(next.join(", "));
+  };
   const bashSimulator = kind === "liveclassroom.bash_simulator";
   const kinds = [
     ["short_text", "Short text", "简答"], ["single_choice", "Single choice", "单选"],
@@ -56,9 +78,23 @@ export function ActivityEditor({ initial, onSave, onCancel }: {
         });
         if (kind === "liveclassroom.true_false" && !(next.options as unknown[]).length) next.options = [{id:"true",text:tr("True","正确")},{id:"false",text:tr("False","错误")}];
       }
-      if (choice || numeric) {
-        if (answer.trim()) next.answer = numeric ? Number(answer) : answer.split(",").map(v => v.trim()).filter(Boolean);
-        else delete next.answer;
+      delete next.answer;
+      delete next.correct_answer;
+      delete next.partial_credit;
+      delete next.tolerance;
+      delete next.case_sensitive;
+      if (gradedChoice && answer.trim()) {
+        const values = answer.split(",").map(v => v.trim()).filter(Boolean);
+        next.answer = kind === "liveclassroom.multiple_choice" ? values : values[0];
+        if (kind === "liveclassroom.multiple_choice") next.partial_credit = partialCredit;
+      }
+      if (kind === "liveclassroom.numeric" && answer.trim()) {
+        next.answer = answer.trim();
+        if (tolerance.trim()) next.tolerance = tolerance.trim();
+      }
+      if (shortText && answer.trim()) {
+        next.answer = [...new Map(answer.split("\n").map(value => value.trim()).filter(Boolean).map(value => [value, value])).values()];
+        next.case_sensitive = caseSensitive;
       }
       if (explanation.trim()) next.explanation_markdown = explanation.trim(); else delete next.explanation_markdown;
       if (kind === "liveclassroom.markdown") next.markdown = markdown;
@@ -103,7 +139,12 @@ export function ActivityEditor({ initial, onSave, onCancel }: {
     <label>{tr("Title", "标题")}<input aria-label={tr("Title", "标题")} value={title} maxLength={200} onChange={e => setTitle(e.target.value)} /></label>
     <label>{tr("Prompt", "题干")}<textarea aria-label={tr("Prompt", "题干")} value={prompt} onChange={e => setPrompt(e.target.value)} /></label>
     {choice && <label>{tr("Options (one ID: text per line)", "选项（每行一个 编号: 内容）")}<textarea aria-label={tr("Options", "选项")} value={options} onChange={e => setOptions(e.target.value)} /></label>}
-    {(choice || numeric) && <label>{tr("Correct answer (optional)", "正确答案（可选）")}<input value={answer} onChange={e => setAnswer(e.target.value)} /></label>}
+    {kind === "liveclassroom.single_choice" && <label>{tr("Correct answer (optional)", "正确答案（可选）")}<select aria-label={tr("Correct answer", "正确答案")} value={answer} onChange={e => setAnswer(e.target.value)}><option value="">{tr("Not graded", "不评分")}</option>{optionIds.map(id => <option key={id} value={id}>{id}</option>)}</select></label>}
+    {kind === "liveclassroom.multiple_choice" && <fieldset><legend>{tr("Correct answers (optional)", "正确答案（可选）")}</legend>{optionIds.map(id => <label key={id}><input type="checkbox" checked={selectedAnswers.includes(id)} onChange={e => toggleAnswer(id, e.target.checked)} /> {id}</label>)}</fieldset>}
+    {kind === "liveclassroom.true_false" && <label>{tr("Correct answer (optional)", "正确答案（可选）")}<select aria-label={tr("Correct answer", "正确答案")} value={answer} onChange={e => setAnswer(e.target.value)}><option value="">{tr("Not graded", "不评分")}</option><option value="true">{tr("True", "正确")}</option><option value="false">{tr("False", "错误")}</option></select></label>}
+    {kind === "liveclassroom.multiple_choice" && <label><input type="checkbox" checked={partialCredit} onChange={e => setPartialCredit(e.target.checked)} /> {tr("Allow partial credit", "允许部分得分")}</label>}
+    {kind === "liveclassroom.numeric" && <><label>{tr("Correct number (optional)", "正确数值（可选）")}<input aria-label={tr("Correct number", "正确数值")} inputMode="decimal" value={answer} onChange={e => setAnswer(e.target.value)} /></label><label>{tr("Tolerance (optional)", "误差范围（可选）")}<input aria-label={tr("Tolerance", "误差范围")} type="number" min={0} step="any" value={tolerance} onChange={e => setTolerance(e.target.value)} disabled={!answer.trim()} /></label></>}
+    {shortText && <><label>{tr("Accepted answers (one per line, optional)", "可接受答案（每行一个，可选）")}<textarea aria-label={tr("Accepted answers", "可接受答案")} rows={4} value={answer} onChange={e => setAnswer(e.target.value)} /></label><label><input type="checkbox" checked={caseSensitive} onChange={e => setCaseSensitive(e.target.checked)} disabled={!answer.trim()} /> {tr("Case sensitive", "区分大小写")}</label></>}
     {numeric && <><label>{tr("Minimum", "最小值")}<input type="number" value={minimum} onChange={e => setMinimum(e.target.value)} /></label><label>{tr("Maximum", "最大值")}<input type="number" value={maximum} onChange={e => setMaximum(e.target.value)} /></label></>}
     {kind === "liveclassroom.markdown" && <label>Markdown<textarea aria-label="Markdown" rows={8} value={markdown} onChange={e => setMarkdown(e.target.value)} /></label>}
     {kind === "liveclassroom.media" && <><label>{tr("Media URL", "媒体链接")}<input type="text" value={url} onChange={e => setUrl(e.target.value)} /></label><label><input type="checkbox" checked={vaultpub} onChange={e => setVaultpub(e.target.checked)} /> {tr("VaultPub Slide View", "VaultPub 幻灯片视图")}</label></>}

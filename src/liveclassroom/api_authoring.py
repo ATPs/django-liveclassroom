@@ -23,7 +23,8 @@ def activity_definitions(request):
     if request.method == "POST":
         return create_activity(request)
     definitions = ActivityDefinition.objects.filter(owner=request.user).values(
-        "id", "title", "type_key", "schema_version", "status", "definition", "current_revision_id", "updated_at"
+        "id", "title", "type_key", "schema_version", "status", "definition", "metadata",
+        "current_revision_id", "updated_at"
     )
     return JsonResponse({"activities": list(definitions)})
 
@@ -221,6 +222,7 @@ def create_activity(request):
             title=body["title"],
             type_key=body["type_key"],
             definition=body.get("definition", {}),
+            metadata=body.get("metadata"),
             course=course,
             change_note=body.get("change_note", ""),
         )
@@ -238,6 +240,7 @@ def create_activity(request):
                 "title": activity.title,
                 "type_key": activity.type_key,
                 "revision": activity.current_revision_id,
+                "metadata": activity.metadata,
             },
             status=201,
         ),
@@ -258,6 +261,7 @@ def revise_activity_definition_api(request, activity_id: int):
         revision = revise_activity_definition(
             activity=activity,
             definition=body["definition"],
+            metadata=body.get("metadata") if "metadata" in body else None,
             actor=request.user,
             change_note=body.get("change_note", ""),
         )
@@ -270,7 +274,12 @@ def revise_activity_definition_api(request, activity_id: int):
         key,
         command_type,
         JsonResponse(
-            {"activity_id": activity.id, "revision": revision.revision, "revision_id": revision.id},
+            {
+                "activity_id": activity.id,
+                "revision": revision.revision,
+                "revision_id": revision.id,
+                "metadata": revision.metadata,
+            },
             status=201,
         ),
     )

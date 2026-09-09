@@ -71,6 +71,16 @@ def test_flow_markdown_upload_creates_revisioned_private_asset(teacher, teacher_
     assert step.activity_definition.asset_id == asset.id
     assert step.activity_definition.current_revision.asset_id == asset.id
 
+    details = teacher_client.get(reverse("liveclassroom:api-v1-flow-detail", args=[flow.id]))
+    assert details.status_code == 200
+    serialized = details.json()["steps"][0]["activity_definition"]
+    assert serialized["document_note_url"] == reverse(
+        "liveclassroom:api-v1-document-root", args=[asset.public_id]
+    )
+    assert serialized["document_slides_url"] == reverse(
+        "liveclassroom:api-v1-document-slides", args=[asset.public_id, asset.original_name]
+    )
+
     content = teacher_client.get(payload["asset"]["content_url"])
     assert content.status_code == 200
     assert response_bytes(content) == b"# Welcome\n"
@@ -91,12 +101,18 @@ def test_session_file_limits_student_delivery_to_published_revision(teacher, tea
         },
     )
     assert response.status_code == 201
+    asset = ClassroomAsset.objects.get(public_id=response.json()["asset"]["id"])
 
     display_state = teacher_client.get(
         reverse("liveclassroom:api-v1-state", args=[session.id]), {"channel": "display"}
     ).json()
     display_asset = display_state["current_activity"]["definition"]["content"]["asset"]
     assert display_asset["download_url"].endswith("?download=1")
+    assert display_asset["document_note_url"] == reverse(
+        "liveclassroom:api-v1-session-document-root",
+        args=[session.id, display_state["current_activity"]["revision_id"], asset.public_id],
+    )
+    assert "__slides__/shared.md" in display_asset["document_slides_url"]
 
     participant = join_guest(session=session, display_name="Student")
     student = Client()
@@ -108,6 +124,8 @@ def test_session_file_limits_student_delivery_to_published_revision(teacher, tea
     ).json()
     student_asset = student_state["current_activity"]["definition"]["content"]["asset"]
     assert "download_url" not in student_asset
+    assert student_asset["document_note_url"] == display_asset["document_note_url"]
+    assert student_asset["document_slides_url"] == display_asset["document_slides_url"]
 
     content = student.get(student_asset["content_url"])
     assert content.status_code == 200
@@ -133,7 +151,10 @@ def test_video_asset_supports_single_byte_ranges(teacher, teacher_client):
     state = teacher_client.get(
         reverse("liveclassroom:api-v1-state", args=[session.id]), {"channel": "participants"}
     ).json()
-    url = state["current_activity"]["definition"]["content"]["asset"]["content_url"]
+    state_asset = state["current_activity"]["definition"]["content"]["asset"]
+    url = state_asset["content_url"]
+    assert "document_note_url" not in state_asset
+    assert "document_slides_url" not in state_asset
 
     ranged = teacher_client.get(url, HTTP_RANGE="bytes=3-8")
     assert ranged.status_code == 206
