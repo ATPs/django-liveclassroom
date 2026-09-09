@@ -5,6 +5,7 @@ from .content import Flow, FlowStep
 from .course import Course, CourseMembership, TeachingCourse
 from .demos import DemoLesson
 from .plans import FlowShare, FlowSnapshot, SessionPlanStep, SnapshotAsset
+from .question_banks import QuestionBank, QuestionBankItem
 from .session import (
     ActivityRunRevision,
     CommandReceipt,
@@ -40,6 +41,8 @@ __all__ = [
     "FlowShare",
     "SessionPlanStep",
     "FlowStep",
+    "QuestionBank",
+    "QuestionBankItem",
     "ActivityRun",
     "ActivityRunRevision",
     "LiveActivity",
