@@ -12,6 +12,7 @@ from . import (
     api_flows,
     api_organization,
     api_plans,
+    api_presentation,
     api_question_banks,
     api_review,
     deck_delivery,
@@ -30,6 +31,16 @@ urlpatterns = [
         name="api-v1-assessment-attempts",
     ),
     path("api/v1/attempts/<uuid:public_id>/", api_attempts.attempt_detail, name="api-v1-attempt-detail"),
+    path(
+        "api/v1/attempts/<uuid:public_id>/answers/",
+        api_attempts.save_answer,
+        name="api-v1-attempt-answers",
+    ),
+    path(
+        "api/v1/attempts/<uuid:public_id>/submit/",
+        api_attempts.submit,
+        name="api-v1-attempt-submit",
+    ),
     path(
         "api/v1/assessments/<int:assessment_id>/runs/",
         api_assessment_runs.assessment_runs,
@@ -280,6 +291,36 @@ urlpatterns = [
         "api/v1/sessions/<int:session_id>/presentation/",
         api_assets.presentation,
         name="api-v1-session-presentation",
+    ),
+    path(
+        "api/v1/sessions/<int:session_id>/presentation/providers/",
+        api_presentation.providers,
+        name="api-v1-presentation-providers",
+    ),
+    path(
+        "api/v1/sessions/<int:session_id>/presentation/providers/<str:provider>/search/",
+        api_presentation.provider_search_api,
+        name="api-v1-presentation-provider-search",
+    ),
+    path(
+        "api/v1/sessions/<int:session_id>/presentation/providers/resolve/",
+        api_presentation.provider_resolve,
+        name="api-v1-presentation-provider-resolve",
+    ),
+    path(
+        "api/v1/sessions/<int:session_id>/presentation/cues/",
+        api_presentation.cues,
+        name="api-v1-presentation-cues",
+    ),
+    path(
+        "api/v1/sessions/<int:session_id>/presentation/cues/<uuid:cue_id>/",
+        api_presentation.cue_detail,
+        name="api-v1-presentation-cue-detail",
+    ),
+    path(
+        "api/v1/sessions/<int:session_id>/presentation/cues/<uuid:cue_id>/launch/",
+        api_presentation.cue_launch,
+        name="api-v1-presentation-cue-launch",
     ),
     path(
         "api/v1/sessions/<int:session_id>/activity-revisions/<int:revision_id>/assets/<uuid:asset_id>/content/",
