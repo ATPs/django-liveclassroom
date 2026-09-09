@@ -105,6 +105,7 @@ export type DeckPresentationState = {
   allow_review: boolean;
   payload_url?: string;
   slides_url?: string;
+  notes_url?: string;
 };
 
 export type ParticipantState = {

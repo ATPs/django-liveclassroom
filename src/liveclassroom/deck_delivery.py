@@ -21,6 +21,8 @@ from .integrations.vaultpub_documents import (
 from .models import DeckSnapshot, LiveSession, Participant
 from .services.assets import open_asset
 from .services.classroom import ClassroomError, can_view_session
+from .services.deck_snapshots import deck_snapshot_notes_payload
+from .services.decks import deck_markdown_document
 from .services.presentation import (
     native_deck_entry,
     native_deck_presentation_payload,
@@ -74,7 +76,7 @@ def _public_payload(request, session: LiveSession, snapshot: DeckSnapshot, entry
 def _manifest_markdown(snapshot: DeckSnapshot) -> str:
     slides = snapshot.public_manifest if isinstance(snapshot.public_manifest, list) else []
     parts = [item.get("markdown", "") for item in slides if isinstance(item, dict)]
-    return "\n\n---\n\n".join(part for part in parts if isinstance(part, str)) or f"# {snapshot.title}\n"
+    return deck_markdown_document(slides=parts, title=snapshot.title, theme=snapshot.theme)
 
 
 @contextmanager
@@ -126,6 +128,23 @@ def snapshot_payload(request, session_id: int, snapshot_id: int):
         if isinstance(item, dict)
     ]
     return JsonResponse(payload)
+
+
+@require_safe
+def snapshot_notes(request, session_id: int, snapshot_id: int):
+    """Return retained presenter notes through a teacher-only session route."""
+    session, snapshot, _entry = _authorized_snapshot(
+        request, session_id, snapshot_id, channel=request.GET.get("channel", "display")
+    )
+    # Staff who can inspect a session must not automatically gain access to
+    # speaker notes.  The stronger session-management capability is required.
+    from .services.classroom import can_manage_session
+
+    if not can_manage_session(request.user, session):
+        raise Http404
+    response = JsonResponse(deck_snapshot_notes_payload(snapshot))
+    response["Cache-Control"] = "private, no-store"
+    return response
 
 
 @require_safe

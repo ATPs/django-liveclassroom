@@ -12,6 +12,7 @@ from django.views.decorators.http import require_safe
 
 from .integrations.vaultpub_documents import VaultPubUnavailable, render_document
 from .models import Deck
+from .services.decks import deck_markdown_document
 from .services.permissions import can_teach
 
 
@@ -19,6 +20,12 @@ def deck_preview_markdown(deck: Deck) -> str:
     """Compose public slides only; private presenter notes never reach VaultPub."""
     slides = [slide.markdown for slide in deck.slides.order_by("position", "id")]
     return "\n\n---\n\n".join(slides) or f"# {deck.title}\n"
+
+
+def deck_preview_document(deck: Deck) -> str:
+    """Compose a VaultPub document using the draft's persisted theme."""
+    slides = [slide.markdown for slide in deck.slides.order_by("position", "id")]
+    return deck_markdown_document(slides=slides, title=deck.title, theme=deck.theme)
 
 
 @require_safe
@@ -31,7 +38,7 @@ def preview(request, deck_id: int):
         from pathlib import Path
 
         path = Path(directory) / "deck.md"
-        path.write_text(deck_preview_markdown(deck), encoding="utf-8")
+        path.write_text(deck_preview_document(deck), encoding="utf-8")
         try:
             return render_document(
                 request,

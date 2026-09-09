@@ -214,7 +214,9 @@ def native_deck_entry(session: LiveSession, channel: str) -> dict | None:
     return entry
 
 
-def native_deck_presentation_payload(snapshot: DeckSnapshot, entry: dict, *, request=None) -> dict:
+def native_deck_presentation_payload(
+    snapshot: DeckSnapshot, entry: dict, *, request=None, include_notes_url: bool = False
+) -> dict:
     slides = snapshot.public_manifest if isinstance(snapshot.public_manifest, list) else []
     index = entry.get("slide_index", 0)
     index = index if isinstance(index, int) and 0 <= index < len(slides) else 0
@@ -235,6 +237,10 @@ def native_deck_presentation_payload(snapshot: DeckSnapshot, entry: dict, *, req
             "payload_url": reverse("liveclassroom:api-v1-session-deck-payload", args=[session_id, snapshot.id]),
             "slides_url": reverse("liveclassroom:api-v1-session-deck-slides", args=[session_id, snapshot.id]),
         })
+        if include_notes_url:
+            payload["notes_url"] = reverse(
+                "liveclassroom:api-v1-session-deck-notes", args=[session_id, snapshot.id]
+            )
     return payload
 
 
@@ -246,4 +252,9 @@ def native_deck_state_payload(*, request, session: LiveSession, state: SessionCh
         snapshot = DeckSnapshot.objects.get(pk=entry["snapshot_id"])
     except DeckSnapshot.DoesNotExist:
         return None
-    return native_deck_presentation_payload(snapshot, entry, request=request)
+    return native_deck_presentation_payload(
+        snapshot,
+        entry,
+        request=request,
+        include_notes_url=can_manage_session(request.user, session),
+    )

@@ -1,7 +1,7 @@
 from .activity import ActivityDefinition, ActivityDefinitionRevision, AuthoringCommandReceipt
 from .assessments import AssessmentDefinition, AssessmentItem, AssessmentRun, AssessmentRunAsset
-from .attempts import AssessmentAttempt, AssessmentAttemptItem, AttemptStartReceipt
 from .assets import ClassroomAsset
+from .attempts import AssessmentAttempt, AssessmentAttemptItem, AttemptStartReceipt
 from .authoring import AuthoringAttachment, AuthoringJob, AuthoringMessage, AuthoringThread
 from .content import Flow, FlowStep
 from .course import Course, CourseMembership, TeachingCourse

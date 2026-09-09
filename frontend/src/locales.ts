@@ -135,6 +135,8 @@ export const translations = {
     message: "Message",
     fullscreen: "Fullscreen",
     exitFullscreen: "Exit fullscreen",
+    presenterNotes: "Presenter notes",
+    noPresenterNotes: "No notes for this slide.",
 
     // Analytics
     analyticsSummary: "Analytics summary",
@@ -482,6 +484,8 @@ export const translations = {
     message: "发言",
     fullscreen: "全屏",
     exitFullscreen: "退出全屏",
+    presenterNotes: "演讲者备注",
+    noPresenterNotes: "此页面没有备注。",
 
     // 统计与分析
     analyticsSummary: "课堂数据概览",
