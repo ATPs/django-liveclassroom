@@ -32,6 +32,41 @@ type Assessment = {
   updated_at?: string;
 };
 
+type PresetMode = "practice" | "assignment" | "quiz" | "exam";
+
+const PRESET_MODES: PresetMode[] = ["practice", "assignment", "quiz", "exam"];
+const DEFAULT_RELEASE_POLICY = { scores: "manual", answers: "manual", explanations: "manual", comments: "manual" };
+
+function localPresetSettings(mode: PresetMode, current: Record<string, unknown>): Record<string, unknown> {
+  const next: Record<string, unknown> = { ...current, mode };
+  if (mode === "practice") {
+    Object.assign(next, { max_attempts: null, navigation: "free", scoring: false, release_policy: { scores: "after_submit", answers: "after_submit", explanations: "after_submit", comments: "after_submit" } });
+    delete next.due_at; delete next.opens_at; delete next.closes_at; delete next.duration_seconds;
+  } else if (mode === "assignment") {
+    Object.assign(next, { max_attempts: 1, navigation: "free", scoring: true, release_policy: next.closes_at ? { scores: "after_close", answers: "after_close", explanations: "after_close", comments: "after_close" } : DEFAULT_RELEASE_POLICY });
+    delete next.duration_seconds; delete next.opens_at;
+  } else if (mode === "quiz") {
+    Object.assign(next, { max_attempts: 1, navigation: "free", scoring: true, release_policy: DEFAULT_RELEASE_POLICY });
+    delete next.due_at; delete next.opens_at; delete next.closes_at;
+  } else {
+    Object.assign(next, { max_attempts: 1, audience: "authenticated_link", navigation: "forward_only", scoring: true, release_policy: DEFAULT_RELEASE_POLICY });
+  }
+  return next;
+}
+
+function presetLabel(locale: string, mode: PresetMode): string {
+  const labels: Record<PresetMode, [string, string]> = {
+    practice: ["Practice", "练习"], assignment: ["Assignment", "作业"], quiz: ["Quiz", "测验"], exam: ["Exam", "考试"],
+  };
+  return locale.startsWith("zh") ? labels[mode][1] : labels[mode][0];
+}
+
+function dateInputValue(value: unknown): string {
+  if (typeof value !== "string" || !value) return "";
+  const date = new Date(value);
+  return Number.isNaN(date.valueOf()) ? "" : date.toISOString().slice(0, 16);
+}
+
 type Course = { id: number; title: string; can_manage?: boolean };
 type CurrentQuestion = {
   id: number;
@@ -204,6 +239,8 @@ function AssessmentBuilder({ apiRoot }: AssessmentBuilderProps) {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [conflict, setConflict] = useState(false);
+  const [presetSaving, setPresetSaving] = useState(false);
+  const [publishing, setPublishing] = useState(false);
 
   const load = useCallback(async () => {
     const [assessmentData, workspaceData, questionData] = await Promise.all([
@@ -236,8 +273,47 @@ function AssessmentBuilder({ apiRoot }: AssessmentBuilderProps) {
   };
 
   const create = () => {
-    setDraft({ id: 0, title: "", instructions: "", course_id: null, version: 1, settings: { max_attempts: 1 }, items: [], total_points: "0" });
+    setDraft({ id: 0, title: "", instructions: "", course_id: null, version: 1, settings: localPresetSettings("quiz", { max_attempts: 1 }), items: [], total_points: "0" });
     setItemsDirty(true); setShowPreview(false); setShowPicker(false); setError(""); setNotice(""); setConflict(false);
+  };
+
+  const savedMode = draft?.settings.mode;
+  const selectedMode: PresetMode = typeof savedMode === "string" && PRESET_MODES.includes(savedMode as PresetMode) ? savedMode as PresetMode : "quiz";
+
+  const choosePreset = async (mode: PresetMode) => {
+    if (!draft || presetSaving || mode === selectedMode) return;
+    if (!draft.id) {
+      setDraft({ ...draft, settings: localPresetSettings(mode, draft.settings) });
+      return;
+    }
+    setPresetSaving(true); setError(""); setNotice("");
+    try {
+      const saved = await postJson<Assessment>(endpoint(apiRoot, `assessments/${draft.id}/preset/`), { mode, expected_version: draft.version }, requestKey("preset"));
+      setDraft({ ...saved, items: normalizeItems(saved.items ?? []) });
+      setAssessments((previous) => [saved, ...previous.filter((item) => item.id !== saved.id)]);
+      setNotice(text(`${presetLabel(locale, mode)} preset saved.`, `${presetLabel(locale, mode)}模式已保存。`));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : text("Preset could not be saved.", "无法保存模式。"));
+    } finally { setPresetSaving(false); }
+  };
+
+  const updateSetting = (key: string, value: unknown) => {
+    if (!draft) return;
+    setDraft({ ...draft, settings: { ...draft.settings, [key]: value } });
+  };
+
+  const publish = async () => {
+    if (!draft?.id || publishing || saving) {
+      if (draft && !draft.id) setError(text("Save the assessment before publishing.", "发布前请先保存测验。"));
+      return;
+    }
+    setPublishing(true); setError(""); setNotice("");
+    try {
+      await postJson(endpoint(apiRoot, `assessments/${draft.id}/runs/`), { expected_version: draft.version }, requestKey("publish"));
+      setNotice(text("Assessment published. The run uses this saved version.", "测验已发布，运行使用当前保存版本。"));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : text("Publishing failed.", "发布失败。"));
+    } finally { setPublishing(false); }
   };
 
   const addQuestion = async (definitionId: number, revisionId?: number | null, question?: QuestionPickerSelection) => {
@@ -326,7 +402,7 @@ function AssessmentBuilder({ apiRoot }: AssessmentBuilderProps) {
     if (!draft?.id || saving) return;
     setSaving(true); setError("");
     try {
-      const copied = await postJson<Assessment>(endpoint(apiRoot, `assessments/${draft.id}/copy/`), { title: `${draft.title} (${text("Copy", "副本")})` }, requestKey("copy"));
+      const copied = await postJson<Assessment>(endpoint(apiRoot, `assessments/${draft.id}/copy/`), { title: `${draft.title} (${text("Copy", "副本")})`, mode: selectedMode }, requestKey("copy"));
       setDraft({ ...copied, items: normalizeItems(copied.items ?? []) }); setItemsDirty(false); await load(); setNotice(text("Assessment copied. The source remains unchanged.", "测验已复制，来源保持不变。"));
     } catch (reason) { setError(reason instanceof Error ? reason.message : text("Copy failed.", "复制失败。")); }
     finally { setSaving(false); }
@@ -353,9 +429,24 @@ function AssessmentBuilder({ apiRoot }: AssessmentBuilderProps) {
             <>
               <form className="lc-card lc-assessment-form" onSubmit={save}>
                 <div className="lc-assessment-form-heading"><div><label htmlFor="assessment-title">{text("Title", "标题")}</label><input id="assessment-title" className="lc-input" value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} maxLength={200} required /></div><p className="lc-workspace-meta">{itemsDirty ? text("Unsaved changes", "有未保存的更改") : text("Saved draft", "已保存草稿")} · v{draft.version}</p></div>
+                <label htmlFor="assessment-mode">{text("Mode", "模式")}</label>
+                <select id="assessment-mode" className="lc-select" value={selectedMode} onChange={(event) => void choosePreset(event.target.value as PresetMode)} disabled={presetSaving}>
+                  {PRESET_MODES.map((mode) => <option key={mode} value={mode}>{presetLabel(locale, mode)}</option>)}
+                </select>
+                <p className="lc-workspace-meta">{selectedMode === "practice" ? text("Unlimited practice keeps answers and completion without presenting missing scores as zero.", "练习不限次数，保留答案和完成状态，不会把缺失分数显示为零。") : selectedMode === "assignment" ? text("Assignments stop accepting answers only at closes at; due date is informational.", "作业仅在停止时间后停止接收答案；截止日期只作提示。") : selectedMode === "exam" ? text("Exam access uses authenticated accounts and needs a duration or explicit open and close times.", "考试需要登录，并需要时长或明确的开始和结束时间。") : text("Quiz settings keep result release manual by default.", "测验默认手动发布结果。")}</p>
+                <details className="lc-assessment-settings"><summary>{text("Settings", "设置")}</summary>
+                  <label htmlFor="assessment-attempts">{text("Maximum attempts (blank means unlimited)", "最大次数（空白表示不限）")}</label>
+                  <input id="assessment-attempts" className="lc-input" type="number" min="1" step="1" value={draft.settings.max_attempts == null ? "" : String(draft.settings.max_attempts)} onChange={(event) => updateSetting("max_attempts", event.target.value ? Number(event.target.value) : null)} />
+                  <label htmlFor="assessment-duration">{text("Duration in seconds (optional)", "时长（秒，可选）")}</label>
+                  <input id="assessment-duration" className="lc-input" type="number" min="1" step="1" value={draft.settings.duration_seconds == null ? "" : String(draft.settings.duration_seconds)} onChange={(event) => updateSetting("duration_seconds", event.target.value ? Number(event.target.value) : undefined)} />
+                  <label htmlFor="assessment-due">{text("Due date (informational)", "截止日期（仅提示）")}</label>
+                  <input id="assessment-due" className="lc-input" type="datetime-local" value={dateInputValue(draft.settings.due_at)} onChange={(event) => updateSetting("due_at", event.target.value ? new Date(event.target.value).toISOString() : null)} />
+                  <label htmlFor="assessment-closes">{text("Stop accepting answers at", "停止接收答案时间")}</label>
+                  <input id="assessment-closes" className="lc-input" type="datetime-local" value={dateInputValue(draft.settings.closes_at)} onChange={(event) => updateSetting("closes_at", event.target.value ? new Date(event.target.value).toISOString() : null)} />
+                </details>
                 <label htmlFor="assessment-instructions">{text("Instructions", "说明")}</label><textarea id="assessment-instructions" className="lc-textarea" rows={4} maxLength={20000} value={draft.instructions} onChange={(event) => setDraft({ ...draft, instructions: event.target.value })} />
                 <label htmlFor="assessment-course">{text("Class (optional)", "班级（可选）")}</label><select id="assessment-course" className="lc-select" value={draft.course_id ?? ""} onChange={(event) => setDraft({ ...draft, course_id: event.target.value ? Number(event.target.value) : null })}><option value="">{text("No class", "无班级")}</option>{courses.map((course) => <option key={course.id} value={String(course.id)}>{course.title}</option>)}</select>
-                <div className="lc-actions"><button type="submit" className="lc-btn-primary" disabled={saving}>{saving ? text("Saving…", "保存中…") : text("Save draft", "保存草稿")}</button><button type="button" className="lc-btn-outline" onClick={() => setShowPicker((value) => !value)} disabled={saving}>{showPicker ? text("Hide question picker", "隐藏题目选择器") : text("Add questions", "添加题目")}</button><button type="button" className="lc-btn-outline" onClick={() => setShowPreview((value) => !value)} disabled={!draft.items.length}>{showPreview ? text("Hide preview", "隐藏预览") : text("Preview", "预览")}</button>{draft.id ? <button type="button" className="lc-btn-outline" onClick={() => void copy()} disabled={saving}>{text("Copy", "复制")}</button> : null}</div>
+                <div className="lc-actions"><button type="submit" className="lc-btn-primary" disabled={saving || presetSaving}>{saving ? text("Saving…", "保存中…") : text("Save draft", "保存草稿")}</button><button type="button" className="lc-btn-primary" onClick={() => void publish()} disabled={saving || publishing || !draft.items.length}>{publishing ? text("Publishing…", "发布中…") : text("Publish", "发布")}</button><button type="button" className="lc-btn-outline" onClick={() => setShowPicker((value) => !value)} disabled={saving}>{showPicker ? text("Hide question picker", "隐藏题目选择器") : text("Add questions", "添加题目")}</button><button type="button" className="lc-btn-outline" onClick={() => setShowPreview((value) => !value)} disabled={!draft.items.length}>{showPreview ? text("Hide preview", "隐藏预览") : text("Preview", "预览")}</button>{draft.id ? <button type="button" className="lc-btn-outline" onClick={() => void copy()} disabled={saving}>{text("Copy", "复制")}</button> : null}</div>
                 <p className="lc-assessment-total" aria-live="polite"><strong>{text("Total", "总分")}:</strong> {Number.isInteger(total) ? total : total.toFixed(6).replace(/0+$/, "").replace(/\.$/, "")} {text("points", "分")}</p>
               </form>
               {showPicker ? <section className="lc-card lc-assessment-picker"><h2>{text("Add from question bank", "从题库添加")}</h2><p>{text("Selecting a question pins its current revision. Later edits will not change this assessment unless you choose Replace with current.", "选择题目时会固定当前版本。以后编辑题目不会改变此测验，除非选择“替换为当前版本”。")}</p><QuestionBankWorkspace apiRoot={apiRoot} picker onPick={addQuestion} pickerLabel={{ en: "Add to assessment", zh: "添加到测验" }} /></section> : null}

@@ -7,6 +7,7 @@ from django.views.decorators.http import require_http_methods
 
 from .api import _authoring_replay, _body, _error, _record_authoring
 from .models import AssessmentDefinition
+from .services.assessment_presets import apply_assessment_preset, preset_payload
 from .services.assessment_sections import replace_sections
 from .services.assessments import (
     assessment_payload,
@@ -177,16 +178,47 @@ def assessment_sections(request, assessment_id: int):
 def assessment_copy(request, assessment_id: int):
     def action():
         body = _body(request)
-        if set(body) - {"title"}:
+        if set(body) - {"title", "mode"}:
             raise ClassroomError("Unsupported copy fields.")
         copied = copy_assessment(
             actor=request.user,
             assessment=_assessment(request.user, assessment_id),
             title=body.get("title"),
         )
+        if body.get("mode") is not None:
+            copied = apply_assessment_preset(
+                actor=request.user,
+                assessment=copied,
+                mode=body["mode"],
+                expected_version=copied.version,
+            )
         copied = AssessmentDefinition.objects.prefetch_related("items__question_revision__definition").get(
             pk=copied.pk
         )
         return JsonResponse(assessment_payload(copied), status=201)
 
     return _mutate(request, "assessment.copy", action)
+
+
+@require_http_methods(["POST"])
+def assessment_preset(request, assessment_id: int):
+    """Apply one named delivery mode to a draft assessment."""
+
+    def action():
+        body = _body(request)
+        if set(body) != {"mode", "expected_version"}:
+            raise ClassroomError("mode and expected_version are required.")
+        updated = apply_assessment_preset(
+            actor=request.user,
+            assessment=_assessment(request.user, assessment_id),
+            mode=body["mode"],
+            expected_version=body["expected_version"],
+        )
+        updated = AssessmentDefinition.objects.prefetch_related("items__question_revision__definition").get(
+            pk=updated.pk
+        )
+        payload = assessment_payload(updated)
+        payload["preset"] = preset_payload(updated)
+        return JsonResponse(payload)
+
+    return _mutate(request, "assessment.preset", action)

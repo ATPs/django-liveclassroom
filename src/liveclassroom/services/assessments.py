@@ -29,8 +29,12 @@ MAX_TITLE_LENGTH = 200
 MAX_INSTRUCTIONS_LENGTH = 20_000
 MAX_POINTS = Decimal("1000")
 DEFAULT_POINTS = Decimal("1")
-SUPPORTED_SETTINGS = frozenset({"max_attempts", "pass_percent", "audience", "release_policy"}) | TIMING_FIELDS
+SUPPORTED_SETTINGS = frozenset(
+    {"max_attempts", "pass_percent", "audience", "release_policy", "mode", "navigation", "scoring"}
+) | TIMING_FIELDS
 AUDIENCES = frozenset({"authenticated_link", "class"})
+MODES = frozenset({"practice", "assignment", "quiz", "exam"})
+NAVIGATION_MODES = frozenset({"free", "forward_only"})
 
 
 def _text(value: Any, field: str, maximum: int, *, required: bool = False) -> str:
@@ -95,13 +99,29 @@ def _settings(value: Any) -> dict[str, Any]:
     if unknown:
         raise ClassroomError(f"Unsupported assessment settings: {', '.join(sorted(map(str, unknown)))}.")
 
-    # Task 21 deliberately exposes only one-at-a-time or unlimited drafts;
-    # later preset/exam tasks can extend this validator without allowing
-    # arbitrary JSON to become a public contract.
     max_attempts = value.get("max_attempts", 1)
-    if max_attempts is not None and (isinstance(max_attempts, bool) or max_attempts != 1):
-        raise ClassroomError("max_attempts must be 1 or null.")
+    if max_attempts is not None and (
+        isinstance(max_attempts, bool) or not isinstance(max_attempts, int) or max_attempts < 1
+    ):
+        raise ClassroomError("max_attempts must be a positive integer or null.")
     result: dict[str, Any] = {"max_attempts": max_attempts}
+
+    if "mode" in value:
+        mode = value["mode"]
+        if not isinstance(mode, str) or mode not in MODES:
+            raise ClassroomError("mode must be practice, assignment, quiz or exam.")
+        result["mode"] = mode
+
+    if "navigation" in value:
+        navigation = value["navigation"]
+        if not isinstance(navigation, str) or navigation not in NAVIGATION_MODES:
+            raise ClassroomError("navigation must be free or forward_only.")
+        result["navigation"] = navigation
+
+    if "scoring" in value:
+        if not isinstance(value["scoring"], bool):
+            raise ClassroomError("scoring must be a boolean.")
+        result["scoring"] = value["scoring"]
 
     if "pass_percent" in value:
         pass_percent = value["pass_percent"]
