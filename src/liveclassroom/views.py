@@ -238,6 +238,12 @@ class DeckWorkspaceView(TeacherRequiredMixin, LocaleContextMixin, TemplateView):
     template_name = "liveclassroom/decks.html"
 
 
+class AssessmentWorkspaceView(TeacherRequiredMixin, LocaleContextMixin, TemplateView):
+    """Teacher-only workspace for reusable assessment drafts."""
+
+    template_name = "liveclassroom/assessments.html"
+
+
 def health(request):
     """A dependency-free endpoint for deployment health checks."""
     return JsonResponse({"status": "ok", "service": "liveclassroom"})

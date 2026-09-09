@@ -1,0 +1,10 @@
+{% extends liveclassroom_base_template %}
+{% load i18n %}
+{% block title %}{% translate "Assessment builder" %} · LiveClassroom{% endblock %}
+{% block content %}
+<section class="lc-card lc-wide" data-assessment-builder
+ data-api-root="{% url 'liveclassroom:api-v1-workspace' %}"
+ data-locale="{{ active_lang|default:'en' }}">
+  <h1>{% translate "Assessment builder" %}</h1>
+</section>
+{% endblock %}

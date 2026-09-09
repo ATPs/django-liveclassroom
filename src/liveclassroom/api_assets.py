@@ -7,13 +7,13 @@ import re
 from collections.abc import Iterator
 
 from django.db import transaction
-from django.http import JsonResponse, StreamingHttpResponse
+from django.http import Http404, JsonResponse, StreamingHttpResponse
 from django.shortcuts import get_object_or_404
 from django.urls import reverse
 from django.views.decorators.http import require_GET, require_POST
 
-from .api import _body, _error
-from .models import ActivityRunRevision, ClassroomAsset, Flow, LiveSession, SessionChannelState
+from .api import _body, _error, _record, _replay
+from .models import ActivityRunRevision, ClassroomAsset, DeckSnapshot, Flow, LiveSession, SessionChannelState
 from .services.assets import (
     asset_descriptor,
     can_read_session_asset,
@@ -31,6 +31,7 @@ from .services.classroom import (
     update_document_presentation,
 )
 from .services.flows import add_flow_step, can_edit_flow
+from .services.presentation import native_deck_entry, present_deck, update_deck_presentation
 
 # Preserve the former module-local name for existing package callers.
 _can_read_session_asset = can_read_session_asset
@@ -165,8 +166,48 @@ def session_file(request, session_id: int):
 @require_POST
 def presentation(request, session_id: int):
     session = get_object_or_404(LiveSession, pk=session_id)
+    replay, key = _replay(request, session, "presentation.update")
+    if replay is not None:
+        return replay
     try:
         body = _body(request)
+        if "snapshot_id" in body:
+            snapshot = get_object_or_404(DeckSnapshot, pk=body.get("snapshot_id"))
+            deck = present_deck(
+                session=session,
+                actor=request.user,
+                snapshot=snapshot,
+                channels=body.get("channels", [SessionChannelState.Channel.DISPLAY]),
+                slide_index=body.get("slide_index", 0),
+                allow_review=body.get("allow_review", False),
+            )
+            response = JsonResponse({"deck": deck, "version": deck.get("revision")})
+            return _record(session, key, "presentation.update", request, response)
+        requested_channels = body.get("channels", [SessionChannelState.Channel.DISPLAY])
+        native = (
+            body.get("deck_action") is not None
+            or "slide_key" in body
+            or "slide_index" in body
+            or "expected_revision" in body
+            or (
+                "navigation_mode" in body
+                and isinstance(requested_channels, list)
+                and any(native_deck_entry(session, channel) for channel in requested_channels)
+            )
+        )
+        if native:
+            deck = update_deck_presentation(
+                session=session,
+                actor=request.user,
+                channels=body.get("channels", [SessionChannelState.Channel.DISPLAY]),
+                slide_index=body.get("slide_index"),
+                slide_key=body.get("slide_key"),
+                action=body.get("deck_action"),
+                expected_revision=body.get("expected_revision"),
+                navigation=body.get("navigation_mode"),
+            )
+            response = JsonResponse({"deck": deck, "version": deck.get("revision")})
+            return _record(session, key, "presentation.update", request, response)
         states = update_document_presentation(
             session=session,
             actor=request.user,
@@ -174,9 +215,11 @@ def presentation(request, session_id: int):
             page=body.get("page"),
             navigation=body.get("navigation_mode"),
         )
+    except Http404:
+        return _record(session, key, "presentation.update", request, _error("The selected deck was not found.", 404))
     except ClassroomError as exc:
-        return _error(str(exc), 403)
-    return JsonResponse(
+        return _record(session, key, "presentation.update", request, _error(str(exc), 403))
+    response = JsonResponse(
         {
             "channels": [
                 {"channel": state.channel, "page": state.document_page, "navigation_mode": state.document_navigation}
@@ -185,6 +228,7 @@ def presentation(request, session_id: int):
             "version": session.state_version,
         }
     )
+    return _record(session, key, "presentation.update", request, response)
 
 
 def _range_bounds(header: str, size: int) -> tuple[int, int] | None:

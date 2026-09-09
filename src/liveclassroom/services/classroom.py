@@ -449,6 +449,20 @@ def publish_activity_to_channel(
         raise ClassroomError("An ended classroom cannot publish activities.")
     revision = _ensure_run_revision(activity, actor)
     state, _ = SessionChannelState.objects.get_or_create(session=session, channel=channel)
+    # Publishing an activity takes this audience out of any native deck
+    # delivery while retaining the immutable snapshot for other channels.
+    settings = session.creation_settings if isinstance(session.creation_settings, dict) else {}
+    native_decks = settings.get("native_deck_presentations")
+    if isinstance(native_decks, dict) and channel in native_decks:
+        settings = dict(settings)
+        native_decks = dict(native_decks)
+        native_decks.pop(channel, None)
+        if native_decks:
+            settings["native_deck_presentations"] = native_decks
+        else:
+            settings.pop("native_deck_presentations", None)
+        session.creation_settings = settings
+        session.save(update_fields=["creation_settings", "updated_at"])
     if state.current_activity_id == activity.id and state.current_revision_id == revision.id:
         if allow_review is not None and activity.reviewable != allow_review:
             activity.reviewable = allow_review

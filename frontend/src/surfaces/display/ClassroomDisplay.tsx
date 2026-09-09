@@ -8,6 +8,7 @@ import { isBuiltinActivity, PluginActivityView, Prompt, RevealedFeedback } from 
 import { AggregateView, MediaView, TimerDisplay, WordCloud } from "../../activities/renderers.js";
 import { MarkdownView, markdownFragmentFor } from "../../activities/MarkdownView.js";
 import { FileActivity } from "../../activities/FileActivity.js";
+import { NativeDeckView } from "../../activities/NativeDeckView.js";
 import {
   activityContent,
   activityKind,
@@ -159,7 +160,7 @@ function ClassroomDisplay({ bootstrap }: { bootstrap: Bootstrap }) {
       </div>
       <h1 id="display-title">{state?.session.title ?? "…"}</h1>
       <div id="display-content" data-liveclassroom-content>
-        <DisplayActivity activity={activity} aggregate={state?.aggregate ?? null} state={state} stateUrl={stateUrl} />
+        {state?.current_deck && !activity ? <NativeDeckView deck={state.current_deck} state={state} audience="display" /> : <DisplayActivity activity={activity} aggregate={state?.aggregate ?? null} state={state} stateUrl={stateUrl} />}
       </div>
       <p id="display-status" data-liveclassroom-status aria-live="polite">
         {sync.error || (sync.reconnecting ? t("reconnecting") : "") || (state?.session.status === "paused" ? t("studentClassPaused") : state?.session.status === "ended" ? t("classEnded") : "")}

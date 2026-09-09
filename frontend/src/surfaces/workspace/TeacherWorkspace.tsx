@@ -1092,7 +1092,7 @@ function TeachingCoursesSection({
   );
 }
 
-function TeacherWorkspace({ apiRoot, builderUrl }: { apiRoot: string; builderUrl: string }) {
+function TeacherWorkspace({ apiRoot, builderUrl, assessmentUrl }: { apiRoot: string; builderUrl: string; assessmentUrl?: string }) {
   const t = useWorkspaceText();
   const [tab, setTab] = useState<"lessons" | "questions" | "shared" | "classes" | "recent">("lessons");
   const [courses, setCourses] = useState<CourseSummary[]>([]);
@@ -1197,6 +1197,7 @@ function TeacherWorkspace({ apiRoot, builderUrl }: { apiRoot: string; builderUrl
           <h1>{t("workspace")}</h1>
         </div>
         <a className="lc-btn lc-btn-outline" href={builderUrl}>{useLocale().startsWith("zh") ? "创建教案" : "Create lesson"}</a>
+        {assessmentUrl ? <a className="lc-btn lc-btn-outline" href={assessmentUrl}>{useLocale().startsWith("zh") ? "创建测验" : "Create assessment"}</a> : null}
         <button type="button" className="lc-btn-sm lc-btn-primary" onClick={openInstant} disabled={Boolean(busy)}>{t("newInstant")}</button>
       </header>
       {error ? <p className="lc-form-error" role="alert">{error}</p> : null}
@@ -1284,11 +1285,12 @@ export function mountTeacherWorkspace(el: HTMLElement): void {
   const apiRoot = normalizeApiRoot(el.dataset.apiRoot ?? "/api/v1/");
   const builderUrl = el.dataset.builderUrl;
   if (!builderUrl) return;
+  const assessmentUrl = el.dataset.assessmentUrl;
   const locale: Locale = getLocale(el);
   const root = createRoot(el);
   root.render(
     <LocaleProvider initial={locale} root={el}>
-      <TeacherWorkspace apiRoot={apiRoot} builderUrl={builderUrl} />
+      <TeacherWorkspace apiRoot={apiRoot} builderUrl={builderUrl} assessmentUrl={assessmentUrl} />
     </LocaleProvider>,
   );
   el.addEventListener("liveclassroom:unmount", () => root.unmount(), { once: true });

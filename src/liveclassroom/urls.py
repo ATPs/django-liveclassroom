@@ -2,6 +2,7 @@ from django.urls import path
 
 from . import (
     api,
+    api_assessment_runs,
     api_assessments,
     api_assets,
     api_authoring,
@@ -11,6 +12,7 @@ from . import (
     api_plans,
     api_question_banks,
     api_review,
+    deck_delivery,
     deck_views,
     document_views,
     fragment_views,
@@ -20,6 +22,21 @@ from . import (
 app_name = "liveclassroom"
 
 urlpatterns = [
+    path(
+        "api/v1/assessments/<int:assessment_id>/runs/",
+        api_assessment_runs.assessment_runs,
+        name="api-v1-assessment-runs",
+    ),
+    path(
+        "api/v1/assessment-runs/<uuid:public_id>/",
+        api_assessment_runs.assessment_run_detail,
+        name="api-v1-assessment-run-detail",
+    ),
+    path(
+        "api/v1/assessment-runs/<uuid:public_id>/available/",
+        api_assessment_runs.available_assessment_run,
+        name="api-v1-available-assessment-run",
+    ),
     path("api/v1/assessments/", api_assessments.assessments, name="api-v1-assessments"),
     path(
         "api/v1/assessments/<int:assessment_id>/",
@@ -50,6 +67,36 @@ urlpatterns = [
     path("api/v1/decks/<int:deck_id>/", api_decks.deck_detail, name="api-v1-deck-detail"),
     path("api/v1/decks/<int:deck_id>/slides/", api_decks.deck_slides, name="api-v1-deck-slides"),
     path("api/v1/decks/<int:deck_id>/copy/", api_decks.deck_copy, name="api-v1-deck-copy"),
+    path(
+        "api/v1/decks/<int:deck_id>/snapshots/",
+        api_decks.deck_snapshots,
+        name="api-v1-deck-snapshots",
+    ),
+    path(
+        "api/v1/sessions/<int:session_id>/decks/present/",
+        api_decks.session_deck_present,
+        name="api-v1-session-deck-present",
+    ),
+    path(
+        "api/v1/sessions/<int:session_id>/decks/<int:snapshot_id>/",
+        deck_delivery.snapshot_payload,
+        name="api-v1-session-deck-payload",
+    ),
+    path(
+        "api/v1/sessions/<int:session_id>/decks/<int:snapshot_id>/__slides__/",
+        deck_delivery.snapshot_slides,
+        name="api-v1-session-deck-slides",
+    ),
+    path(
+        "api/v1/sessions/<int:session_id>/decks/<int:snapshot_id>/__api__/slides/",
+        deck_delivery.snapshot_slides_payload,
+        name="api-v1-session-deck-slides-payload",
+    ),
+    path(
+        "api/v1/sessions/<int:session_id>/decks/<int:snapshot_id>/__assets__/<path:resource_path>",
+        deck_delivery.snapshot_resource,
+        name="api-v1-session-deck-resource",
+    ),
     path("api/v1/question-banks/", api_question_banks.question_banks, name="api-v1-question-banks"),
     path(
         "api/v1/question-banks/<int:bank_id>/",
@@ -164,6 +211,7 @@ urlpatterns = [
     path("teacher/", views.TeacherDashboardView.as_view(), name="teacher-dashboard"),
     path("teacher/builder/", views.FlowBuilderView.as_view(), name="flow-builder"),
     path("teacher/decks/", views.DeckWorkspaceView.as_view(), name="deck-workspace"),
+    path("teacher/assessments/", views.AssessmentWorkspaceView.as_view(), name="assessment-workspace"),
     path("teacher/decks/<int:deck_id>/preview/", deck_views.preview, name="deck-preview"),
     path("teacher/flows/<int:flow_id>/builder/", views.FlowBuilderView.as_view(), name="flow-builder-detail"),
     path("teacher/sessions/<int:session_id>/", views.TeacherConsoleView.as_view(), name="teacher-console"),

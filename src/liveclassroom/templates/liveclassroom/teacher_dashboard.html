@@ -20,11 +20,13 @@
   <section class="lc-card lc-wide" data-teacher-workspace
    data-api-root="{% url 'liveclassroom:api-v1-workspace' %}"
    data-builder-url="{% url 'liveclassroom:flow-builder' %}?lang={{ active_lang|urlencode }}"
+   data-assessment-url="{% url 'liveclassroom:assessment-workspace' %}?lang={{ active_lang|urlencode }}"
    data-locale="{{ active_lang|default:'en' }}">
    <h1>{% translate "Start a live classroom" %}</h1>
    <h2>{% translate "Your sessions" %}</h2>
    <a href="{% url 'liveclassroom:flow-builder' %}?lang={{ active_lang|urlencode }}">{% translate "Flow Builder" %}</a>
    <a href="{% url 'liveclassroom:deck-workspace' %}?lang={{ active_lang|urlencode }}">{% translate "Slide decks" %}</a>
+   <a href="{% url 'liveclassroom:assessment-workspace' %}?lang={{ active_lang|urlencode }}">{% translate "Assessment builder" %}</a>
   </section>
 </div>
 {% endblock %}

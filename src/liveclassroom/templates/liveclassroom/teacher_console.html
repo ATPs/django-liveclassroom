@@ -21,6 +21,7 @@
       data-export-url="{% url 'liveclassroom:api-v1-export' session.id %}"
       data-builder-url="{% url 'liveclassroom:flow-builder' %}?session_id={{ session.id }}&amp;lang={{ active_lang|urlencode }}"
       data-student-view-url="{% url 'liveclassroom:student-view' session.id %}?lang={{ active_lang|urlencode }}"
+      data-decks-url="{% url 'liveclassroom:api-v1-decks' %}"
       data-flow-steps='{{ flow_steps_json }}'>
       <noscript><p>The live console needs JavaScript.</p></noscript>
     </section>

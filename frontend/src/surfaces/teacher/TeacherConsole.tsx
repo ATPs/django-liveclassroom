@@ -16,6 +16,7 @@ import { useSessionState } from "../../hooks/useSessionState.js";
 import { AggregateView, MediaView, TimerDisplay, WordCloud, ChoiceBars } from "../../activities/renderers.js";
 import { isBuiltinActivity, PluginActivityView, Prompt, RevealedFeedback } from "../../activities/ActivityView.js";
 import { FileActivity } from "../../activities/FileActivity.js";
+import { NativeDeckView } from "../../activities/NativeDeckView.js";
 import { activityContent, activityKind, activityTitle, choicesFor, presentationTitle, selectedChoices, stringValue } from "../../activities/activityData.js";
 import { FilePicker } from "../FilePicker.js";
 
@@ -31,6 +32,7 @@ type TeacherBootstrap = Bootstrap & {
   exportUrl: string;
   builderUrl: string;
   studentViewUrl: string;
+  decksUrl: string;
   isSuperuser: boolean;
   flowSteps: Array<{ id: number; position: number; title: string }>;
 };
@@ -57,6 +59,7 @@ function readTeacherBootstrap(root: HTMLElement): TeacherBootstrap {
     exportUrl: d.exportUrl ?? "",
     builderUrl: d.builderUrl ?? "",
     studentViewUrl: d.studentViewUrl ?? "",
+    decksUrl: d.decksUrl ?? "",
     isSuperuser: d.isSuperuser === "true",
     flowSteps,
   };
@@ -420,7 +423,7 @@ function PresenterStage({
       {draftPreview ? <>
         <p>{tr("Students cannot see this item. Start class to publish it.", "学生看不到此项目。开始课堂后才会发布。")}</p>
         <TeacherActivityView activity={previewActivity} aggregate={null} state={state} stateUrl={stateUrl} onRefresh={onRefresh} onError={onError} />
-      </> : <TeacherActivityView activity={state?.current_activity ?? null} aggregate={state?.aggregate ?? null} state={state} stateUrl={stateUrl} onRefresh={onRefresh} onError={onError} />}
+      </> : state?.current_deck && !state.current_activity ? <NativeDeckView deck={state.current_deck} state={state} audience="teacher" stateUrl={stateUrl} /> : <TeacherActivityView activity={state?.current_activity ?? null} aggregate={state?.aggregate ?? null} state={state} stateUrl={stateUrl} onRefresh={onRefresh} onError={onError} />}
     </div>
     <aside className="lc-presenter-next">
       <p className="lc-presenter-label">{tr("Up next", "下一项")}</p>
@@ -444,6 +447,78 @@ function PresenterStage({
     </div>
     {failed ? <p className="lc-builder-status-error" role="status">{tr("Could not publish this item.", "无法发布此项目。")} <button type="button" onClick={() => void present(failed.step, failed.channel)}>{tr("Retry", "重试")}</button></p> : null}
   </section>;
+}
+
+type DeckSummary = { id: number; title: string; version: number };
+type DeckSnapshotSummary = { id: number; source_version: number; title: string; slides?: unknown[] };
+
+function NativeDeckPresenter({
+  bootstrap, state, stateUrl, onRefresh,
+}: {
+  bootstrap: TeacherBootstrap;
+  state: SessionState | null;
+  stateUrl: string;
+  onRefresh: () => Promise<void>;
+}) {
+  const locale = useLocale();
+  const tr = (en: string, zh: string) => locale.startsWith("zh") ? zh : en;
+  const [decks, setDecks] = useState<DeckSummary[]>([]);
+  const [snapshots, setSnapshots] = useState<DeckSnapshotSummary[]>([]);
+  const [deckId, setDeckId] = useState<number | null>(null);
+  const [status, setStatus] = useState("");
+  const [pending, setPending] = useState(false);
+  const selectedDeck = decks.find((deck) => deck.id === deckId) ?? null;
+
+  useEffect(() => {
+    if (!bootstrap.decksUrl) return;
+    void getJson<{ decks: DeckSummary[] }>(bootstrap.decksUrl)
+      .then((data) => setDecks(data.decks ?? []))
+      .catch(() => setStatus(tr("Decks are unavailable.", "无法加载幻灯片。")));
+  }, [bootstrap.decksUrl]);
+
+  useEffect(() => {
+    if (!selectedDeck) {
+      setSnapshots([]);
+      return;
+    }
+    const url = new URL(bootstrap.decksUrl, window.location.href);
+    url.pathname = `${url.pathname.replace(/\/$/, "")}/${selectedDeck.id}/snapshots/`;
+    void getJson<{ snapshots: DeckSnapshotSummary[] }>(url.toString())
+      .then((data) => setSnapshots(data.snapshots ?? []))
+      .catch(() => setStatus(tr("Snapshots are unavailable.", "无法加载快照。")));
+  }, [bootstrap.decksUrl, selectedDeck?.id]);
+
+  const present = async (snapshot: DeckSnapshotSummary) => {
+    if (pending || state?.session.status !== "live") return;
+    setPending(true);
+    setStatus("");
+    try {
+      await postJson(apiEndpoint(stateUrl, "sessions/presentation"), {
+        snapshot_id: snapshot.id,
+        channels: ["display"],
+      }, `deck-present-${snapshot.id}-${crypto.randomUUID()}`);
+      await onRefresh();
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : tr("Unable to present deck.", "无法展示幻灯片。"));
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return <details className="lc-console-panel" data-native-deck-presenter>
+    <summary>{tr("Native decks", "原生幻灯片")}</summary>
+    <label>{tr("Deck", "幻灯片")}{" "}
+      <select value={deckId ?? ""} onChange={(event) => setDeckId(event.target.value ? Number(event.target.value) : null)}>
+        <option value="">{tr("Choose a deck", "选择幻灯片")}</option>
+        {decks.map((deck) => <option value={deck.id} key={deck.id}>{deck.title}</option>)}
+      </select>
+    </label>
+    {selectedDeck ? <div className="lc-actions">
+      {snapshots.map((snapshot) => <button type="button" key={snapshot.id} disabled={pending || state?.session.status !== "live"} onClick={() => void present(snapshot)}>{tr("Present", "展示")} {snapshot.title} ({snapshot.slides?.length ?? "?"})</button>)}
+      {!snapshots.length ? <p>{tr("Create a snapshot from the deck editor first.", "请先在幻灯片编辑器中创建快照。")} </p> : null}
+    </div> : null}
+    {status ? <p role="status" className="lc-builder-status-error">{status}</p> : null}
+  </details>;
 }
 
 function LiveResults({
@@ -716,6 +791,7 @@ function TeacherConsole({ bootstrap }: { bootstrap: TeacherBootstrap }) {
       {canManage && <LifecycleControls state={state} run={run} startingStepId={previewStep?.id ?? planSteps[0]?.id ?? null} pending={commandPending} onStarted={() => setPreviewStep(null)} />}
       {state?.session.status === "paused" ? <p role="status">{t("classPaused")}</p> : null}
       <PresenterStage state={state} steps={planSteps} stateUrl={stateUrl} onRefresh={sync.refresh} canManage={canManage} onError={setStatus} onPreviewChange={setPreviewStep} deliveryChannel={studentsHeld ? "display" : "both"} />
+      {canManage ? <NativeDeckPresenter bootstrap={bootstrap} state={state} stateUrl={stateUrl} onRefresh={sync.refresh} /> : null}
       {studentsHeld && state?.channels?.participants?.activity ? <div className="lc-audience-held" role="status">
         <span>{t("studentsHeld")} <strong>{activityTitle(state.channels.participants.activity, t("activity"))}</strong></span>
         <button type="button" disabled={commandPending || state.session.status !== "live"} onClick={() => {
