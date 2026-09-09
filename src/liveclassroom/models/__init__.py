@@ -4,6 +4,7 @@ from .authoring import AuthoringAttachment, AuthoringJob, AuthoringMessage, Auth
 from .content import Flow, FlowStep
 from .course import Course, CourseMembership, TeachingCourse
 from .demos import DemoLesson
+from .decks import Deck, DeckSlide, DeckSlideAsset
 from .plans import FlowShare, FlowSnapshot, SessionPlanStep, SnapshotAsset
 from .question_banks import QuestionBank, QuestionBankItem
 from .session import (
@@ -27,6 +28,9 @@ __all__ = [
     "CourseMembership",
     "TeachingCourse",
     "DemoLesson",
+    "Deck",
+    "DeckSlide",
+    "DeckSlideAsset",
     "ActivityDefinition",
     "ActivityDefinitionRevision",
     "ClassroomAsset",

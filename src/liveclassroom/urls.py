@@ -4,6 +4,7 @@ from . import (
     api,
     api_assets,
     api_authoring,
+    api_decks,
     api_flows,
     api_organization,
     api_plans,
@@ -16,6 +17,10 @@ from . import (
 app_name = "liveclassroom"
 
 urlpatterns = [
+    path("api/v1/decks/", api_decks.decks, name="api-v1-decks"),
+    path("api/v1/decks/<int:deck_id>/", api_decks.deck_detail, name="api-v1-deck-detail"),
+    path("api/v1/decks/<int:deck_id>/slides/", api_decks.deck_slides, name="api-v1-deck-slides"),
+    path("api/v1/decks/<int:deck_id>/copy/", api_decks.deck_copy, name="api-v1-deck-copy"),
     path("api/v1/question-banks/", api_question_banks.question_banks, name="api-v1-question-banks"),
     path(
         "api/v1/question-banks/<int:bank_id>/",
