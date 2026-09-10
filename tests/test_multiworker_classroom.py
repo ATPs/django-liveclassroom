@@ -80,7 +80,9 @@ def _wait_for_health(base_url: str, process: subprocess.Popen, deadline: float) 
     raise TimeoutError(f"worker did not become healthy: {base_url}")
 
 
-def _wait_for_final_version(websocket, expected: int, timeout_seconds: float = 45) -> int:
+def _wait_for_final_version(
+    websocket, expected: int, timeout_seconds: float = 45, *, published_at: float | None = None
+) -> tuple[int, float]:
     deadline = time.monotonic() + timeout_seconds
     observed = -1
     while time.monotonic() < deadline:
@@ -93,7 +95,8 @@ def _wait_for_final_version(websocket, expected: int, timeout_seconds: float = 4
         if isinstance(version, int):
             observed = max(observed, version)
             if observed >= expected:
-                return observed
+                reference = published_at if published_at is not None else deadline - timeout_seconds
+                return observed, (time.monotonic() - reference) * 1000
     raise TimeoutError(f"websocket observed {observed}, expected at least {expected}")
 
 
@@ -538,6 +541,7 @@ def test_two_uvicorn_workers_preserve_http_retries_reconnect_and_realtime_state(
         # HTTP is authoritative after notification loss/restart; relay delivery is
         # checked using the final state event from each independent classroom.
         final_versions = {}
+        final_notification_times = {}
         for classroom_index, classroom in enumerate(classrooms):
             session = classroom["session"].__class__.objects.get(pk=classroom["session"].pk)
             final_version = session.state_version
@@ -562,6 +566,7 @@ def test_two_uvicorn_workers_preserve_http_retries_reconnect_and_realtime_state(
             assert state_status == 200
             assert state["state_version"] == final_version
             assert state["aggregate"]["submission_count"] == participant_count
+            final_notification_times[classroom_index] = time.monotonic()
             assert publish_notification(session.pk, {"version": final_version, "event_id": final_event_id})
 
         # Every accepted write is reconciled through HTTP/database state above.
@@ -571,25 +576,34 @@ def test_two_uvicorn_workers_preserve_http_retries_reconnect_and_realtime_state(
         sample_stride = max(1, participant_count // 10)
         convergence_records = [record for record in records if record["participant_index"] % sample_stride == 0]
         with ThreadPoolExecutor(max_workers=min(len(convergence_records), 64)) as pool:
-            observed_versions = list(
+            observed = list(
                 pool.map(
                     lambda record: _wait_for_final_version(
-                        record["websocket"], final_versions[record["classroom_index"]], relay_timeout
+                        record["websocket"],
+                        final_versions[record["classroom_index"]],
+                        relay_timeout,
+                        published_at=final_notification_times[record["classroom_index"]],
                     ),
                     convergence_records,
                 )
             )
+        observed_versions = [version for version, _elapsed_ms in observed]
+        convergence_latencies = [elapsed_ms for _version, elapsed_ms in observed]
         assert all(
             version >= final_versions[record["classroom_index"]]
             for record, version in zip(convergence_records, observed_versions)
         )
+        assert _percentile(request_latencies, 0.95) < 2_000, request_latencies
+        assert _percentile(convergence_latencies, 0.95) < 5_000, convergence_latencies
         print(
             f"{participant_count * 2} students, {expected_accepted_writes} accepted writes and "
             f"{idempotent_retry_count} idempotent retries across 2 classrooms/2 workers; "
+            f"HTTP p50={_percentile(request_latencies, 0.50):.1f}ms "
+            f"p95={_percentile(request_latencies, 0.95):.1f}ms max={max(request_latencies):.1f}ms; "
             f"websocket convergence sample={len(convergence_records)} "
-            f"p50={_percentile(request_latencies, 0.50):.1f}ms "
-            f"p95={_percentile(request_latencies, 0.95):.1f}ms "
-            f"max={max(request_latencies):.1f}ms "
+            f"p50={_percentile(convergence_latencies, 0.50):.1f}ms "
+            f"p95={_percentile(convergence_latencies, 0.95):.1f}ms "
+            f"max={max(convergence_latencies):.1f}ms "
             f"warmup={warmup_finished - warmup_started:.2f}s "
             f"measured={time.monotonic() - measured_started:.2f}s "
             f"rounds={warmup_rounds}+{measured_rounds}"
