@@ -173,6 +173,17 @@ def check_liveclassroom_settings(app_configs: Any = None, **kwargs: Any) -> list
             return messages
 
     try:
+        configured_extensions = setting("EXTENSIONS")
+    except (KeyError, ValueError) as exc:
+        messages.append(Error(str(exc), id="liveclassroom.E004"))
+        return messages
+    if not isinstance(configured_extensions, (dict, list, tuple)):
+        messages.append(
+            Error("LIVECLASSROOM['EXTENSIONS'] must be a mapping or sequence.", id="liveclassroom.E004")
+        )
+        return messages
+
+    try:
         backends = authoring_ai_backends()
     except AuthoringAIError as exc:
         messages.append(Error(str(exc), id="liveclassroom.E005"))
