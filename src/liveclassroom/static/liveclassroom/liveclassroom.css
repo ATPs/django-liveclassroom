@@ -1229,6 +1229,46 @@
   margin-bottom: 0.75rem;
 }
 
+#liveclassroom-root .lc-ai-drafts {
+  max-height: 18rem;
+  overflow-y: auto;
+  margin: 0 0 0.75rem;
+  padding: 0.65rem;
+  border: 1px solid var(--lc-accent-border);
+  border-radius: var(--lc-radius);
+  background: var(--lc-accent-soft);
+}
+
+#liveclassroom-root .lc-ai-drafts h4 {
+  margin: 0 0 0.5rem;
+  color: var(--lc-accent);
+}
+
+#liveclassroom-root .lc-ai-draft {
+  margin-top: 0.5rem;
+  padding: 0.55rem;
+  border: 1px solid var(--lc-border);
+  border-radius: var(--lc-radius-sm);
+  background: var(--lc-surface);
+}
+
+#liveclassroom-root .lc-ai-draft header {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  color: var(--lc-text-2);
+  font-size: 0.8rem;
+}
+
+#liveclassroom-root .lc-ai-draft pre {
+  max-height: 8rem;
+  overflow: auto;
+  margin: 0.45rem 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.75rem;
+}
+
 #liveclassroom-root .lc-ai-empty {
   color: var(--lc-text-2);
   font-style: italic;

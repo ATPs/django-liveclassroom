@@ -45,6 +45,15 @@ export type AuthoringJob = {
   attempt?: number;
   message_id?: number;
   assistant_message_id?: number | null;
+  artifact_type?: "question" | "deck" | "assessment" | "";
+};
+
+export type AuthoringDraft = {
+  id: number;
+  artifact_type: "question" | "deck" | "assessment";
+  payload: Record<string, unknown>;
+  status: "proposed" | "accepted" | "rejected";
+  source_fingerprints?: string[];
 };
 
 export type AiChatOptions = {
@@ -61,6 +70,7 @@ function AiChat({ options, apiRoot }: { options: AiChatOptions; apiRoot: string 
   const [models, setModels] = useState<AIModel[]>([]);
   const [threads, setThreads] = useState<AuthoringThread[]>([]);
   const [messages, setMessages] = useState<AuthoringMessage[]>([]);
+  const [drafts, setDrafts] = useState<AuthoringDraft[]>([]);
   const [activeThreadId, setActiveThreadId] = useState<number | null>(null);
   const [generating, setGenerating] = useState(false);
   const [status, setStatus] = useState("");
@@ -68,6 +78,7 @@ function AiChat({ options, apiRoot }: { options: AiChatOptions; apiRoot: string 
   const [attachEnabled, setAttachEnabled] = useState(true);
   const [attachment, setAttachment] = useState<AuthoringAttachment | null>(null);
   const [modelValue, setModelValue] = useState("");
+  const [artifactType, setArtifactType] = useState<"" | "question" | "deck" | "assessment">("");
 
   const mountedRef = useRef(true);
   const pollTimerRef = useRef<number | null>(null);
@@ -89,8 +100,9 @@ function AiChat({ options, apiRoot }: { options: AiChatOptions; apiRoot: string 
     activeThreadRef.current = threadId;
     setStatus(t("loading", locale));
     try {
-      const data = await getJson<{ messages: AuthoringMessage[]; jobs: AuthoringJob[] }>(apiUrl(`authoring/threads/${threadId}/`));
+      const data = await getJson<{ messages: AuthoringMessage[]; jobs: AuthoringJob[]; drafts?: AuthoringDraft[] }>(apiUrl(`authoring/threads/${threadId}/`));
       setMessages(data.messages ?? []);
+      setDrafts(data.drafts ?? []);
       setStatus("");
       const activeJob = (data.jobs ?? []).find((j) => j.status === "queued" || j.status === "running");
       if (activeJob) {
@@ -135,9 +147,10 @@ function AiChat({ options, apiRoot }: { options: AiChatOptions; apiRoot: string 
           setStatus("");
           activeJobRef.current = null;
           if (activeThreadRef.current === threadId) {
-            const thread = await getJson<{ messages: AuthoringMessage[] }>(apiUrl(`authoring/threads/${threadId}/`));
+            const thread = await getJson<{ messages: AuthoringMessage[]; drafts?: AuthoringDraft[] }>(apiUrl(`authoring/threads/${threadId}/`));
             if (mountedRef.current && activeThreadRef.current === threadId) {
               setMessages(thread.messages ?? []);
+              setDrafts(thread.drafts ?? []);
             }
           }
         } else if (job.status === "failed") {
@@ -196,7 +209,13 @@ function AiChat({ options, apiRoot }: { options: AiChatOptions; apiRoot: string 
       setStatus(t("aiGenerating", locale));
       const res = await postJson<{ message: AuthoringMessage; job: AuthoringJob }>(
         apiUrl(`authoring/threads/${activeThreadId}/messages/`),
-        { content: text, backend_key, model_identifier, attachments },
+        {
+          content: text,
+          backend_key,
+          model_identifier,
+          attachments,
+          ...(artifactType ? { artifact_type: artifactType } : {}),
+        },
       );
       setPrompt("");
       if (res.message) setMessages((prev) => [...prev, res.message]);
@@ -209,6 +228,20 @@ function AiChat({ options, apiRoot }: { options: AiChatOptions; apiRoot: string 
     } catch (err) {
       setGenerating(false);
       setStatus(err instanceof Error ? err.message : t("aiFailedSend", locale));
+    }
+  };
+
+  const reviewDraft = async (draft: AuthoringDraft, action: "accept" | "reject") => {
+    try {
+      const result = await postJson<{ draft: AuthoringDraft }>(
+        apiUrl(`authoring/drafts/${draft.id}/${action}/`),
+        {},
+        `authoring-draft-${action}-${draft.id}`,
+      );
+      setDrafts((previous) => previous.map((item) => (item.id === draft.id ? result.draft : item)));
+      setStatus(action === "accept" ? "Draft accepted / 草稿已接受" : "Draft rejected / 草稿已拒绝");
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : "Draft review failed / 草稿审核失败");
     }
   };
 
@@ -268,6 +301,21 @@ function AiChat({ options, apiRoot }: { options: AiChatOptions; apiRoot: string 
               </select>
             </label>
           </div>
+          <div className="lc-ai-control-group">
+            <label>
+              Draft type / 草稿类型:{" "}
+              <select
+                className="lc-ai-select"
+                value={artifactType}
+                onChange={(e) => setArtifactType(e.target.value as typeof artifactType)}
+              >
+                <option value="">Conversation / 对话</option>
+                <option value="question">Question / 题目</option>
+                <option value="deck">Slides / 幻灯片</option>
+                <option value="assessment">Assessment / 测验</option>
+              </select>
+            </label>
+          </div>
         </div>
       </div>
       <div className="lc-ai-messages" role="log" aria-live="polite" ref={messagesRef}>
@@ -303,6 +351,30 @@ function AiChat({ options, apiRoot }: { options: AiChatOptions; apiRoot: string 
           ))
         )}
       </div>
+      {drafts.length > 0 ? (
+        <section className="lc-ai-drafts" aria-label="AI draft review / AI 草稿审核">
+          <h4>Draft review / 草稿审核</h4>
+          {drafts.map((draft) => (
+            <article className="lc-ai-draft" key={draft.id}>
+              <header>
+                <strong>{draft.artifact_type}</strong>
+                <span>{draft.status}</span>
+              </header>
+              <pre>{JSON.stringify(draft.payload, null, 2)}</pre>
+              {draft.status === "proposed" ? (
+                <div className="lc-ai-msg-actions">
+                  <button type="button" className="lc-btn-sm lc-btn-primary" onClick={() => void reviewDraft(draft, "accept")}>
+                    Accept / 接受
+                  </button>
+                  <button type="button" className="lc-btn-sm lc-btn-outline" onClick={() => void reviewDraft(draft, "reject")}>
+                    Reject / 拒绝
+                  </button>
+                </div>
+              ) : null}
+            </article>
+          ))}
+        </section>
+      ) : null}
       <div className="lc-ai-composer">
         {options.getAttachment ? (
           <div className="lc-ai-attachment-bar">
