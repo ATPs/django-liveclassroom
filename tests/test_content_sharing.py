@@ -111,15 +111,33 @@ def test_content_share_api_hides_source_text_and_enforces_owner_recipient(client
     assert client.get(collection).json()["content_shares"][0]["id"] == share_id
 
     client.force_login(stranger)
-    assert client.post(reverse("liveclassroom:api-v1-content-share-copy", args=[share_id]), data="{}", content_type="application/json").status_code == 404
+    assert (
+        client.post(
+            reverse("liveclassroom:api-v1-content-share-copy", args=[share_id]),
+            data="{}",
+            content_type="application/json",
+        ).status_code
+        == 404
+    )
 
     client.force_login(recipient)
-    copied = client.post(reverse("liveclassroom:api-v1-content-share-copy", args=[share_id]), data="{}", content_type="application/json")
+    copied = client.post(
+        reverse("liveclassroom:api-v1-content-share-copy", args=[share_id]), data="{}", content_type="application/json"
+    )
     assert copied.status_code == 201
-    assert copied.json()["objects"] == [{"kind": "activity", "id": copied.json()["objects"][0]["id"], "title": "Private source"}]
+    assert copied.json()["objects"] == [
+        {"kind": "activity", "id": copied.json()["objects"][0]["id"], "title": "Private source"}
+    ]
     assert client.delete(reverse("liveclassroom:api-v1-content-share-detail", args=[share_id])).status_code == 403
 
     client.force_login(owner)
     assert client.delete(reverse("liveclassroom:api-v1-content-share-detail", args=[share_id])).status_code == 200
     client.force_login(recipient)
-    assert client.post(reverse("liveclassroom:api-v1-content-share-copy", args=[share_id]), data="{}", content_type="application/json").status_code == 403
+    assert (
+        client.post(
+            reverse("liveclassroom:api-v1-content-share-copy", args=[share_id]),
+            data="{}",
+            content_type="application/json",
+        ).status_code
+        == 403
+    )
