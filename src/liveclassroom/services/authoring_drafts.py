@@ -267,11 +267,15 @@ def _validate_portable_adapter(*, actor, artifact_type: str, payload: Mapping[st
                     "settings": payload["settings"],
                     "items": [
                         {
-                            "key": item["key"],
+                            # Authoring draft keys are durable UUIDs. The portable
+                            # validation adapter only needs a local identifier, so
+                            # use a deterministic short key without changing the
+                            # persisted assessment payload.
+                            "key": f"item-{index}",
                             "activity_key": revision_keys[item["revision_id"]],
                             "points": item["points"],
                         }
-                        for item in payload["items"]
+                        for index, item in enumerate(payload["items"], 1)
                     ],
                 }
             ],
