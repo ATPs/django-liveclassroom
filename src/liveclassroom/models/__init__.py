@@ -15,7 +15,7 @@ from .attempts import (
     AttemptAnswerReceipt,
     AttemptStartReceipt,
 )
-from .authoring import AuthoringAttachment, AuthoringJob, AuthoringMessage, AuthoringThread
+from .authoring import AuthoringAttachment, AuthoringDraft, AuthoringJob, AuthoringMessage, AuthoringThread
 from .content import Flow, FlowStep
 from .course import Course, CourseMembership, TeachingCourse
 from .deck_snapshots import DeckSnapshot, DeckSnapshotAsset
@@ -65,6 +65,7 @@ __all__ = [
     "ClassroomAsset",
     "AuthoringCommandReceipt",
     "AuthoringAttachment",
+    "AuthoringDraft",
     "AuthoringJob",
     "AuthoringMessage",
     "AuthoringThread",

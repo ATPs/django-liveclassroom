@@ -380,6 +380,21 @@ urlpatterns = [
     ),
     path("api/v1/authoring/jobs/<int:job_id>/", api_authoring.authoring_job, name="api-v1-authoring-job"),
     path(
+        "api/v1/authoring/drafts/<int:draft_id>/",
+        api_authoring.authoring_draft,
+        name="api-v1-authoring-draft",
+    ),
+    path(
+        "api/v1/authoring/drafts/<int:draft_id>/accept/",
+        api_authoring.accept_authoring_draft_api,
+        name="api-v1-authoring-draft-accept",
+    ),
+    path(
+        "api/v1/authoring/drafts/<int:draft_id>/reject/",
+        api_authoring.reject_authoring_draft_api,
+        name="api-v1-authoring-draft-reject",
+    ),
+    path(
         "api/v1/activity-definitions/<int:activity_id>/revisions/",
         api_authoring.revise_activity_definition_api,
         name="api-v1-activity-revise",

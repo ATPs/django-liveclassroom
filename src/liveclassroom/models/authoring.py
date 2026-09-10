@@ -65,6 +65,9 @@ class AuthoringAttachment(models.Model):
 
     class SourceType(models.TextChoices):
         ACTIVITY = "activity", "Activity"
+        QUESTION_BANK = "question_bank", "Question bank"
+        DECK = "deck", "Deck"
+        ASSESSMENT = "assessment", "Assessment"
         FLOW = "flow", "Flow"
         FLOW_STEP = "flow_step", "Flow step"
         PROVIDER = "provider", "Content provider"
@@ -104,6 +107,7 @@ class AuthoringJob(models.Model):
     )
     backend_key = models.CharField(max_length=100)
     model_identifier = models.CharField(max_length=200)
+    artifact_type = models.CharField(max_length=24, blank=True, default="")
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.QUEUED)
     error_code = models.CharField(max_length=64, blank=True)
     attempt = models.PositiveSmallIntegerField(default=1)
@@ -135,3 +139,65 @@ class AuthoringJob(models.Model):
 
     def __str__(self) -> str:
         return f"{self.thread}: {self.status}"
+
+
+class AuthoringDraft(models.Model):
+    """A validated, teacher-reviewed proposal produced by an AI job.
+
+    The payload is the generated structure only.  Attachments and provider
+    source bodies remain transient inputs to a backend call and are never
+    copied into this record.
+    """
+
+    class ArtifactType(models.TextChoices):
+        QUESTION = "question", "Question"
+        DECK = "deck", "Deck"
+        ASSESSMENT = "assessment", "Assessment"
+
+    class Status(models.TextChoices):
+        PROPOSED = "proposed", "Proposed"
+        ACCEPTED = "accepted", "Accepted"
+        REJECTED = "rejected", "Rejected"
+
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="liveclassroom_authoring_drafts",
+    )
+    thread = models.ForeignKey(AuthoringThread, on_delete=models.CASCADE, related_name="drafts")
+    message = models.ForeignKey(
+        AuthoringMessage,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="authoring_drafts",
+    )
+    artifact_type = models.CharField(max_length=24, choices=ArtifactType.choices)
+    payload = models.JSONField(default=dict)
+    source_fingerprints = models.JSONField(default=list, blank=True)
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.PROPOSED)
+    accepted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="liveclassroom_accepted_authoring_drafts",
+    )
+    accepted_object_type = models.CharField(max_length=24, blank=True, default="")
+    accepted_object_id = models.PositiveBigIntegerField(null=True, blank=True)
+    target_type = models.CharField(max_length=24, blank=True, default="")
+    target_id = models.PositiveBigIntegerField(null=True, blank=True)
+    expected_version = models.PositiveIntegerField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    accepted_at = models.DateTimeField(null=True, blank=True)
+    rejected_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        indexes = [
+            models.Index(fields=["owner", "status", "created_at"]),
+            models.Index(fields=["thread", "created_at"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.artifact_type} draft {self.pk} ({self.status})"

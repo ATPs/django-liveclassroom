@@ -16,12 +16,15 @@ from django.utils import timezone
 from liveclassroom.ai import AIMessage, AuthoringAIError, authoring_ai_backends
 from liveclassroom.models import (
     ActivityDefinition,
+    AssessmentDefinition,
     AuthoringAttachment,
     AuthoringJob,
     AuthoringMessage,
     AuthoringThread,
+    Deck,
     Flow,
     FlowStep,
+    QuestionBank,
 )
 from liveclassroom.providers import ContentReference, ProviderError, content_providers
 
@@ -156,6 +159,10 @@ def _normalize_attachment(payload: Mapping[str, Any], *, actor, request) -> dict
     source_type = {
         "activity_definition": AuthoringAttachment.SourceType.ACTIVITY,
         "activity": AuthoringAttachment.SourceType.ACTIVITY,
+        "question_bank": AuthoringAttachment.SourceType.QUESTION_BANK,
+        "bank": AuthoringAttachment.SourceType.QUESTION_BANK,
+        "deck": AuthoringAttachment.SourceType.DECK,
+        "assessment": AuthoringAttachment.SourceType.ASSESSMENT,
         "flow": AuthoringAttachment.SourceType.FLOW,
         "flow_step": AuthoringAttachment.SourceType.FLOW_STEP,
         "provider": AuthoringAttachment.SourceType.PROVIDER,
@@ -180,6 +187,12 @@ def _normalize_attachment(payload: Mapping[str, Any], *, actor, request) -> dict
     source_id = payload.get("source_id", payload.get("id"))
     if source_type == AuthoringAttachment.SourceType.ACTIVITY:
         source_id = payload.get("activity_id", source_id)
+    elif source_type == AuthoringAttachment.SourceType.QUESTION_BANK:
+        source_id = payload.get("bank_id", source_id)
+    elif source_type == AuthoringAttachment.SourceType.DECK:
+        source_id = payload.get("deck_id", source_id)
+    elif source_type == AuthoringAttachment.SourceType.ASSESSMENT:
+        source_id = payload.get("assessment_id", source_id)
     elif source_type == AuthoringAttachment.SourceType.FLOW:
         source_id = payload.get("flow_id", source_id)
     elif source_type == AuthoringAttachment.SourceType.FLOW_STEP:
@@ -188,6 +201,15 @@ def _normalize_attachment(payload: Mapping[str, Any], *, actor, request) -> dict
     if source_type == AuthoringAttachment.SourceType.ACTIVITY:
         source = ActivityDefinition.objects.filter(pk=source_id).first()
         allowed = source is not None and _can_attach_activity(actor, source)
+    elif source_type == AuthoringAttachment.SourceType.QUESTION_BANK:
+        source = QuestionBank.objects.filter(pk=source_id).first()
+        allowed = source is not None and source.owner_id == actor.pk
+    elif source_type == AuthoringAttachment.SourceType.DECK:
+        source = Deck.objects.filter(pk=source_id).first()
+        allowed = source is not None and source.owner_id == actor.pk
+    elif source_type == AuthoringAttachment.SourceType.ASSESSMENT:
+        source = AssessmentDefinition.objects.filter(pk=source_id).first()
+        allowed = source is not None and source.owner_id == actor.pk
     elif source_type == AuthoringAttachment.SourceType.FLOW:
         source = Flow.objects.filter(pk=source_id).first()
         allowed = source is not None and _can_attach_flow(actor, source)
@@ -217,6 +239,61 @@ def _stored_attachment_payload(attachment: AuthoringAttachment, *, actor, reques
             "type_key": source.type_key,
             "schema_version": source.schema_version,
             "content": source.definition,
+        }
+    elif attachment.source_type == AuthoringAttachment.SourceType.QUESTION_BANK:
+        source = QuestionBank.objects.prefetch_related("items__definition").filter(pk=attachment.source_id).first()
+        if source is None or source.owner_id != actor.pk:
+            raise ClassroomError("An attached question bank is unavailable or not authorized.")
+        return {
+            "source_type": attachment.source_type,
+            "source_id": source.pk,
+            "title": source.title,
+            "description": source.description,
+            "questions": [
+                {
+                    "id": item.definition_id,
+                    "title": item.definition.title,
+                    "type_key": item.definition.type_key,
+                    "content": item.definition.definition,
+                }
+                for item in source.items.all()
+            ],
+        }
+    elif attachment.source_type == AuthoringAttachment.SourceType.DECK:
+        source = Deck.objects.prefetch_related("slides").filter(pk=attachment.source_id).first()
+        if source is None or source.owner_id != actor.pk:
+            raise ClassroomError("An attached deck is unavailable or not authorized.")
+        return {
+            "source_type": attachment.source_type,
+            "source_id": source.pk,
+            "title": source.title,
+            "theme": source.theme,
+            "slides": [{"markdown": slide.markdown, "notes": slide.notes} for slide in source.slides.all()],
+        }
+    elif attachment.source_type == AuthoringAttachment.SourceType.ASSESSMENT:
+        source = (
+            AssessmentDefinition.objects.select_related("owner")
+            .prefetch_related("items__question_revision__definition")
+            .filter(pk=attachment.source_id)
+            .first()
+        )
+        if source is None or source.owner_id != actor.pk:
+            raise ClassroomError("An attached assessment is unavailable or not authorized.")
+        return {
+            "source_type": attachment.source_type,
+            "source_id": source.pk,
+            "title": source.title,
+            "instructions": source.instructions,
+            "items": [
+                {
+                    "revision_id": item.question_revision_id,
+                    "title": item.question_revision.definition.title,
+                    "type_key": item.question_revision.definition.type_key,
+                    "content": item.question_revision.payload,
+                    "points": str(item.points),
+                }
+                for item in source.items.all()
+            ],
         }
     elif attachment.source_type == AuthoringAttachment.SourceType.FLOW:
         source = Flow.objects.filter(pk=attachment.source_id).first()
@@ -292,6 +369,7 @@ def create_authoring_request(
     attachments: Iterable[Mapping[str, Any]] | None = None,
     request=None,
     options: Mapping[str, Any] | None = None,
+    artifact_type: str | None = None,
 ) -> tuple[AuthoringMessage, AuthoringJob]:
     """Persist a prompt and queued job, then hand it to the host dispatcher."""
     if not can_view_authoring_thread(author, thread):
@@ -302,6 +380,8 @@ def create_authoring_request(
         raise ClassroomError("An AI backend is required.")
     if not isinstance(model_identifier, str) or not model_identifier.strip():
         raise ClassroomError("An AI model is required.")
+    if artifact_type is not None and artifact_type not in {"question", "deck", "assessment"}:
+        raise ClassroomError("Unsupported authoring draft type.")
     normalized_options = _safe_options(options)
     prompt = AuthoringMessage.objects.create(
         thread=thread,
@@ -319,6 +399,7 @@ def create_authoring_request(
         message=prompt,
         backend_key=backend_key.strip(),
         model_identifier=model_identifier.strip(),
+        artifact_type=artifact_type or "",
     )
     thread.save(update_fields=["updated_at"])
 
@@ -484,10 +565,14 @@ def run_authoring_job(
             return job
     try:
         backend = authoring_ai_backends().get(job.backend_key)
-        attachment_payloads = [
-            _stored_attachment_payload(attachment, actor=actor, request=request)
-            for attachment in job.message.attachments.all()
-        ]
+        from .authoring_drafts import AuthoringDraftError, build_authoring_context, parse_draft_envelope, validate_draft
+
+        context = build_authoring_context(
+            actor=actor,
+            attachments=job.message.attachments.all(),
+            request=request,
+        )
+        attachment_payloads = context["attachments"]
         messages = [
             AIMessage(message.role, message.content) for message in job.thread.messages.order_by("created_at", "id")
         ]
@@ -508,6 +593,32 @@ def run_authoring_job(
                     pass
         if not isinstance(response, AIMessage) or response.role != "assistant" or not isinstance(response.content, str):
             raise AuthoringAIError("The AI backend returned an invalid response.")
+        draft_payload = None
+        source_fingerprints: list[str] = []
+        if job.artifact_type:
+            raw_payload, envelope_fingerprints = parse_draft_envelope(
+                content=response.content,
+                artifact_type=job.artifact_type,
+            )
+            draft_payload = validate_draft(actor=actor, artifact_type=job.artifact_type, payload=raw_payload)
+            source_fingerprints = envelope_fingerprints or list(
+                dict.fromkeys(
+                    attachment.source_fingerprint
+                    for attachment in job.message.attachments.all()
+                    if attachment.source_fingerprint
+                )
+            )
+            safe_content = json.dumps(
+                {
+                    "artifact_type": job.artifact_type,
+                    "payload": draft_payload,
+                    "source_fingerprints": source_fingerprints,
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+        else:
+            safe_content = response.content
         with transaction.atomic():
             job = AuthoringJob.objects.select_for_update().select_related("thread", "message").get(pk=job_id)
             if job.status != AuthoringJob.Status.RUNNING or job.lease_token != execution_token:
@@ -515,10 +626,21 @@ def run_authoring_job(
             assistant = AuthoringMessage.objects.create(
                 thread=job.thread,
                 role=AuthoringMessage.Role.ASSISTANT,
-                content=response.content,
+                content=safe_content,
                 model_identifier=job.model_identifier,
                 status=AuthoringMessage.Status.COMPLETE,
             )
+            if draft_payload is not None:
+                from liveclassroom.models import AuthoringDraft
+
+                AuthoringDraft.objects.create(
+                    owner=job.thread.owner,
+                    thread=job.thread,
+                    message=assistant,
+                    artifact_type=job.artifact_type,
+                    payload=draft_payload,
+                    source_fingerprints=source_fingerprints,
+                )
             AuthoringJob.objects.filter(pk=job.pk).update(
                 status=AuthoringJob.Status.SUCCEEDED,
                 assistant_message=assistant,
@@ -527,6 +649,10 @@ def run_authoring_job(
                 lease_token="",
                 lease_expires_at=None,
             )
+        job.refresh_from_db()
+        return job
+    except AuthoringDraftError:
+        _retry_or_fail_job(job=job, error_code="invalid_draft", retry=False, execution_token=execution_token)
         job.refresh_from_db()
         return job
     except ClassroomError:

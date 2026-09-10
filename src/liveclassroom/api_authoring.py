@@ -7,9 +7,15 @@ from django.views.decorators.http import require_GET, require_http_methods, requ
 
 from .ai import AuthoringAIError, authoring_ai_backends
 from .api import _authoring_replay, _body, _error, _record_authoring
-from .models import ActivityDefinition, AuthoringJob, AuthoringMessage, AuthoringThread, Course
+from .models import ActivityDefinition, AuthoringDraft, AuthoringJob, AuthoringMessage, AuthoringThread, Course
 from .registry import activity_registry
 from .services.authoring import can_view_authoring_thread, create_authoring_request, create_authoring_thread
+from .services.authoring_drafts import (
+    AuthoringDraftError,
+    accept_authoring_draft,
+    draft_payload,
+    reject_authoring_draft,
+)
 from .services.classroom import ClassroomError, create_activity_definition, revise_activity_definition
 from .services.permissions import can_author_course, can_teach
 
@@ -78,6 +84,7 @@ def _authoring_job_payload(job: AuthoringJob) -> dict:
         "status": job.status,
         "backend_key": job.backend_key,
         "model_identifier": job.model_identifier,
+        "artifact_type": job.artifact_type,
         "error_code": job.error_code,
         "attempt": job.attempt,
         "message_id": job.message_id,
@@ -149,6 +156,7 @@ def authoring_thread(request, thread_id: int):
             "title": thread.title,
             "messages": [_authoring_message_payload(message) for message in messages],
             "jobs": [_authoring_job_payload(job) for job in thread.jobs.all()],
+            "drafts": [draft_payload(draft) for draft in thread.drafts.all()],
         }
     )
 
@@ -174,6 +182,7 @@ def authoring_message(request, thread_id: int):
             attachments=body.get("attachments", []),
             request=request,
             options=body.get("options"),
+            artifact_type=body.get("artifact_type"),
         )
     except KeyError as exc:
         return _record_authoring(request, key, f"authoring.message.{thread_id}", _error(f"{exc.args[0]} is required."))
@@ -194,6 +203,62 @@ def authoring_job(request, job_id: int):
     if not can_view_authoring_thread(request.user, job.thread):
         return _error("You do not have permission to view this authoring job.", 403)
     return JsonResponse(_authoring_job_payload(job))
+
+
+@require_GET
+def authoring_draft(request, draft_id: int):
+    """Return a private, validated draft preview."""
+    draft = get_object_or_404(AuthoringDraft.objects.select_related("thread"), pk=draft_id)
+    if not can_view_authoring_thread(request.user, draft.thread):
+        return _error("You do not have permission to view this authoring draft.", 403)
+    return JsonResponse(draft_payload(draft))
+
+
+@require_POST
+@transaction.atomic
+def accept_authoring_draft_api(request, draft_id: int):
+    """Accept an AI proposal only after the owner explicitly reviews it."""
+    draft = get_object_or_404(AuthoringDraft.objects.select_related("thread"), pk=draft_id)
+    if not can_view_authoring_thread(request.user, draft.thread):
+        return _error("You do not have permission to accept this authoring draft.", 403)
+    replay, key = _authoring_replay(request, f"authoring.draft.accept.{draft_id}")
+    if replay is not None:
+        return replay
+    try:
+        result = accept_authoring_draft(actor=request.user, draft=draft)
+    except AuthoringDraftError as exc:
+        return _record_authoring(
+            request,
+            key,
+            f"authoring.draft.accept.{draft_id}",
+            _error(str(exc), 409 if "changed" in str(exc).casefold() else 400),
+        )
+    response = JsonResponse(
+        {
+            "draft": draft_payload(AuthoringDraft.objects.get(pk=draft_id)),
+            "result": {"id": result.pk},
+        },
+        status=200,
+    )
+    return _record_authoring(request, key, f"authoring.draft.accept.{draft_id}", response)
+
+
+@require_POST
+@transaction.atomic
+def reject_authoring_draft_api(request, draft_id: int):
+    """Reject a proposal without deleting its audit record."""
+    draft = get_object_or_404(AuthoringDraft.objects.select_related("thread"), pk=draft_id)
+    if not can_view_authoring_thread(request.user, draft.thread):
+        return _error("You do not have permission to reject this authoring draft.", 403)
+    replay, key = _authoring_replay(request, f"authoring.draft.reject.{draft_id}")
+    if replay is not None:
+        return replay
+    try:
+        rejected = reject_authoring_draft(actor=request.user, draft=draft)
+    except AuthoringDraftError as exc:
+        return _record_authoring(request, key, f"authoring.draft.reject.{draft_id}", _error(str(exc), 409))
+    response = JsonResponse({"draft": draft_payload(rejected)}, status=200)
+    return _record_authoring(request, key, f"authoring.draft.reject.{draft_id}", response)
 
 
 @require_POST
