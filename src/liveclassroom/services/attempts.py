@@ -23,6 +23,7 @@ from liveclassroom.models import (
 
 from .assessment_timing import assessment_deadline, ensure_assessment_can_start, server_now
 from .classroom import ClassroomError
+from .permissions import can_host_deliver
 
 
 class AttemptAnswerConflict(ClassroomError):
@@ -92,6 +93,8 @@ def _hash_request(*, new_attempt: bool) -> str:
 
 def _can_access(actor, run: AssessmentRun) -> bool:
     if not getattr(actor, "is_authenticated", False):
+        return False
+    if not can_host_deliver(actor, run):
         return False
     if run.audience == AssessmentRun.Audience.AUTHENTICATED_LINK:
         return True

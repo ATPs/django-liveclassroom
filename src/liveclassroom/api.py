@@ -12,6 +12,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
+from .integrations.host import host_can_view_named_responses
 from .models import (
     ActivityDefinition,
     AuthoringCommandReceipt,
@@ -1464,6 +1465,10 @@ def analytics(request, session_id: int):
     session = get_object_or_404(LiveSession, pk=session_id)
     if not can_view_session(request.user, session):
         return _error("You do not have permission to view analytics.", 403)
+    if not host_can_view_named_responses(
+        actor=request.user, session_id=session.id, request=request, package_allowed=True
+    ):
+        return _error("You do not have permission to view analytics.", 403)
     return JsonResponse(session_analytics(session))
 
 
@@ -1472,6 +1477,10 @@ def export_session(request, session_id: int):
     """Stream a teacher-readable session archive or one bounded CSV dataset."""
     session = get_object_or_404(LiveSession, pk=session_id)
     if not can_manage_admission(request.user, session):
+        return _error("You do not have permission to export this session.", 403)
+    if not host_can_view_named_responses(
+        actor=request.user, session_id=session.id, request=request, package_allowed=True
+    ):
         return _error("You do not have permission to export this session.", 403)
 
     dataset = request.GET.get("dataset", "summary")

@@ -7,7 +7,7 @@ from django.db import transaction
 from liveclassroom.models import ActivityDefinition, ActivityDefinitionRevision, ClassroomAsset, Flow
 from liveclassroom.registry import activity_registry
 
-from .permissions import can_author_course, can_teach
+from .permissions import can_author_course, can_host_author, can_teach
 from .question_metadata import validate_question_metadata
 from .runtime import ClassroomError
 
@@ -27,6 +27,8 @@ def create_activity_definition(
     """Create a validated reusable activity and its first immutable revision."""
     if not can_teach(owner):
         raise ClassroomError("An authenticated teacher is required to create an activity.")
+    if not can_host_author(owner):
+        raise ClassroomError("The host does not allow activity authoring.")
     if not isinstance(type_key, str) or not type_key.strip():
         raise ClassroomError("An activity type is required.")
     type_key = type_key.strip()
@@ -86,7 +88,7 @@ def revise_activity_definition(
     *, activity: ActivityDefinition, definition: dict[str, Any], actor, metadata=None, change_note: str = ""
 ) -> ActivityDefinitionRevision:
     """Update a reusable definition without rewriting its prior payload."""
-    if not can_teach(actor) or (
+    if not can_teach(actor) or not can_host_author(actor, activity) or (
         activity.owner_id != actor.pk
         and not (activity.course_id and can_author_course(actor, activity.course))
     ):

@@ -20,6 +20,7 @@ from .conf import (
     teacher_authorizer,
     websocket_path,
 )
+from .integrations.host import HostAdapterError, host_adapter
 from .providers import ProviderError, content_providers
 from .registry import activity_registry
 
@@ -130,6 +131,16 @@ def check_activity_registry(app_configs: Any = None, **kwargs: Any) -> list[Erro
                     )
 
     return messages
+
+
+@register(Tags.compatibility)
+def check_host_adapter(app_configs: Any = None, **kwargs: Any) -> list[Error]:
+    """Validate configured host capability hooks without importing host models."""
+    try:
+        host_adapter()
+    except (HostAdapterError, KeyError, TypeError, ValueError) as exc:
+        return [Error(str(exc), id="liveclassroom.E008")]
+    return []
 
 
 @register(Tags.compatibility)
