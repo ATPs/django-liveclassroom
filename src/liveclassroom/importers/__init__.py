@@ -1,5 +1,6 @@
 from .json_importer import import_json_flow, parse_json_flow
 from .markdown import ImportError, import_markdown_file, import_markdown_flow, parse_markdown
+from .markdown_portable import ImportDraft, ImportErrorDetail, parse_markdown_import
 
 __all__ = [
     "ImportError",
@@ -8,4 +9,7 @@ __all__ = [
     "parse_markdown",
     "import_json_flow",
     "parse_json_flow",
+    "ImportDraft",
+    "ImportErrorDetail",
+    "parse_markdown_import",
 ]
