@@ -319,6 +319,15 @@ def test_two_uvicorn_workers_preserve_http_retries_reconnect_and_realtime_state(
                     open_timeout=10,
                     close_timeout=5,
                     ping_interval=None,
+                    # The synthetic learners deliberately do not render every
+                    # state event while their HTTP submissions are in flight.
+                    # A bounded client-side queue applies TCP backpressure
+                    # after 16 events, which prevents it from answering the
+                    # task-owned worker's keepalive ping during a long run.
+                    # Browsers continue reading control/data frames, so keep
+                    # this finite, documented experiment from modelling a
+                    # stalled client instead of an active participant.
+                    max_queue=None,
                 )
                 ready = json.loads(websocket.recv(timeout=10))
                 assert ready == {"type": "connection.ready", "session_id": classroom["session"].pk}
@@ -431,6 +440,7 @@ def test_two_uvicorn_workers_preserve_http_retries_reconnect_and_realtime_state(
                 open_timeout=10,
                 close_timeout=5,
                 ping_interval=None,
+                max_queue=None,
             )
             record["worker_index"] = reconnect_worker
             ready = json.loads(record["websocket"].recv(timeout=10))
