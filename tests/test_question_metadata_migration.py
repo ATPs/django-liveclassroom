@@ -7,7 +7,7 @@ from django.db.migrations.executor import MigrationExecutor
 def test_metadata_migration_preserves_existing_definition_revision_and_flow():
     old_target = [("liveclassroom", "0005_teaching_course_organization")]
     new_target = [("liveclassroom", "0006_activity_question_metadata")]
-    final_target = [("liveclassroom", "0014_assessment_sections")]
+    final_target = [("liveclassroom", "0021_authoringjob_artifact_type_authoringdraft")]
     executor = MigrationExecutor(connection)
     try:
         executor.migrate(old_target)

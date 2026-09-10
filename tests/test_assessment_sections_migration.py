@@ -9,6 +9,7 @@ from django.db.migrations.executor import MigrationExecutor
 def test_section_migration_backfills_default_section_and_preserves_item_order():
     previous = [("liveclassroom", "0013_attempt_answer_revisions")]
     current = [("liveclassroom", "0014_assessment_sections")]
+    final = [("liveclassroom", "0021_authoringjob_artifact_type_authoringdraft")]
     executor = MigrationExecutor(connection)
     try:
         executor.migrate(previous)
@@ -53,4 +54,4 @@ def test_section_migration_backfills_default_section_and_preserves_item_order():
         assert section.title == "Section 1"
         assert entries == [(1, "fixed", keys[1][1]), (2, "fixed", keys[0][1])]
     finally:
-        MigrationExecutor(connection).migrate(current)
+        MigrationExecutor(connection).migrate(final)
