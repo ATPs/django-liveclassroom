@@ -294,6 +294,27 @@ def add_step_api(request, flow_id: int):
                 metadata=inline.get("metadata"),
                 course=flow.course,
             )
+        elif body.get("kind") == "markdown":
+            # The visual builder uses the portable ``kind``/``content`` shape
+            # for Markdown steps.  Convert it to the normal activity
+            # definition before handing it to the shared flow service; this
+            # keeps all step ownership and validation in one path.
+            content = body.get("content")
+            if not isinstance(content, dict):
+                return _record_authoring(
+                    request,
+                    key,
+                    command_type,
+                    _error("Markdown content must be an object."),
+                )
+            title = body.get("title") or "Markdown"
+            activity_def = create_activity_definition(
+                owner=request.user,
+                title=str(title),
+                type_key="liveclassroom.markdown",
+                definition=content,
+                course=flow.course,
+            )
         elif body.get("type_key") or (body.get("kind") and body.get("kind") not in ("markdown", "activity")):
             type_key = body.get("type_key") or body.get("kind")
             def_title = body.get("title") or "Activity"

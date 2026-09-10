@@ -40,13 +40,17 @@ export function PresentationSourcePicker({
   const [selectedSource, setSelectedSource] = useState<Source | null>(null);
   const [status, setStatus] = useState("");
   const [pending, setPending] = useState(false);
-  const providerUrl = useMemo(() => apiEndpoint(stateUrl, "sessions/presentation/providers").replace(/\/+$/, ""), [stateUrl]);
-  const cuesUrl = useMemo(() => apiEndpoint(stateUrl, "sessions/presentation/cues").replace(/\/+$/, ""), [stateUrl]);
+  // Keep the Django trailing slash for the collection endpoints.  Stripping
+  // it makes the browser request ``.../cues`` and bypasses APPEND_SLASH on
+  // hosts that do not redirect missing slashes, leaving a visible 404 on
+  // every teacher-console load.
+  const providerUrl = useMemo(() => apiEndpoint(stateUrl, "sessions/presentation/providers"), [stateUrl]);
+  const cuesUrl = useMemo(() => apiEndpoint(stateUrl, "sessions/presentation/cues"), [stateUrl]);
 
   const refreshCues = () => getJson<{ cues: Cue[] }>(cuesUrl).then((data) => setCues(data.cues ?? []));
   useEffect(() => {
     void Promise.all([
-      getJson<{ providers: Provider[] }>(`${providerUrl}/`).then((data) => {
+      getJson<{ providers: Provider[] }>(providerUrl).then((data) => {
         const next = data.providers ?? [];
         setProviders(next);
         setProvider((current) => current || next[0]?.key || "");
@@ -63,7 +67,7 @@ export function PresentationSourcePicker({
     setPending(true);
     setStatus("");
     try {
-      const endpoint = new URL(`${providerUrl}/${encodeURIComponent(provider)}/search/`, window.location.href);
+      const endpoint = new URL(`${providerUrl}${encodeURIComponent(provider)}/search/`, window.location.href);
       endpoint.searchParams.set("q", query.trim());
       const data = await getJson<{ results: Source[] }>(endpoint.toString());
       setResults(data.results ?? []);
@@ -93,7 +97,7 @@ export function PresentationSourcePicker({
           source = { type: "external", provider, url: url.trim(), slide_index: index };
         }
         if (typeof source.reference !== "object") {
-          const resolved = await postJson<{ source: Source }>(`${providerUrl}/resolve/`, { provider, url: url.trim() }, crypto.randomUUID());
+          const resolved = await postJson<{ source: Source }>(`${providerUrl}resolve/`, { provider, url: url.trim() }, crypto.randomUUID());
           source = { ...resolved.source, slide_index: index };
         }
       }
@@ -115,7 +119,7 @@ export function PresentationSourcePicker({
     setPending(true);
     setStatus("");
     try {
-      await postJson(`${cuesUrl}/${cue.id}/launch/`, { channel: "display" }, crypto.randomUUID());
+      await postJson(`${cuesUrl}${cue.id}/launch/`, { channel: "display" }, crypto.randomUUID());
       setStatus(tr("Activity launched.", "活动已启动。"));
       await onRefresh();
       await refreshCues();
@@ -130,7 +134,7 @@ export function PresentationSourcePicker({
     if (pending) return;
     setPending(true);
     try {
-      await deleteJson(`${cuesUrl}/${cue.id}/`, crypto.randomUUID());
+      await deleteJson(`${cuesUrl}${cue.id}/`, crypto.randomUUID());
       await refreshCues();
     } catch (error) {
       setStatus(error instanceof Error ? error.message : tr("Unable to remove cue.", "无法移除提示点。"));
