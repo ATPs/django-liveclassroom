@@ -9,7 +9,7 @@ from django.db.migrations.executor import MigrationExecutor
 def test_question_bank_migration_preserves_definition_history():
     previous = [("liveclassroom", "0006_activity_question_metadata")]
     current = [("liveclassroom", "0007_question_banks")]
-    final = [("liveclassroom", "0014_assessment_sections")]
+    final = [("liveclassroom", "0021_authoringjob_artifact_type_authoringdraft")]
     executor = MigrationExecutor(connection)
     try:
         executor.migrate(previous)

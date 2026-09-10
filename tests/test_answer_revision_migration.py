@@ -6,7 +6,7 @@ from django.db.migrations.executor import MigrationExecutor
 @pytest.mark.django_db(transaction=True)
 def test_answer_revision_migration_is_additive_and_preserves_attempts():
     previous = [("liveclassroom", "0012_assessment_attempts")]
-    current = [("liveclassroom", "0014_assessment_sections")]
+    current = [("liveclassroom", "0021_authoringjob_artifact_type_authoringdraft")]
     executor = MigrationExecutor(connection)
     try:
         executor.migrate(previous)

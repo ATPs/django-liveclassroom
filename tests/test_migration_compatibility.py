@@ -9,7 +9,7 @@ from django.db.migrations.loader import MigrationLoader
 def test_fresh_schema_has_canonical_lesson_session_and_public_demo_tables():
     loader = MigrationLoader(connection)
     assert loader.graph.leaf_nodes("liveclassroom") == [
-        ("liveclassroom", "0014_assessment_sections")
+        ("liveclassroom", "0021_authoringjob_artifact_type_authoringdraft")
     ]
     assert sorted(key for key in loader.disk_migrations if key[0] == "liveclassroom") == [
         ("liveclassroom", "0001_initial"),
@@ -26,6 +26,13 @@ def test_fresh_schema_has_canonical_lesson_session_and_public_demo_tables():
         ("liveclassroom", "0012_assessment_attempts"),
         ("liveclassroom", "0013_attempt_answer_revisions"),
         ("liveclassroom", "0014_assessment_sections"),
+        ("liveclassroom", "0015_assessment_grades"),
+        ("liveclassroom", "0016_manual_grade_comments"),
+        ("liveclassroom", "0017_assessmentresultrelease"),
+        ("liveclassroom", "0018_grading_rule_revisions"),
+        ("liveclassroom", "0019_exam_navigation_controls"),
+        ("liveclassroom", "0020_content_shares"),
+        ("liveclassroom", "0021_authoringjob_artifact_type_authoringdraft"),
     ]
     tables = set(connection.introspection.table_names())
     assert {
@@ -47,6 +54,13 @@ def test_fresh_schema_has_canonical_lesson_session_and_public_demo_tables():
         "liveclassroom_answerrevision",
         "liveclassroom_assessmentsection",
         "liveclassroom_assessmentsectionentry",
+        "liveclassroom_assessmentattemptgrade",
+        "liveclassroom_assessmentitemgrade",
+        "liveclassroom_assessmentgradedecision",
+        "liveclassroom_assessmentresultrelease",
+        "liveclassroom_gradingrulerevision",
+        "liveclassroom_contentshare",
+        "liveclassroom_authoringdraft",
     } <= tables
     assert {"liveclassroom_flowitem", "liveclassroom_question"}.isdisjoint(tables)
     with connection.cursor() as cursor:
