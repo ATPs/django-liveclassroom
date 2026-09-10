@@ -33,7 +33,6 @@ from .grading import (
 from .plans import FlowShare, FlowSnapshot, SessionPlanStep, SnapshotAsset
 from .question_banks import QuestionBank, QuestionBankItem
 from .result_release import AssessmentResultRelease, ResultRelease
-from .sharing import ContentShare
 from .session import (
     ActivityRunRevision,
     CommandReceipt,
@@ -46,6 +45,7 @@ from .session import (
     SessionMessage,
     SessionStaff,
 )
+from .sharing import ContentShare
 from .submission import Submission, SubmissionRevision
 
 ActivityRun = LiveActivity
