@@ -5,7 +5,7 @@
 - Worktree: main checkout
 - Branch: main
 - Baseline commit: `6f04982fcb03029e665cabe2aa5aacccbecae903`
-- Final commit(s): `cc1d314` (`Add bilingual help and deterministic demos`)
+- Final commit(s): `564aee7` (`Add bilingual help and deterministic demos`); this report update is committed separately.
 - AIM snapshot SHA-256: `ddfe6b02c2cb211d012fd0eb23b3273c5c7b0031ada2f42184b864b5526da0e0`
 - Runtime: zsh, conda `django`, `PATH=/data/p/bin:$PATH`, `PYTHONPATH=.:src`
 - Verified package import path: current checkout through `PYTHONPATH=.:src`
