@@ -17,6 +17,7 @@ from . import (
     api_plans,
     api_presentation,
     api_progress,
+    api_question_analytics,
     api_question_banks,
     api_release,
     api_review,
@@ -101,6 +102,11 @@ urlpatterns = [
         name="api-v1-assessment-run-progress",
     ),
     path(
+        "api/v1/assessment-runs/<uuid:public_id>/question-analytics/",
+        api_question_analytics.assessment_run_question_analytics,
+        name="api-v1-assessment-run-question-analytics",
+    ),
+    path(
         "api/v1/students/<int:user_id>/overview/",
         api_progress.student_overview,
         name="api-v1-student-overview",
@@ -109,6 +115,11 @@ urlpatterns = [
         "api/v1/classes/<int:class_id>/grade-summary/",
         api_grade_summaries.class_summary,
         name="api-v1-class-grade-summary",
+    ),
+    path(
+        "api/v1/classes/<int:class_id>/question-analytics/",
+        api_question_analytics.class_question_analytics,
+        name="api-v1-class-question-analytics",
     ),
     path(
         "api/v1/courses/<int:course_id>/grade-summary/",
