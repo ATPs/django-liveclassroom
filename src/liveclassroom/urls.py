@@ -20,6 +20,7 @@ from . import (
     api_question_banks,
     api_release,
     api_review,
+    api_sharing,
     deck_delivery,
     deck_views,
     document_views,
@@ -31,6 +32,17 @@ app_name = "liveclassroom"
 
 urlpatterns = [
     path("api/v1/assessment-history/", api_assessment_review.history, name="api-v1-assessment-history"),
+    path("api/v1/content-shares/", api_sharing.content_shares, name="api-v1-content-shares"),
+    path(
+        "api/v1/content-shares/<int:share_id>/",
+        api_sharing.content_share_detail,
+        name="api-v1-content-share-detail",
+    ),
+    path(
+        "api/v1/content-shares/<int:share_id>/copy/",
+        api_sharing.content_share_copy,
+        name="api-v1-content-share-copy",
+    ),
     path(
         "api/v1/assessment-runs/<uuid:public_id>/attempts/",
         api_attempts.start_attempt,

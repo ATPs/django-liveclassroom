@@ -702,8 +702,12 @@ def _owned(actor, obj: Any, *, flow: bool = False) -> None:
 
 
 class _ExportContext:
-    def __init__(self, actor):
+    def __init__(self, actor, *, authorize=None):
         self.actor = actor
+        # Sharing supplies a graph-scoped authorization callback.  It is
+        # deliberately narrower than impersonating the source owner: every
+        # reached object and asset must be explicitly part of the source graph.
+        self.authorize = authorize
         self.activities: list[dict[str, Any]] = []
         self.decks: list[dict[str, Any]] = []
         self.assessments: list[dict[str, Any]] = []
@@ -720,8 +724,7 @@ class _ExportContext:
             return None
         if asset.pk in self.asset_keys:
             return self.asset_keys[asset.pk]
-        if not can_read_asset(self.actor, asset):
-            raise PortablePermissionError("You do not have permission to export this asset.")
+        self._authorize("asset", asset)
         try:
             handle, size = open_asset(asset)
             try:
@@ -758,8 +761,7 @@ class _ExportContext:
         source_key = (source.pk, revision.pk)
         if source_key in self.activity_keys:
             return self.activity_keys[source_key]
-        if not can_use_activity_definition(self.actor, source):
-            raise PortablePermissionError("You do not have permission to export this activity.")
+        self._authorize("activity", source)
         type_key = source.type_key
         definition_payload = deepcopy(revision.payload)
         _validate_provider_definition(self.actor, definition_payload)
@@ -784,8 +786,22 @@ class _ExportContext:
         )
         return key
 
+    def _authorize(self, kind: str, obj: Any) -> None:
+        if self.authorize is not None:
+            self.authorize(kind, obj)
+            return
+        if kind == "activity":
+            if not can_use_activity_definition(self.actor, obj):
+                raise PortablePermissionError("You do not have permission to export this activity.")
+            return
+        if kind == "asset":
+            if not can_read_asset(self.actor, obj):
+                raise PortablePermissionError("You do not have permission to export this asset.")
+            return
+        _owned(self.actor, obj, flow=kind == "flow")
+
     def add_bank(self, bank: QuestionBank) -> str:
-        _owned(self.actor, bank)
+        self._authorize("bank", bank)
         if bank.pk in self.bank_keys:
             return self.bank_keys[bank.pk]
         key = f"bank-{len(self.banks) + 1}"
@@ -798,7 +814,7 @@ class _ExportContext:
         return key
 
     def add_deck(self, deck: Deck) -> None:
-        _owned(self.actor, deck)
+        self._authorize("deck", deck)
         slides = []
         for slide in deck.slides.prefetch_related("assets").order_by("position", "id"):
             slides.append(
@@ -815,7 +831,7 @@ class _ExportContext:
         )
 
     def add_assessment(self, assessment: AssessmentDefinition) -> None:
-        _owned(self.actor, assessment)
+        self._authorize("assessment", assessment)
         item_rows = []
         for item in assessment.items.select_related("question_revision__definition").order_by("position", "id"):
             activity_key = self.add_activity(revision=item.question_revision)
@@ -866,7 +882,7 @@ class _ExportContext:
         self.assessments.append(result)
 
     def add_flow(self, flow: Flow) -> None:
-        _owned(self.actor, flow, flow=True)
+        self._authorize("flow", flow)
         steps = []
         for step in flow.steps.select_related("activity_definition").order_by("position", "id"):
             steps.append(self.add_activity(step.activity_definition))
@@ -926,6 +942,46 @@ def export_portable(*, actor, kind: str, object_id: Any) -> dict[str, Any]:
         "assets": context.assets,
     }
     return validate_portable(payload).to_dict()
+
+
+def export_portable_for_granted_graph(*, actor, kind: str, resource: Any, authorize) -> dict[str, Any]:
+    """Serialize one active named grant's exact reusable dependency graph.
+
+    ``authorize`` receives each reached resource kind and object.  Callers
+    must reject anything outside the active grant; the function never changes
+    ownership or presents the source owner as the recipient.
+    """
+    _require_teacher(actor)
+    canonical_kind = {"question": "activity"}.get(kind, kind)
+    expected = {
+        "activity": ActivityDefinition,
+        "bank": QuestionBank,
+        "deck": Deck,
+        "assessment": AssessmentDefinition,
+    }.get(canonical_kind)
+    if expected is None or not isinstance(resource, expected):
+        raise PortableContentError("Unsupported portable object kind.")
+    context = _ExportContext(actor, authorize=authorize)
+    if canonical_kind == "activity":
+        context.add_activity(resource)
+    elif canonical_kind == "bank":
+        context.add_bank(resource)
+    elif canonical_kind == "deck":
+        context.add_deck(resource)
+    else:
+        context.add_assessment(resource)
+    return validate_portable(
+        {
+            "format": FORMAT,
+            "version": VERSION,
+            "activities": context.activities,
+            "decks": context.decks,
+            "assessments": context.assessments,
+            "banks": context.banks,
+            "flows": context.flows,
+            "assets": context.assets,
+        }
+    ).to_dict()
 
 
 def _asset_import(actor, row: Mapping[str, Any]) -> ClassroomAsset:
