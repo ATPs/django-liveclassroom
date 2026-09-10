@@ -110,22 +110,27 @@ def safe_activity_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
 def can_manage_admission(user, session: LiveSession) -> bool:
     if not can_teach(user):
         return False
-    if (user.pk == session.teacher_id or user.is_superuser
-            or (session.course_id and session.course.created_by_id == user.pk)):
-        return True
-    if SessionStaff.objects.filter(
-        session=session,
-        user=user,
-        role__in=[SessionStaff.Role.COHOST, SessionStaff.Role.ASSISTANT],
-    ).exists():
-        return True
-    return bool(
-        session.course_id
-        and CourseMembership.objects.filter(
-            course_id=session.course_id,
-            user=user,
-            role__in=[CourseMembership.Role.TEACHER, CourseMembership.Role.ASSISTANT],
+    package_allowed = bool(
+        user.pk == session.teacher_id
+        or user.is_superuser
+        or (session.course_id and session.course.created_by_id == user.pk)
+        or SessionStaff.objects.filter(
+            session=session, user=user, role__in=[SessionStaff.Role.COHOST, SessionStaff.Role.ASSISTANT]
         ).exists()
+        or (
+            session.course_id
+            and CourseMembership.objects.filter(
+                course_id=session.course_id,
+                user=user,
+                role__in=[CourseMembership.Role.TEACHER, CourseMembership.Role.ASSISTANT],
+            ).exists()
+        )
+    )
+    from liveclassroom.integrations.host import host_can_view_roster
+
+    return bool(
+        package_allowed
+        and host_can_view_roster(actor=user, course_id=session.course_id, package_allowed=True)
     )
 
 

@@ -19,6 +19,7 @@ from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
+from liveclassroom.integrations.host import host_can_grade
 from liveclassroom.models import (
     AssessmentAttempt,
     AssessmentAttemptItem,
@@ -100,17 +101,24 @@ def _has_grading_scope(actor) -> bool:
 
 
 def can_grade_attempt(actor, attempt: AssessmentAttempt) -> bool:
-    """Apply package teacher policy and run/course staff ownership."""
+    """Apply package teacher policy and the configured host grading capability."""
     if not getattr(actor, "is_authenticated", False) or not can_teach(actor):
         return False
-    if getattr(actor, "is_superuser", False) or attempt.run.owner_id == actor.pk:
-        return True
     course = getattr(attempt.run, "course", None)
-    if course is not None and course.created_by_id == actor.pk:
-        return True
+    package_allowed = bool(
+        getattr(actor, "is_superuser", False)
+        or attempt.run.owner_id == actor.pk
+        or (
+            course is not None
+            and (
+                course.created_by_id == actor.pk
+                or CourseMembership.objects.filter(course=course, user=actor, role__in=_STAFF_ROLES).exists()
+            )
+        )
+    )
     return bool(
-        course
-        and CourseMembership.objects.filter(course=course, user=actor, role__in=_STAFF_ROLES).exists()
+        package_allowed
+        and host_can_grade(actor=actor, attempt_id=getattr(attempt, "pk", None), package_allowed=True)
     )
 
 

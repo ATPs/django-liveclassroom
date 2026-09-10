@@ -45,6 +45,24 @@ def can_author_course(actor, course: Course | None) -> bool:
     ).exists()
 
 
+def can_host_author(actor, resource=None, *, request=None) -> bool:
+    """Apply the configured host author policy after package authentication."""
+    from liveclassroom.integrations.host import host_can_author
+
+    return bool(can_teach(actor) and host_can_author(actor=actor, resource=resource, request=request))
+
+
+def can_host_deliver(actor, resource=None, *, request=None) -> bool:
+    """Apply the configured host delivery policy without inferring identity."""
+    from liveclassroom.integrations.host import host_can_deliver
+
+    return bool(
+        getattr(actor, "is_authenticated", False)
+        and host_can_deliver(actor=actor, resource=resource, request=request)
+    )
+
+
+
 def can_edit_flow(actor, flow: Flow) -> bool:
     """Whether an actor may edit a flow: creator, course owner, or course staff."""
     if not can_teach(actor):

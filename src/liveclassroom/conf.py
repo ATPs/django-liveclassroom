@@ -22,6 +22,7 @@ DEFAULTS = {
     # can teach.  A host may supply a callable accepting ``user`` and returning
     # an actual bool to apply its own teacher membership policy.
     "TEACHER_AUTHORIZER": None,
+    "HOST_ADAPTER": None,
     "POSTGRES_NOTIFY_CHANNEL": "liveclassroom_events",
 }
 

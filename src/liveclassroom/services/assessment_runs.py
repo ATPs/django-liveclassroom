@@ -18,12 +18,12 @@ from liveclassroom.models import (
 )
 
 from .classroom import ClassroomError
-from .permissions import can_author_course, can_teach, can_use_activity_definition
+from .permissions import can_author_course, can_host_author, can_teach, can_use_activity_definition
 from .question_banks import _matches, normalize_bank_filters
 
 
 def _owner(actor, assessment: AssessmentDefinition) -> None:
-    if not can_teach(actor) or (
+    if not can_teach(actor) or not can_host_author(actor, assessment) or (
         assessment.owner_id != actor.pk and not getattr(actor, "is_superuser", False)
     ):
         raise ClassroomError("You do not have permission to publish this assessment.")

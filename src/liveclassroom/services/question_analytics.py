@@ -18,6 +18,7 @@ from typing import Any
 
 from django.db.models import Prefetch
 
+from liveclassroom.integrations.host import host_can_view_named_responses
 from liveclassroom.models import (
     AnswerRevision,
     AssessmentAttempt,
@@ -130,7 +131,10 @@ def _authorized_run(actor, run: AssessmentRun) -> None:
 
 def _can_view_named_responses(actor, run: AssessmentRun) -> bool:
     """Use the existing explicit grading capability for identifying answers."""
-    return can_grade_attempt(actor, AssessmentAttempt(run=run))
+    package_allowed = can_grade_attempt(actor, AssessmentAttempt(run=run))
+    return host_can_view_named_responses(
+        actor=actor, session_id=run.pk, package_allowed=package_allowed
+    )
 
 
 def _test_user_ids(run: AssessmentRun) -> set[int]:
