@@ -166,6 +166,9 @@ def save_attempt_answer(
         raise AttemptAnswerConflict("This attempt is already finalized.", code="attempt_closed")
     if locked_attempt.deadline_at is not None and current_now >= locked_attempt.deadline_at:
         raise AttemptAnswerConflict("The answer deadline has passed.", code="attempt_closed")
+    from .assessment_navigation import assert_item_writable
+
+    assert_item_writable(attempt=locked_attempt, item=item)
 
     latest = _latest_answer(item)
     current_version = latest.version if latest is not None else 0
@@ -268,7 +271,15 @@ def start_or_resume_attempt(
     if maximum is not None and number > maximum:
         raise ClassroomError("No attempts remain for this assessment.")
     try:
-        attempt = AssessmentAttempt.objects.create(run=locked_run, user=actor, attempt_number=number)
+        navigation_mode = run_settings.get("navigation", "free")
+        if navigation_mode not in {"free", "forward_only"}:
+            raise ClassroomError("The assessment navigation mode is invalid.")
+        attempt = AssessmentAttempt.objects.create(
+            run=locked_run,
+            user=actor,
+            attempt_number=number,
+            navigation_mode=navigation_mode,
+        )
     except IntegrityError as exc:
         # The database constraints are the concurrency backstop on SQLite and PostgreSQL.
         active = AssessmentAttempt.objects.filter(
@@ -320,6 +331,12 @@ def _public_manifest(item: AssessmentAttemptItem) -> dict:
 
 
 def attempt_payload(attempt: AssessmentAttempt) -> dict:
+    current = timezone.now()
+    remaining_seconds = None
+    if attempt.deadline_at is not None:
+        remaining_seconds = max(0, int((attempt.deadline_at - current).total_seconds()))
+    from .assessment_navigation import navigation_payload
+
     return {
         "id": str(attempt.public_id),
         "run_id": str(attempt.run.public_id),
@@ -329,7 +346,9 @@ def attempt_payload(attempt: AssessmentAttempt) -> dict:
         "deadline_at": attempt.deadline_at.isoformat() if attempt.deadline_at else None,
         "submitted_at": attempt.submitted_at.isoformat() if attempt.submitted_at else None,
         "finalization_reason": attempt.finalization_reason or None,
-        "server_now": timezone.now().isoformat(),
+        "server_now": current.isoformat(),
+        "remaining_seconds": remaining_seconds,
+        "navigation": navigation_payload(attempt),
         "items": [_public_manifest(item) for item in attempt.items.all()],
     }
 

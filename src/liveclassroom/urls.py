@@ -2,6 +2,7 @@ from django.urls import path
 
 from . import (
     api,
+    api_assessment_review,
     api_assessment_runs,
     api_assessments,
     api_assets,
@@ -14,6 +15,7 @@ from . import (
     api_organization,
     api_plans,
     api_presentation,
+    api_progress,
     api_question_banks,
     api_release,
     api_review,
@@ -27,12 +29,18 @@ from . import (
 app_name = "liveclassroom"
 
 urlpatterns = [
+    path("api/v1/assessment-history/", api_assessment_review.history, name="api-v1-assessment-history"),
     path(
         "api/v1/assessment-runs/<uuid:public_id>/attempts/",
         api_attempts.start_attempt,
         name="api-v1-assessment-attempts",
     ),
     path("api/v1/attempts/<uuid:public_id>/", api_attempts.attempt_detail, name="api-v1-attempt-detail"),
+    path(
+        "api/v1/attempts/<uuid:public_id>/review/",
+        api_assessment_review.review,
+        name="api-v1-attempt-review",
+    ),
     path(
         "api/v1/attempts/<uuid:public_id>/result/",
         api_release.result,
@@ -73,6 +81,16 @@ urlpatterns = [
         "api/v1/assessment-runs/<uuid:public_id>/release/",
         api_release.release,
         name="api-v1-assessment-run-release",
+    ),
+    path(
+        "api/v1/assessment-runs/<uuid:public_id>/progress/",
+        api_progress.run_progress,
+        name="api-v1-assessment-run-progress",
+    ),
+    path(
+        "api/v1/students/<int:user_id>/overview/",
+        api_progress.student_overview,
+        name="api-v1-student-overview",
     ),
     path("api/v1/assessments/", api_assessments.assessments, name="api-v1-assessments"),
     path(

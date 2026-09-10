@@ -411,6 +411,7 @@ def copy_assessment(*, actor, assessment: AssessmentDefinition, title: str | Non
                     "key": section["key"],
                     "title": section["title"],
                     "position": section["position"],
+                    "shuffle_questions": section.get("shuffle_questions", False),
                     "entries": entries,
                 }
             )

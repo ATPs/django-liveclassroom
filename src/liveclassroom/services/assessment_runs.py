@@ -137,6 +137,7 @@ def _manifest(assessment: AssessmentDefinition, *, actor=None) -> tuple[dict[str
                 "key": str(section.key),
                 "title": section.title,
                 "position": section.position,
+                "shuffle_questions": section.shuffle_questions,
                 "entries": [],
             }
             fixed_definitions: set[int] = {
@@ -173,6 +174,7 @@ def _manifest(assessment: AssessmentDefinition, *, actor=None) -> tuple[dict[str
                             "kind": "fixed",
                             "item_key": str(item.key),
                             "item": deepcopy(snapshot),
+                            "shuffle_options": entry.shuffle_options,
                         }
                     )
                     continue
