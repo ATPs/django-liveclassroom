@@ -28,6 +28,7 @@ from .grading import (
     AttemptGrade,
     AttemptItemGrade,
     GradeDecision,
+    GradingRuleRevision,
 )
 from .plans import FlowShare, FlowSnapshot, SessionPlanStep, SnapshotAsset
 from .question_banks import QuestionBank, QuestionBankItem
@@ -83,6 +84,7 @@ __all__ = [
     "AttemptGrade",
     "AttemptItemGrade",
     "GradeDecision",
+    "GradingRuleRevision",
     "AssessmentResultRelease",
     "ResultRelease",
     "Flow",
