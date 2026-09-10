@@ -12,6 +12,10 @@ from django.conf import settings
 from django.db import models
 from django.utils import timezone
 
+GRADING_RULE_FIELDS = frozenset(
+    {"answer", "correct_answer", "tolerance", "partial_credit", "case_sensitive"}
+)
+
 
 class AssessmentAttemptGrade(models.Model):
     """Current aggregate for one finalized assessment attempt."""
@@ -146,6 +150,71 @@ class AssessmentGradeDecision(models.Model):
         return f"Grade decision for attempt item {self.item_id}"
 
 
+class GradingRuleRevision(models.Model):
+    """An approved, immutable grading-only correction for a run item."""
+
+    run = models.ForeignKey(
+        "liveclassroom.AssessmentRun",
+        on_delete=models.CASCADE,
+        related_name="grading_rule_revisions",
+    )
+    item_key = models.UUIDField()
+    rule_version = models.CharField(max_length=100)
+    version = models.PositiveIntegerField()
+    configuration = models.JSONField()
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="liveclassroom_grading_rule_revisions",
+    )
+    reason = models.CharField(max_length=255)
+    approved_at = models.DateTimeField()
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ("run", "item_key", "version")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["run", "item_key", "version"],
+                name="lc_grading_rule_revision_once",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["run", "item_key", "rule_version"], name="lc_grading_rule_lookup_idx"),
+        ]
+
+    @classmethod
+    def validate_configuration(cls, configuration: object) -> dict:
+        """Validate the model-level grading-only shape.
+
+        The service additionally validates the merged definition through the
+        activity registry before persisting a revision.
+        """
+        if not isinstance(configuration, dict) or not configuration:
+            raise ValueError("A grading rule configuration must be a non-empty object.")
+        unknown = set(configuration) - GRADING_RULE_FIELDS
+        if unknown:
+            raise ValueError("A grading rule may change grading fields only.")
+        return configuration
+
+    def clean(self) -> None:
+        from django.core.exceptions import ValidationError
+
+        try:
+            self.validate_configuration(self.configuration)
+        except ValueError as exc:
+            raise ValidationError({"configuration": str(exc)}) from exc
+        if not self.reason or not self.reason.strip():
+            raise ValidationError({"reason": "A reason is required."})
+        if len(self.reason) > 255:
+            raise ValidationError({"reason": "The reason is too long."})
+        if not self.rule_version or not self.rule_version.strip():
+            raise ValidationError({"rule_version": "A rule version is required."})
+
+    def __str__(self) -> str:
+        return f"{self.run_id}:{self.item_key} grading rule v{self.version}"
+
+
 # Short names make the result vocabulary easy for task 32/33 integrations
 # while retaining explicit model names for migrations and admin code.
 AttemptGrade = AssessmentAttemptGrade
@@ -157,6 +226,7 @@ __all__ = [
     "AssessmentAttemptGrade",
     "AssessmentItemGrade",
     "AssessmentGradeDecision",
+    "GradingRuleRevision",
     "AttemptGrade",
     "AttemptItemGrade",
     "GradeDecision",
