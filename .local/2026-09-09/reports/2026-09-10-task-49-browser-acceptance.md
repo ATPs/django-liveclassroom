@@ -51,3 +51,19 @@ in both languages and both widths. Task 49 therefore remains **PARTIAL**.
 
 Host, optional-provider, PostgreSQL-concurrency, multi-worker reconnect and load
 acceptance remain separate tasks.
+
+## Additional import evidence (2026-09-10)
+
+```text
+tmux session: lc_task49_import_final2
+log: .local/2026-09-09/reports/task49-flow-import-final2-20260910.log
+exit: .local/2026-09-09/reports/task49-flow-import-final2-20260910.exit (0)
+pytest -q tests/test_flow_import_browser.py
+1 passed in 5.79s
+```
+
+The new real-browser path logs in a teacher, imports a Markdown/YAML lesson through
+the builder modal, verifies the generated private lesson through the UI and database,
+then submits malformed JSON. The visible error retains the entered source for correction
+and the mobile viewport has no horizontal overflow. Durable screenshots are in
+`.local/2026-09-09/screenshots/task49/`.
