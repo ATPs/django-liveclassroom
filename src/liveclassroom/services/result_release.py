@@ -230,7 +230,10 @@ def _explanation(item: AssessmentAttemptItem):
 
 
 def _grade_payload(item: AssessmentAttemptItem) -> dict[str, Any] | None:
-    grade = getattr(item, "grade", None)
+    try:
+        grade = item.grade
+    except AssessmentItemGrade.DoesNotExist:
+        grade = None
     if grade is None:
         grade = AssessmentItemGrade.objects.filter(item=item).first()
     if grade is None:
@@ -244,7 +247,10 @@ def _grade_payload(item: AssessmentAttemptItem) -> dict[str, Any] | None:
 
 
 def _aggregate_payload(attempt: AssessmentAttempt) -> dict[str, Any] | None:
-    grade = getattr(attempt, "grade", None)
+    try:
+        grade = attempt.grade
+    except AssessmentAttemptGrade.DoesNotExist:
+        grade = None
     if grade is None:
         grade = AssessmentAttemptGrade.objects.filter(attempt=attempt).first()
     if grade is None:
@@ -291,7 +297,10 @@ def student_result_payload(*, attempt: AssessmentAttempt, now: datetime | None =
         if allowed["explanations"]:
             row["explanation"] = _explanation(item)
         if allowed["comments"]:
-            grade = getattr(item, "grade", None)
+            try:
+                grade = item.grade
+            except AssessmentItemGrade.DoesNotExist:
+                grade = None
             if grade is None:
                 grade = AssessmentItemGrade.objects.filter(item=item).first()
             row["comment"] = grade.comment if grade is not None else ""

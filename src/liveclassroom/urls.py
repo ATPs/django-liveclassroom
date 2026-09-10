@@ -2,6 +2,7 @@ from django.urls import path
 
 from . import (
     api,
+    api_assessment_exports,
     api_assessment_review,
     api_assessment_runs,
     api_assessments,
@@ -61,6 +62,11 @@ urlpatterns = [
         name="api-v1-attempt-result",
     ),
     path(
+        "api/v1/attempts/<uuid:public_id>/result/export/",
+        api_assessment_exports.attempt_export,
+        name="api-v1-attempt-result-export",
+    ),
+    path(
         "api/v1/attempts/<uuid:public_id>/answers/",
         api_attempts.save_answer,
         name="api-v1-attempt-answers",
@@ -107,6 +113,11 @@ urlpatterns = [
         name="api-v1-assessment-run-question-analytics",
     ),
     path(
+        "api/v1/assessment-runs/<uuid:public_id>/results/export/",
+        api_assessment_exports.assessment_run_export,
+        name="api-v1-assessment-run-results-export",
+    ),
+    path(
         "api/v1/students/<int:user_id>/overview/",
         api_progress.student_overview,
         name="api-v1-student-overview",
@@ -120,6 +131,11 @@ urlpatterns = [
         "api/v1/classes/<int:class_id>/question-analytics/",
         api_question_analytics.class_question_analytics,
         name="api-v1-class-question-analytics",
+    ),
+    path(
+        "api/v1/classes/<int:class_id>/results/export/",
+        api_assessment_exports.class_export,
+        name="api-v1-class-results-export",
     ),
     path(
         "api/v1/courses/<int:course_id>/grade-summary/",
