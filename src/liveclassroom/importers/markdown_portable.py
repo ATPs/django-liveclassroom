@@ -181,7 +181,16 @@ class _StrictSafeLoader(yaml.SafeLoader):
         mapping: dict[Any, Any] = {}
         for key_node, value_node in node.value:
             key = self.construct_object(key_node, deep=deep)
-            if key in mapping:
+            try:
+                duplicate = key in mapping
+            except TypeError as exc:
+                raise yaml.constructor.ConstructorError(
+                    "while constructing a mapping",
+                    node.start_mark,
+                    "mapping keys must be scalar values",
+                    key_node.start_mark,
+                ) from exc
+            if duplicate:
                 raise yaml.constructor.ConstructorError(
                     "while constructing a mapping",
                     node.start_mark,
@@ -406,8 +415,11 @@ def _strict_url(raw: str, *, path: str, line: int | None = None) -> tuple[str | 
         return None, _error(path, "unsafe_url", "External and scheme URLs are not allowed.", line)
     if value.startswith("/") or "\\" in value:
         return None, _error(path, "unsafe_path", "Absolute and backslash paths are not allowed.", line)
-    parts = value.split("#", 1)[0].split("?", 1)[0].split("/")
-    if any(part in {"", ".", ".."} for part in parts):
+    value = value.split("#", 1)[0].split("?", 1)[0]
+    while value.startswith("./"):
+        value = value[2:]
+    parts = value.split("/")
+    if len(parts) != 1 or not value or any(part in {".", ".."} for part in parts):
         return None, _error(path, "unsafe_path", "Resource paths must be direct siblings without traversal.", line)
     return value, None
 
