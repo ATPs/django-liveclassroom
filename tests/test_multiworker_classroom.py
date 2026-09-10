@@ -7,6 +7,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
 import pytest
@@ -120,6 +121,33 @@ def _close_sockets(websockets) -> None:
         list(pool.map(_close_socket, websockets))
 
 
+def _load_number(name: str, default: float, *, minimum: float = 0.0) -> float:
+    """Read a bounded numeric load setting without accepting NaN or infinity."""
+    raw = os.environ.get(name, str(default))
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be a number") from exc
+    if value < minimum or value != value or value in (float("inf"), float("-inf")):
+        raise ValueError(f"{name} must be at least {minimum}")
+    return value
+
+
+def _requested_worker_zero_port() -> int | None:
+    """Return a task-owned loopback port requested by the CLI harness, if any."""
+    raw = os.environ.get("LIVECLASSROOM_LOAD_BASE_URL")
+    if not raw:
+        return None
+    parsed = urlsplit(raw)
+    if parsed.scheme != "http" or parsed.hostname not in {"127.0.0.1", "localhost"} or parsed.path not in {"", "/"}:
+        raise ValueError("LIVECLASSROOM_LOAD_BASE_URL must be an http loopback URL")
+    if parsed.query or parsed.fragment or parsed.username or parsed.password:
+        raise ValueError("LIVECLASSROOM_LOAD_BASE_URL must not contain credentials or a query")
+    if parsed.port is None or not (1 <= parsed.port <= 65535):
+        raise ValueError("LIVECLASSROOM_LOAD_BASE_URL must include a valid port")
+    return parsed.port
+
+
 def _spawn_worker(*, repo_root: Path, env: dict[str, str], port: int, log_path: Path, append: bool = False):
     mode = "a" if append else "w"
     with log_path.open(mode) as log:
@@ -176,9 +204,14 @@ def test_two_uvicorn_workers_preserve_http_retries_reconnect_and_realtime_state(
     pytest.importorskip("uvicorn")
     connect = pytest.importorskip("websockets.sync.client").connect
     participant_count = int(os.environ.get("LIVECLASSROOM_LOAD_PARTICIPANTS", "100"))
-    relay_timeout = float(os.environ.get("LIVECLASSROOM_LOAD_RELAY_TIMEOUT", "45"))
+    relay_timeout = _load_number("LIVECLASSROOM_LOAD_RELAY_TIMEOUT", 45, minimum=0.1)
+    warmup_seconds = _load_number("LIVECLASSROOM_LOAD_WARMUP_SECONDS", 0)
+    duration_seconds = _load_number("LIVECLASSROOM_LOAD_DURATION_SECONDS", 0)
+    interval_seconds = _load_number("LIVECLASSROOM_LOAD_INTERVAL_SECONDS", 1, minimum=0.01)
     if participant_count < 1 or relay_timeout <= 0:
         raise ValueError("LIVECLASSROOM_LOAD_PARTICIPANTS and LIVECLASSROOM_LOAD_RELAY_TIMEOUT must be positive")
+    if warmup_seconds and not duration_seconds:
+        raise ValueError("LIVECLASSROOM_LOAD_DURATION_SECONDS is required when warm-up is enabled")
 
     teacher = get_user_model().objects.create_user(username="multiworker-teacher")
     classrooms = []
@@ -217,7 +250,8 @@ def test_two_uvicorn_workers_preserve_http_retries_reconnect_and_realtime_state(
     teacher_client.force_login(teacher)
     teacher_cookie = f"{settings.SESSION_COOKIE_NAME}={teacher_client.cookies[settings.SESSION_COOKIE_NAME].value}"
     repo_root = Path(__file__).resolve().parents[1]
-    ports = [_free_port()]
+    requested_port = _requested_worker_zero_port()
+    ports = [requested_port or _free_port()]
     while len(ports) < 2:
         candidate = _free_port()
         if candidate not in ports:
@@ -299,9 +333,12 @@ def test_two_uvicorn_workers_preserve_http_retries_reconnect_and_realtime_state(
                 )
 
         accepted_writes = set()
-        started = time.monotonic()
+        warmup_started = time.monotonic()
+        warmup_finished = warmup_started
+        measured_started = warmup_started
+        measured_rounds = 0
 
-        def submit(record, *, suffix: str, answer: str):
+        def submit(record, *, suffix: str, answer: str, round_number: int | None = None):
             classroom = classrooms[record["classroom_index"]]
             activity = classroom["activity"]
             body = json.dumps(
@@ -313,15 +350,16 @@ def test_two_uvicorn_workers_preserve_http_retries_reconnect_and_realtime_state(
             ).encode()
             endpoint = reverse("liveclassroom:api-v1-submit", args=[activity.pk])
             worker_index = record["worker_index"]
+            request_suffix = suffix if round_number is None else f"{suffix}-{round_number}"
             first = _timed_request(
                 f"{base_urls[worker_index]}{endpoint}",
                 cookie=record["cookie"],
                 body=body,
-                key=f"multiworker-{suffix}-{record['classroom_index']}-{record['participant_index']}",
+                key=f"multiworker-{request_suffix}-{record['classroom_index']}-{record['participant_index']}",
             )
             request_latencies.append(first[3])
             if first[0] == 201:
-                accepted_writes.add((suffix, record["classroom_index"], record["participant_index"]))
+                accepted_writes.add((request_suffix, record["classroom_index"], record["participant_index"]))
             return first
 
         records = list(socket_records)
@@ -362,6 +400,7 @@ def test_two_uvicorn_workers_preserve_http_retries_reconnect_and_realtime_state(
         with ThreadPoolExecutor(max_workers=16) as pool:
             retries = list(pool.map(replay, records))
         assert all(result[0] == 201 and result[2] == "true" for result in retries), [result[:3] for result in retries]
+        idempotent_retry_count = len(retries)
         connections.close_all()
         assert all(
             SubmissionRevision.objects.filter(submission__activity=classroom["activity"]).count() == participant_count
@@ -411,10 +450,65 @@ def test_two_uvicorn_workers_preserve_http_retries_reconnect_and_realtime_state(
                 )
             )
         assert all(result[0] == 201 for result in edits), [result[:3] for result in edits]
-        assert len(accepted_writes) == participant_count * 4
+
+        # The CLI harness may request a warm-up interval before the measured
+        # interval. Both intervals use the same write path; their boundaries
+        # are recorded separately in the final line so a short diagnostic run
+        # cannot be mistaken for sustained evidence.
+        warmup_rounds = 0
+        if warmup_seconds:
+            warmup_deadline = time.monotonic() + warmup_seconds
+            while time.monotonic() < warmup_deadline:
+                round_started = time.monotonic()
+                with ThreadPoolExecutor(max_workers=16) as pool:
+                    warmup = list(
+                        pool.map(
+                            lambda record: submit(
+                                record,
+                                suffix="warmup",
+                                round_number=warmup_rounds,
+                                answer=f"warmup-{warmup_rounds}-{record['classroom_index']}-{record['participant_index']}",
+                            ),
+                            records,
+                        )
+                    )
+                assert all(result[0] == 201 for result in warmup), [result[:3] for result in warmup]
+                warmup_rounds += 1
+                remaining = interval_seconds - (time.monotonic() - round_started)
+                if remaining > 0:
+                    time.sleep(min(remaining, max(0.0, warmup_deadline - time.monotonic())))
+            warmup_finished = time.monotonic()
+        else:
+            warmup_finished = time.monotonic()
+
+        measured_started = time.monotonic()
+        measured_deadline = measured_started + duration_seconds
+        while time.monotonic() < measured_deadline:
+            round_started = time.monotonic()
+            with ThreadPoolExecutor(max_workers=16) as pool:
+                measured = list(
+                    pool.map(
+                        lambda record: submit(
+                            record,
+                            suffix="sustained",
+                            round_number=measured_rounds,
+                            answer=f"sustained-{measured_rounds}-{record['classroom_index']}-{record['participant_index']}",
+                        ),
+                        records,
+                    )
+                )
+            assert all(result[0] == 201 for result in measured), [result[:3] for result in measured]
+            measured_rounds += 1
+            remaining = interval_seconds - (time.monotonic() - round_started)
+            if remaining > 0:
+                time.sleep(min(remaining, max(0.0, measured_deadline - time.monotonic())))
+
+        expected_rounds = 2 + warmup_rounds + measured_rounds
+        expected_accepted_writes = participant_count * 2 * expected_rounds
+        assert len(accepted_writes) == expected_accepted_writes
         assert all(
             SubmissionRevision.objects.filter(submission__activity=classroom["activity"]).count()
-            == participant_count * 2
+            == participant_count * expected_rounds
             for classroom in classrooms
         )
 
@@ -480,12 +574,15 @@ def test_two_uvicorn_workers_preserve_http_retries_reconnect_and_realtime_state(
             for record, version in zip(convergence_records, observed_versions)
         )
         print(
-            f"{participant_count * 2} students, {participant_count * 4} accepted writes and "
-            f"{participant_count * 4} HTTP retries across 2 classrooms/2 workers; "
+            f"{participant_count * 2} students, {expected_accepted_writes} accepted writes and "
+            f"{idempotent_retry_count} idempotent retries across 2 classrooms/2 workers; "
             f"websocket convergence sample={len(convergence_records)} "
             f"p50={_percentile(request_latencies, 0.50):.1f}ms "
             f"p95={_percentile(request_latencies, 0.95):.1f}ms "
-            f"max={max(request_latencies):.1f}ms duration={time.monotonic() - started:.2f}s"
+            f"max={max(request_latencies):.1f}ms "
+            f"warmup={warmup_finished - warmup_started:.2f}s "
+            f"measured={time.monotonic() - measured_started:.2f}s "
+            f"rounds={warmup_rounds}+{measured_rounds}"
         )
     except BaseException as exc:
         failure = exc
