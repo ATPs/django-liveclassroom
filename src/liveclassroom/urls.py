@@ -11,6 +11,7 @@ from . import (
     api_deck_portability,
     api_decks,
     api_flows,
+    api_grade_summaries,
     api_grading,
     api_organization,
     api_plans,
@@ -91,6 +92,21 @@ urlpatterns = [
         "api/v1/students/<int:user_id>/overview/",
         api_progress.student_overview,
         name="api-v1-student-overview",
+    ),
+    path(
+        "api/v1/classes/<int:class_id>/grade-summary/",
+        api_grade_summaries.class_summary,
+        name="api-v1-class-grade-summary",
+    ),
+    path(
+        "api/v1/courses/<int:course_id>/grade-summary/",
+        api_grade_summaries.course_summary,
+        name="api-v1-course-grade-summary",
+    ),
+    path(
+        "api/v1/teaching-courses/<int:teaching_course_id>/grade-summary/",
+        api_grade_summaries.teaching_course_summary,
+        name="api-v1-teaching-course-grade-summary",
     ),
     path("api/v1/assessments/", api_assessments.assessments, name="api-v1-assessments"),
     path(
