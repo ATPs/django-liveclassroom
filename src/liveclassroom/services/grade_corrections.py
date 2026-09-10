@@ -90,11 +90,11 @@ def _locked_item(attempt_item: AssessmentAttemptItem) -> tuple[AssessmentAttempt
     try:
         reference = AssessmentAttemptItem.objects.get(pk=attempt_item.pk)
         attempt = (
-            AssessmentAttempt.objects.select_for_update()
+            AssessmentAttempt.objects.select_for_update(of=("self",))
             .select_related("run", "run__course", "user")
             .get(pk=reference.attempt_id)
         )
-        item = AssessmentAttemptItem.objects.select_for_update().get(pk=reference.pk)
+        item = AssessmentAttemptItem.objects.select_for_update(of=("self",)).get(pk=reference.pk)
     except (AssessmentAttempt.DoesNotExist, AssessmentAttemptItem.DoesNotExist) as exc:
         raise GradeCorrectionError("The assessment item was not found.") from exc
     if item.attempt_id != attempt.pk:
@@ -454,7 +454,7 @@ def regrade_attempts(
                 raise GradeCorrectionError("You do not have permission to regrade this run.")
             with transaction.atomic():
                 locked_attempt = (
-                    AssessmentAttempt.objects.select_for_update()
+                    AssessmentAttempt.objects.select_for_update(of=("self",))
                     .select_related("run", "run__course", "user")
                     .get(pk=reference.pk)
                 )
