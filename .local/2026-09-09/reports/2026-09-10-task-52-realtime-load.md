@@ -2,9 +2,9 @@
 
 ## Status: PARTIAL
 
-The existing package-owned PostgreSQL harnesses provide real, task-owned baseline
-coverage. They do not meet the full two-classroom, restart/reconnect, assessment, or
-measured-duration contract, so Task 52 remains partial.
+The package-owned PostgreSQL harnesses provide real, task-owned two-worker,
+restart/reconnect, and assessment-resilience evidence. They do not meet the full
+two-classroom sustained-duration contract, so Task 52 remains partial.
 
 ## Passed task-owned evidence
 
@@ -92,9 +92,8 @@ are unavailable.
 
 ## Required remaining work
 
-The full Task 52 contract has not been demonstrated: two simultaneous classrooms with
-100 participants each; measured warm-up and ten-minute interval with p50/p95; an
-intentional socket-loss reconnect and one worker restart; assessment autosave,
-submission and deadline expiry while sockets are unavailable; an acknowledged-write
-ledger; and a reproducible command-line harness with the requested `--help` arguments.
-This evidence is not browser usability, host deployment, or production-load proof.
+The full Task 52 contract has not been demonstrated: a combined two-classroom run
+with 100 participants in each classroom; a measured warm-up and ten-minute interval
+with sustained p50/p95 results; and a reusable command-line harness with the requested
+`--help` arguments. This evidence is not browser usability, host deployment, or
+production-load proof.
