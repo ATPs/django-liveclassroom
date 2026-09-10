@@ -76,6 +76,7 @@ class AssessmentSection(models.Model):
     )
     title = models.CharField(max_length=200)
     position = models.PositiveIntegerField()
+    shuffle_questions = models.BooleanField(default=False)
 
     class Meta:
         ordering = ("position", "id")

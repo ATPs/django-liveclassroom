@@ -110,7 +110,13 @@ def _item_for_reference(
 def _allowed(row: Mapping[str, Any], kind: str) -> None:
     common = {"key", "position", "kind", "type", "entry_type"}
     if kind == "fixed":
-        allowed = common | {"item_key", "assessment_item_key", "item_id", "assessment_item_id"}
+        allowed = common | {
+            "item_key",
+            "assessment_item_key",
+            "item_id",
+            "assessment_item_id",
+            "shuffle_options",
+        }
     else:
         allowed = common | {
             "bank_id",
@@ -153,6 +159,10 @@ def _entry_rows(actor, assessment: AssessmentDefinition, section: Mapping[str, A
                 raise ClassroomError("A fixed assessment item cannot appear twice in a section.")
             seen_items.add(item.pk)
             row["item"] = item
+            shuffle = raw.get("shuffle_options", False)
+            if not isinstance(shuffle, bool):
+                raise ClassroomError("shuffle_options must be a boolean.")
+            row["shuffle_options"] = shuffle
             rows.append(row)
             continue
         bank_value = raw.get("bank_id", raw.get("question_bank_id"))
@@ -186,7 +196,7 @@ def normalize_sections(*, actor, assessment: AssessmentDefinition, sections: Any
     for index, raw in enumerate(sections, 1):
         if not isinstance(raw, Mapping):
             raise ClassroomError("Each section must be an object.")
-        allowed = {"key", "title", "position", "entries"}
+        allowed = {"key", "title", "position", "entries", "shuffle_questions"}
         if set(raw) - allowed:
             raise ClassroomError("Unsupported section fields.")
         key = _uuid(raw.get("key", uuid4()), "Section key")
@@ -194,6 +204,9 @@ def normalize_sections(*, actor, assessment: AssessmentDefinition, sections: Any
             raise ClassroomError("Each section key must be unique.")
         seen_section_keys.add(key)
         title = _text(raw.get("title", f"Section {index}"), "title", required=True)
+        shuffle_questions = raw.get("shuffle_questions", False)
+        if not isinstance(shuffle_questions, bool):
+            raise ClassroomError("shuffle_questions must be a boolean.")
         entries, fixed = _entry_rows(actor, assessment, raw, items)
         overlap = represented & fixed
         if overlap:
@@ -204,6 +217,7 @@ def normalize_sections(*, actor, assessment: AssessmentDefinition, sections: Any
                 "key": key,
                 "position": _position(raw.get("position"), "position") or index,
                 "title": title,
+                "shuffle_questions": shuffle_questions,
                 "entries": entries,
             }
         )
@@ -230,7 +244,15 @@ def default_sections(assessment: AssessmentDefinition) -> list[dict[str, Any]]:
         }
         for item in assessment.items.all().order_by("position", "id")
     ]
-    return [{"key": uuid4(), "position": 1, "title": "Section 1", "entries": entries}]
+    return [
+        {
+            "key": uuid4(),
+            "position": 1,
+            "title": "Section 1",
+            "shuffle_questions": False,
+            "entries": entries,
+        }
+    ]
 
 
 def _write_sections(assessment: AssessmentDefinition, sections: Sequence[Mapping[str, Any]]) -> None:
@@ -243,6 +265,7 @@ def _write_sections(assessment: AssessmentDefinition, sections: Sequence[Mapping
                 key=section["key"],
                 title=section["title"],
                 position=section["position"],
+                shuffle_questions=section.get("shuffle_questions", False),
             )
         )
     AssessmentSection.objects.bulk_create(section_rows)
@@ -308,6 +331,8 @@ def section_payload(section: AssessmentSection, *, include_private: bool = True)
         if entry.kind == AssessmentSectionEntry.Kind.FIXED:
             payload["item_key"] = str(entry.item.key)
             payload["item_id"] = entry.item_id
+            if include_private:
+                payload["shuffle_options"] = entry.shuffle_options
         elif include_private:
             payload.update(
                 {
@@ -319,7 +344,13 @@ def section_payload(section: AssessmentSection, *, include_private: bool = True)
                 }
             )
         entries.append(payload)
-    return {"key": str(section.key), "title": section.title, "position": section.position, "entries": entries}
+    return {
+        "key": str(section.key),
+        "title": section.title,
+        "position": section.position,
+        "shuffle_questions": section.shuffle_questions,
+        "entries": entries,
+    }
 
 
 def sections_payload(assessment: AssessmentDefinition, *, include_private: bool = True) -> list[dict[str, Any]]:

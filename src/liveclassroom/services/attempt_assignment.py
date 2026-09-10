@@ -41,18 +41,21 @@ def _points(value: Any) -> Decimal:
     return result
 
 
-def _ordered_entries(manifest: dict) -> list[tuple[dict, dict]]:
+def _ordered_sections(manifest: dict) -> list[dict]:
     sections = manifest.get("sections")
     if not isinstance(sections, list) or not sections:
-        return [({"position": 1}, {"kind": "fixed", "item": item}) for item in manifest.get("items", [])]
-    output = []
+        return [{"position": 1, "entries": [{"kind": "fixed", "item": item} for item in manifest.get("items", [])]}]
+    output: list[dict] = []
     for section in sorted(sections, key=lambda row: row.get("position", 0) if isinstance(row, dict) else 0):
         if not isinstance(section, dict) or not isinstance(section.get("entries"), list):
             raise ClassroomError("The published assessment assignment is invalid.")
-        for entry in sorted(section["entries"], key=lambda row: row.get("position", 0) if isinstance(row, dict) else 0):
-            if not isinstance(entry, dict):
-                raise ClassroomError("The published assessment assignment is invalid.")
-            output.append((section, entry))
+        section = deepcopy(section)
+        section["entries"] = sorted(
+            section["entries"], key=lambda row: row.get("position", 0) if isinstance(row, dict) else 0
+        )
+        if not all(isinstance(entry, dict) for entry in section["entries"]):
+            raise ClassroomError("The published assessment assignment is invalid.")
+        output.append(section)
     return output
 
 
@@ -78,37 +81,45 @@ def assigned_item_manifests(*, run: AssessmentRun, rng=None) -> list[dict]:
     manifest = run.manifest if isinstance(run.manifest, dict) else {}
     rng = rng or SystemRandom()
     chosen: list[dict] = []
-    for section, entry in _ordered_entries(manifest):
-        kind = entry.get("kind")
-        if kind == "fixed":
-            item = entry.get("item")
-            if not isinstance(item, dict):
+    for section in _ordered_sections(manifest):
+        section_chosen: list[dict] = []
+        for entry in section["entries"]:
+            kind = entry.get("kind")
+            if kind == "fixed":
+                item = entry.get("item")
+                if not isinstance(item, dict):
+                    raise ClassroomError("The published assessment assignment is invalid.")
+                selected = [deepcopy(item)]
+                shuffle_options = entry.get("shuffle_options", False)
+                if not isinstance(shuffle_options, bool):
+                    raise ClassroomError("The published assessment assignment is invalid.")
+            elif kind == "pool":
+                candidates = entry.get("candidates")
+                count = entry.get("sample_size")
+                if (
+                    not isinstance(candidates, list)
+                    or isinstance(count, bool)
+                    or not isinstance(count, int)
+                    or count < 1
+                    or count > len(candidates)
+                    or not all(isinstance(candidate, dict) for candidate in candidates)
+                ):
+                    raise ClassroomError("The published assessment pool assignment is invalid.")
+                selected = [deepcopy(candidate) for candidate in rng.sample(candidates, count)]
+                shuffle_options = entry.get("shuffle_options", False)
+                if not isinstance(shuffle_options, bool):
+                    raise ClassroomError("The published assessment pool assignment is invalid.")
+            else:
                 raise ClassroomError("The published assessment assignment is invalid.")
-            selected = [deepcopy(item)]
-            shuffle_options = False
-        elif kind == "pool":
-            candidates = entry.get("candidates")
-            count = entry.get("sample_size")
-            if (
-                not isinstance(candidates, list)
-                or isinstance(count, bool)
-                or not isinstance(count, int)
-                or count < 1
-                or count > len(candidates)
-                or not all(isinstance(candidate, dict) for candidate in candidates)
-            ):
-                raise ClassroomError("The published assessment pool assignment is invalid.")
-            selected = [deepcopy(candidate) for candidate in rng.sample(candidates, count)]
-            shuffle_options = entry.get("shuffle_options", False)
-            if not isinstance(shuffle_options, bool):
-                raise ClassroomError("The published assessment pool assignment is invalid.")
-        else:
+            section_chosen.extend(
+                _maybe_shuffle_options(item, enabled=shuffle_options, rng=rng) for item in selected
+            )
+        shuffle_questions = section.get("shuffle_questions", False)
+        if not isinstance(shuffle_questions, bool):
             raise ClassroomError("The published assessment assignment is invalid.")
-        if section.get("shuffle_questions", False):
-            if not isinstance(section["shuffle_questions"], bool):
-                raise ClassroomError("The published assessment assignment is invalid.")
-            rng.shuffle(selected)
-        chosen.extend(_maybe_shuffle_options(item, enabled=shuffle_options, rng=rng) for item in selected)
+        if shuffle_questions:
+            rng.shuffle(section_chosen)
+        chosen.extend(section_chosen)
     if not chosen:
         raise ClassroomError("The published assessment has no usable questions.")
     return chosen

@@ -24,6 +24,14 @@ class AssessmentAttempt(models.Model):
     deadline_at = models.DateTimeField(null=True, blank=True)
     submitted_at = models.DateTimeField(null=True, blank=True)
     finalization_reason = models.CharField(max_length=32, blank=True)
+    # These fields are a durable navigation cursor, rather than a client-side
+    # hint.  ``locked_item_keys`` stores stable assigned-item UUIDs because
+    # presentation positions are not identities and can be reloaded safely.
+    navigation_mode = models.CharField(max_length=20, default="free")
+    current_item_position = models.PositiveIntegerField(default=1)
+    highest_accessible_item_position = models.PositiveIntegerField(default=1)
+    locked_item_keys = models.JSONField(default=list, blank=True)
+    navigation_version = models.PositiveIntegerField(default=1)
 
     class Meta:
         ordering = ("run", "user", "attempt_number")
