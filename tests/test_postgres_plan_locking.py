@@ -60,6 +60,7 @@ def test_revision_and_session_snapshot_race_is_consistent_on_postgres():
         "kind": definitions[0].type_key.rsplit(".", 1)[-1],
         "title": definitions[0].title,
         "content": {"prompt": "Before 1"},
+        "metadata": definitions[0].metadata,
         "activity_definition_id": definitions[0].id,
         "activity_definition_revision_id": before_revision_id,
     }
