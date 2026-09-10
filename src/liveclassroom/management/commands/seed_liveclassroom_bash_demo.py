@@ -6,6 +6,7 @@ from __future__ import annotations
 import hashlib
 import uuid
 from copy import deepcopy
+from decimal import Decimal
 
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
@@ -16,8 +17,13 @@ from django.utils import timezone
 from liveclassroom.models import (
     ActivityDefinition,
     ActivityRunRevision,
+    AssessmentDefinition,
+    AssessmentItem,
+    AssessmentRun,
     ClassroomAsset,
     Course,
+    Deck,
+    DeckSlide,
     DemoLesson,
     Flow,
     FlowStep,
@@ -27,6 +33,7 @@ from liveclassroom.models import (
     Submission,
     SubmissionRevision,
 )
+from liveclassroom.services.assessment_runs import publish_assessment
 from liveclassroom.services.classroom import revise_activity_definition
 
 _DEMO_SLUG = "bash-for-linux-beginners"
@@ -57,6 +64,9 @@ _TEXT = {
     "live": _copy(en="Bash beginners — live example", zh="Bash 初学者 — 进行中示例"),
     "ended": _copy(en="Bash beginners — finished example", zh="Bash 初学者 — 已结束示例"),
     "cheatsheet": _copy(en="Bash starter cheat sheet", zh="Bash 入门速查表"),
+    "import_activity": _copy(en="Imported Markdown example", zh="导入的 Markdown 示例"),
+    "deck": _copy(en="Bash command map — demo deck", zh="Bash 命令图 — 示例幻灯片"),
+    "assessment": _copy(en="Bash starter check — demo assessment", zh="Bash 入门检查 — 示例测验"),
 }
 
 
@@ -385,6 +395,7 @@ class Command(BaseCommand):
         ended = self._session(owner, flow, language, "ended", LiveSession.Status.ENDED)
         self._populate_live_example(live, definitions[1])
         self._populate_finished_example(ended, definitions[5], language)
+        self._seed_authoring_examples(owner, course, language, definitions)
         demo, _ = DemoLesson.objects.update_or_create(
             slug=_DEMO_SLUG,
             language=language,
@@ -399,6 +410,148 @@ class Command(BaseCommand):
             },
         )
         return demo
+
+    def _seed_authoring_examples(self, owner, course, language: str, definitions: list[ActivityDefinition]) -> None:
+        """Keep small authoring examples beside the public classroom samples.
+
+        These records are deliberately ordinary teacher-owned objects.  The
+        command is opt-in, uses stable titles/keys, and never reads or writes
+        host content, so running it again refreshes the same local examples.
+        """
+        suffix = language.lower().replace("-", "")
+        imported_asset = self._import_asset(owner, language)
+        imported_definition, _ = ActivityDefinition.objects.get_or_create(
+            owner=owner,
+            course=course,
+            title=_TEXT["import_activity"][language],
+            defaults={
+                "type_key": "liveclassroom.markdown",
+                "definition": {
+                    "markdown": (
+                        "# Imported Bash note\n\nUse `pwd` before `ls` to establish a safe starting point."
+                        if language == "en"
+                        else "# 导入的 Bash 笔记\n\n先用 `pwd`，再用 `ls`，从安全的起点开始。"
+                    )
+                },
+                "asset": imported_asset,
+                "status": ActivityDefinition.Status.READY,
+            },
+        )
+        if imported_definition.asset_id != imported_asset.id:
+            imported_definition.asset = imported_asset
+            imported_definition.save(update_fields=["asset", "updated_at"])
+
+        deck, _ = Deck.objects.get_or_create(
+            owner=owner,
+            title=_TEXT["deck"][language],
+            defaults={"course": course, "theme": "default", "version": 1},
+        )
+        deck_changed = []
+        if deck.course_id != course.id:
+            deck.course = course
+            deck_changed.append("course")
+        if deck.theme != "default":
+            deck.theme = "default"
+            deck_changed.append("theme")
+        if deck_changed:
+            deck.save(update_fields=[*deck_changed, "updated_at"])
+        slides = [
+            (
+                1,
+                "# Read your location\n\nRun `pwd` first.",
+                "Ask learners where the simulated shell starts.",
+            ),
+            (
+                2,
+                "# List the folder\n\nRun `ls` after `pwd`.",
+                "Connect the command to the current location.",
+            ),
+        ]
+        if language == "zh-Hans":
+            slides = [
+                (1, "# 查看当前位置\n\n先运行 `pwd`。", "请学生说出模拟终端的起点。"),
+                (2, "# 列出文件夹\n\n在 `pwd` 后运行 `ls`。", "把命令和当前位置联系起来。"),
+            ]
+        for position, markdown, notes in slides:
+            DeckSlide.objects.update_or_create(
+                deck=deck,
+                position=position,
+                defaults={
+                    "key": uuid.uuid5(uuid.NAMESPACE_URL, f"liveclassroom:{_DEMO_SLUG}:{suffix}:slide:{position}"),
+                    "markdown": markdown,
+                    "notes": notes,
+                },
+            )
+        deck.slides.exclude(position__in=[row[0] for row in slides]).delete()
+
+        assessment, _ = AssessmentDefinition.objects.get_or_create(
+            owner=owner,
+            title=_TEXT["assessment"][language],
+            defaults={
+                "instructions": (
+                    "Answer the question after trying the simulated commands."
+                    if language == "en"
+                    else "尝试模拟命令后回答问题。"
+                ),
+                "course": course,
+                "settings": {"mode": "practice", "audience": "authenticated_link", "max_attempts": 1},
+            },
+        )
+        assessment_changed = []
+        if assessment.course_id != course.id:
+            assessment.course = course
+            assessment_changed.append("course")
+        expected_settings = {"mode": "practice", "audience": "authenticated_link", "max_attempts": 1}
+        if assessment.settings != expected_settings:
+            assessment.settings = expected_settings
+            assessment_changed.append("settings")
+        if assessment_changed:
+            assessment.save(update_fields=[*assessment_changed, "updated_at"])
+        question = definitions[8]
+        question.refresh_from_db(fields=["current_revision"])
+        AssessmentItem.objects.update_or_create(
+            assessment=assessment,
+            position=1,
+            defaults={
+                "key": uuid.uuid5(uuid.NAMESPACE_URL, f"liveclassroom:{_DEMO_SLUG}:{suffix}:assessment:item"),
+                "question_revision": question.current_revision,
+                "points": Decimal("1"),
+            },
+        )
+        assessment.items.exclude(position=1).delete()
+        if not AssessmentRun.objects.filter(owner=owner, source_assessment=assessment).exists():
+            publish_assessment(actor=owner, assessment=assessment, expected_version=assessment.version)
+
+    def _import_asset(self, owner, language: str) -> ClassroomAsset:
+        filename = f"bash-import-example-{language.lower().replace('-', '')}.md"
+        body = (
+            "# Imported Bash note\n\nThis file is a deterministic local import example.\n"
+            if language == "en"
+            else "# 导入的 Bash 笔记\n\n这是一个确定性的本地导入示例。\n"
+        )
+        data = body.encode("utf-8")
+        digest = hashlib.sha256(data).hexdigest()
+        asset = ClassroomAsset.objects.filter(owner=owner, original_name=filename).first()
+        if asset is None:
+            asset = ClassroomAsset(
+                owner=owner,
+                source=ClassroomAsset.Source.UPLOAD,
+                original_name=filename,
+                kind=ClassroomAsset.Kind.MARKDOWN,
+                content_type="text/markdown; charset=utf-8",
+                byte_size=len(data),
+                sha256=digest,
+            )
+            asset.content_file.save(filename, ContentFile(data), save=False)
+            asset.save()
+            return asset
+        if asset.sha256 != digest:
+            asset.content_file.save(filename, ContentFile(data), save=False)
+            asset.content_type = "text/markdown; charset=utf-8"
+            asset.byte_size = len(data)
+            asset.sha256 = digest
+            asset.save(update_fields=["content_file", "content_type", "byte_size", "sha256", "updated_at"])
+        return asset
 
     def _asset(self, owner, language: str) -> ClassroomAsset:
         filename = f"bash-starter-cheatsheet-{language.lower().replace('-', '')}.md"

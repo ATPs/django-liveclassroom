@@ -13,7 +13,7 @@ Use **Teach again** to create a fresh classroom from retained teaching content. 
 
 Classes are optional cohort workspaces with reusable entry/chat defaults and an optional account roster. Guest QR entry remains supported. External presentation URLs and server-file references stay live; uploaded materials have retained asset references. Student review after class is read-only and limited to the activities the teacher enables.
 
-The public help page explains the workspace, builder, console, publication, sharing, and ending workflow in English and Simplified Chinese. Hosts can install the bilingual **Bash for Linux beginners** demo with `seed_liveclassroom_bash_demo`. It is a common read-only lesson: **Use this demo** creates a teacher-owned classroom snapshot. Its terminal is a fixed browser-only simulator with no server subprocess or local-file access.
+The public help page gives a short teacher path in English and Simplified Chinese: optional Course/Class organization, lesson and Markdown/YAML authoring, native decks, optional VaultPub note/Slide View rendering, classroom launch, assessment delivery, and the current review/export boundaries. Hosts can opt in to the deterministic bilingual **Bash for Linux beginners** demo with `seed_liveclassroom_bash_demo`. The seed creates a disabled local demo owner, class-scoped activities, an imported Markdown example, a two-slide deck, an assessment draft/run, and ready/live/ended sample classrooms. It uses fake local content only, never runs at startup, and has no server subprocess or local-file access.
 
 ## What is included now
 
@@ -78,11 +78,13 @@ python standalone/manage.py runserver
 Open <http://127.0.0.1:8000/>. The Django admin is available at
 `/admin/`.
 
-To install the optional common examples after migrating, run:
+To install the optional common examples after migrating, run this explicitly:
 
 ```bash
 python standalone/manage.py seed_liveclassroom_bash_demo
 ```
+
+The command is repeatable and refreshes only its own `liveclassroom-demo` records. It does not create credentials, read protected VaultPub notes, or modify an existing teacher's content.
 
 ## Run the first live quiz
 
