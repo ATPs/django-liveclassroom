@@ -8,6 +8,8 @@ grade.  The earlier decision remains the old-value audit record.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from copy import deepcopy
 from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal, DecimalException
@@ -17,7 +19,9 @@ from uuid import UUID
 from django.db import transaction
 from django.utils import timezone
 
+from liveclassroom.integrations.host import host_can_manage_assessment_results
 from liveclassroom.models import (
+    AnswerRevision,
     AssessmentAttempt,
     AssessmentAttemptItem,
     AssessmentGradeDecision,
@@ -34,12 +38,14 @@ from .assessment_grading import (
 )
 from .classroom import ClassroomError
 from .manual_grading import COMMENT_MAX_LENGTH, MANUAL_SOURCE, can_grade_attempt
+from .permissions import can_teach
 
 CORRECTION_SOURCE = "override"
 REGRADE_SOURCE = "regrade"
 OVERRIDE_RULE_VERSION = "manual-override-v1"
 MAX_REASON_LENGTH = 255
 MAX_SCORE_DECIMALS = 10
+PRESERVED_SOURCES = frozenset({MANUAL_SOURCE, CORRECTION_SOURCE})
 
 
 class GradeCorrectionError(ClassroomError):
@@ -148,6 +154,273 @@ def _same_override(*, grade, actor, reason, comment, score) -> bool:
     return latest is not None and latest.actor_id == actor.pk and latest.reason == reason
 
 
+def _package_run_scope(actor, run: AssessmentRun) -> bool:
+    """Return the package-owned staff scope for a run before host policy."""
+    if not getattr(actor, "is_authenticated", False) or not can_teach(actor):
+        return False
+    if getattr(actor, "is_superuser", False) or run.owner_id == actor.pk:
+        return True
+    course = getattr(run, "course", None)
+    if course is None:
+        return False
+    if course.created_by_id == actor.pk:
+        return True
+    from liveclassroom.models import CourseMembership
+
+    return CourseMembership.objects.filter(
+        course=course,
+        user=actor,
+        role__in=(CourseMembership.Role.TEACHER, CourseMembership.Role.ASSISTANT),
+    ).exists()
+
+
+def _can_manage_run(actor, run: AssessmentRun) -> bool:
+    return host_can_manage_assessment_results(
+        actor=actor,
+        run_id=run.pk,
+        package_allowed=_package_run_scope(actor, run),
+    )
+
+
+def _latest_answer(item: AssessmentAttemptItem):
+    revision = AnswerRevision.objects.filter(item=item).order_by("-version", "-id").first()
+    return deepcopy(revision.answer) if revision is not None else None
+
+
+def _grade_state(item: AssessmentAttemptItem) -> dict[str, Any]:
+    """Read current grade state without materializing a missing grade row."""
+    grade = AssessmentItemGrade.objects.filter(item=item).first()
+    if grade is not None:
+        return {
+            "status": grade.status,
+            "normalized_score": grade.normalized_score,
+            "possible_points": grade.possible_points,
+            "awarded_points": grade.awarded_points,
+            "retained_answer": deepcopy(grade.retained_answer),
+            "source": grade.source,
+            "rule_version": grade.rule_version,
+            "diagnostic_code": grade.diagnostic_code,
+            "comment": grade.comment,
+        }
+    result = score_retained_item(
+        {**(deepcopy(item.manifest) if isinstance(item.manifest, dict) else {}), "possible_points": item.points},
+        answer=_latest_answer(item),
+    )
+    return {
+        "status": result["status"],
+        "normalized_score": result["normalized_score"],
+        "possible_points": item.points,
+        "awarded_points": result["awarded_points"],
+        "retained_answer": deepcopy(result["retained_answer"]),
+        "source": result.get("source", "automatic"),
+        "rule_version": result.get("rule_version", RULE_VERSION),
+        "diagnostic_code": result.get("diagnostic_code", ""),
+        "comment": "",
+    }
+
+
+def _state_payload(state: dict[str, Any]) -> dict[str, Any]:
+    quanta = {
+        "normalized_score": Decimal("0.0000000001"),
+        "possible_points": Decimal("0.000001"),
+        "awarded_points": Decimal("0.01"),
+    }
+    def _text(key, value):
+        if not isinstance(value, Decimal):
+            return deepcopy(value)
+        quantum = quanta.get(key)
+        return format(value.quantize(quantum, rounding=ROUND_HALF_UP) if quantum else value, "f")
+
+    return {
+        key: _text(key, value)
+        for key, value in state.items()
+        if key in {
+            "status", "normalized_score", "possible_points", "awarded_points", "retained_answer",
+            "source", "rule_version", "diagnostic_code", "comment",
+        }
+    }
+
+
+def _state_changed(old: dict[str, Any], new: dict[str, Any]) -> bool:
+    return _state_payload(old) != _state_payload(new)
+
+
+def _preview_rule_revisions(
+    *,
+    run: AssessmentRun,
+    attempts: list[AssessmentAttempt],
+    keys: set[UUID] | None,
+    rule_version: str,
+    rule_config: dict[str, Any] | None,
+) -> dict[UUID, dict[str, Any]]:
+    """Resolve a preview's grading patches without creating revisions."""
+    representatives = _revision_items(attempts, keys)
+    if not representatives or rule_version == RULE_VERSION:
+        return {}
+    if rule_config is not None:
+        return {
+            item_key: _validated_rule_for_item(item, rule_config)
+            for item_key, item in representatives.items()
+        }
+    revisions = GradingRuleRevision.objects.filter(
+        run=run,
+        item_key__in=representatives,
+        rule_version=rule_version,
+        approved_at__isnull=False,
+    ).order_by("item_key", "-version")
+    resolved: dict[UUID, dict[str, Any]] = {}
+    for revision in revisions:
+        if revision.item_key in resolved:
+            continue
+        resolved[revision.item_key] = _validated_rule_for_item(
+            representatives[revision.item_key], revision.configuration
+        )
+    missing = set(representatives) - set(resolved)
+    if missing:
+        raise GradeCorrectionError("No approved grading rule revision exists for the selected items.")
+    return resolved
+
+
+def _fingerprint_payload(value: Any) -> str:
+    return hashlib.sha256(
+        json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+    ).hexdigest()
+
+
+def item_grade_fingerprint(*, attempt_item: AssessmentAttemptItem) -> str:
+    """Fingerprint one retained item and its current grade for stale overrides."""
+    item = AssessmentAttemptItem.objects.select_related("attempt", "attempt__run").get(pk=attempt_item.pk)
+    state = _grade_state(item)
+    return _fingerprint_payload(
+        {
+            "version": "grade-state-v1",
+            "attempt_id": str(item.attempt.public_id),
+            "item_key": str(item.key),
+            "manifest": item.manifest,
+            "state": _state_payload(state),
+            "answer": state.get("retained_answer"),
+        }
+    )
+
+
+def preview_regrade(
+    *,
+    run: AssessmentRun,
+    item_keys=None,
+    rule_version: str,
+    actor,
+    reason: str,
+    rule_config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build a non-persistent regrade preview for every submitted attempt."""
+    reason = _reason(reason)
+    version = _rule_version(rule_version, rule_config)
+    keys = _item_key_set(item_keys)
+    if not getattr(run, "pk", None):
+        raise GradeCorrectionError("run must be a saved assessment run.")
+    if not _can_manage_run(actor, run):
+        raise GradeCorrectionError("You do not have permission to regrade this run.")
+    attempts = list(
+        AssessmentAttempt.objects.filter(run=run, status=AssessmentAttempt.Status.SUBMITTED)
+        .select_related("run", "run__course", "user")
+        .prefetch_related("items")
+        .order_by("id")
+    )
+    if any(not can_grade_attempt(actor, attempt) for attempt in attempts):
+        raise GradeCorrectionError("You do not have permission to regrade this run.")
+    all_items = [item for attempt in attempts for item in attempt.items.all()]
+    available_keys = {item.key for item in all_items}
+    if keys is not None and not keys.issubset(available_keys):
+        raise GradeCorrectionError("One or more selected item keys were not found in this run.")
+    patches = _preview_rule_revisions(
+        run=run, attempts=attempts, keys=keys, rule_version=version, rule_config=rule_config
+    )
+    rows: list[dict[str, Any]] = []
+    counts = {"scanned": 0, "changed": 0, "unchanged": 0, "ungraded": 0, "failed": 0, "preserved_manual": 0}
+    fingerprint_items = []
+    for attempt in attempts:
+        for item in attempt.items.all():
+            if keys is not None and item.key not in keys:
+                continue
+            counts["scanned"] += 1
+            old = _grade_state(item)
+            preserved = old["source"] in PRESERVED_SOURCES
+            if preserved:
+                new = old
+                counts["preserved_manual"] += 1
+            elif not _objective(item):
+                new = old
+                counts["unchanged"] += 1
+            else:
+                patch = patches.get(item.key, {}) if version != RULE_VERSION else {}
+                new_result = _regrade_payload(
+                    item,
+                    type("GradeView", (), {"retained_answer": old["retained_answer"]})(),
+                    patch,
+                )
+                new = {
+                    "status": new_result["status"],
+                    "normalized_score": new_result["normalized_score"],
+                    "possible_points": item.points,
+                    "awarded_points": new_result["awarded_points"],
+                    "retained_answer": deepcopy(old["retained_answer"]),
+                    "source": "automatic",
+                    "rule_version": version,
+                    "diagnostic_code": new_result["diagnostic_code"],
+                    "comment": old["comment"],
+                }
+                if new["status"] in {AssessmentItemGrade.Status.UNGRADED, AssessmentItemGrade.Status.ERROR}:
+                    counts["ungraded"] += 1
+            changed = _state_changed(old, new)
+            if changed and not preserved:
+                counts["changed"] += 1
+            elif not preserved and not changed:
+                counts["unchanged"] += 1
+            rows.append(
+                {
+                    "attempt_id": str(attempt.public_id),
+                    "item_key": str(item.key),
+                    "old": _state_payload(old),
+                    "new": _state_payload(new),
+                    "old_result": _state_payload(old),
+                    "new_result": _state_payload(new),
+                    "old_score": _state_payload(old)["normalized_score"],
+                    "new_score": _state_payload(new)["normalized_score"],
+                    "changed": changed and not preserved,
+                    "preserved_manual": preserved,
+                }
+            )
+            fingerprint_items.append(
+                {
+                    "attempt_id": str(attempt.public_id),
+                    "item_key": str(item.key),
+                    "manifest": item.manifest,
+                    "state": _state_payload(old),
+                }
+            )
+    fingerprint = _fingerprint_payload(
+        {
+            "version": "regrade-preview-v1",
+            "run_id": str(run.public_id),
+            "item_keys": sorted(str(key) for key in keys) if keys is not None else None,
+            "rule_version": version,
+            "rule_config": rule_config,
+            "reason": reason,
+            "items": fingerprint_items,
+        }
+    )
+    counts["affected"] = counts["changed"]
+    counts["affected_count"] = counts["changed"]
+    return {
+        "preview_fingerprint": fingerprint,
+        "run_id": str(run.public_id),
+        "rule_version": version,
+        "reason": reason,
+        "items": rows,
+        "counts": counts,
+    }
+
+
 @transaction.atomic
 def override_item_grade(
     *,
@@ -163,6 +436,8 @@ def override_item_grade(
     reason = _reason(reason)
     comment = _comment(comment)
     attempt, item = _locked_item(attempt_item)
+    if not _can_manage_run(actor, attempt.run):
+        raise GradeCorrectionError("You do not have permission to correct this attempt.")
     if not can_grade_attempt(actor, attempt):
         raise GradeCorrectionError("You do not have permission to correct this attempt.")
     if attempt.status != AssessmentAttempt.Status.SUBMITTED:
@@ -401,6 +676,7 @@ def regrade_attempts(
     rule_config: dict[str, Any] | None = None,
     rules: dict[str, Any] | None = None,
     now: datetime | None = None,
+    strict: bool = False,
 ) -> dict[str, int]:
     """Regrade explicitly selected objective items from retained answers.
 
@@ -422,6 +698,8 @@ def regrade_attempts(
         raise GradeCorrectionError("run must be a saved assessment run.")
     if not getattr(actor, "is_authenticated", False):
         raise GradeCorrectionError("Teacher grading access is required.")
+    if not _can_manage_run(actor, run):
+        raise GradeCorrectionError("You do not have permission to regrade this run.")
     # Run ownership/course staff is checked through each concrete attempt so
     # the same routine cannot accidentally cross a student's account boundary.
     attempts = list(
@@ -432,6 +710,8 @@ def regrade_attempts(
     counts = {"scanned": 0, "changed": 0, "unchanged": 0, "ungraded": 0, "failed": 0, "preserved_manual": 0}
     authorized = all(can_grade_attempt(actor, reference) for reference in attempts)
     if attempts and not authorized:
+        if strict:
+            raise GradeCorrectionError("You do not have permission to regrade this run.")
         counts["scanned"] = len(attempts)
         counts["failed"] = len(attempts)
         return counts
@@ -514,10 +794,14 @@ def regrade_attempts(
                 _aggregate(locked_attempt, rows, _aware_now(now))
                 del changed
         except GradeCorrectionError:
+            if strict:
+                raise
             counts["failed"] += 1
         except Exception:
             # A malformed retained plugin/item is an explicit failed regrade;
             # another student's attempt must continue independently.
+            if strict:
+                raise GradeCorrectionError("The regrade could not be applied safely.")
             counts["failed"] += 1
     return counts
 
@@ -526,7 +810,10 @@ __all__ = [
     "CORRECTION_SOURCE",
     "GradeCorrectionError",
     "OVERRIDE_RULE_VERSION",
+    "PRESERVED_SOURCES",
+    "item_grade_fingerprint",
     "REGRADE_SOURCE",
     "override_item_grade",
+    "preview_regrade",
     "regrade_attempts",
 ]

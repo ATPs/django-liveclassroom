@@ -37,7 +37,7 @@ from liveclassroom.models import (
 from .classroom import ClassroomError
 from .manual_grading import can_grade_attempt
 from .permissions import can_teach
-from .result_release import student_result_payload
+from .result_release import can_manage_result_release, student_result_payload
 
 STAFF_ROLES = (CourseMembership.Role.TEACHER, CourseMembership.Role.ASSISTANT)
 SCHEMA_VERSION = 1
@@ -120,14 +120,20 @@ def _test_ids(runs: Iterable[AssessmentRun]) -> set[int]:
 
 
 def _staff_can_export_run(actor, run: AssessmentRun) -> bool:
-    """Export uses the explicit named-result/grading capability."""
-    return can_grade_attempt(actor, AssessmentAttempt(run=run))
+    """Authorize a run before querying any named student rows."""
+    return can_manage_result_release(actor, run)
 
 
 def _authorize_teacher(actor, runs: list[AssessmentRun]) -> None:
     if not getattr(actor, "is_authenticated", False) or not can_teach(actor):
         raise AssessmentExportError("Teacher result export access is required.")
     if any(not _staff_can_export_run(actor, run) for run in runs):
+        raise AssessmentExportError("You do not have permission to export these results.")
+
+
+def _authorize_attempts(actor, attempts: Iterable[AssessmentAttempt]) -> None:
+    """A run grant is necessary but each retained attempt remains protected."""
+    if any(not can_grade_attempt(actor, attempt) for attempt in attempts):
         raise AssessmentExportError("You do not have permission to export these results.")
 
 
@@ -297,6 +303,7 @@ def teacher_result_projection(actor, runs: Iterable[AssessmentRun], *, details: 
     _authorize_teacher(actor, selected_runs)
     test_ids = _test_ids(selected_runs)
     attempts = list(_attempt_queryset(selected_runs, test_ids))
+    _authorize_attempts(actor, attempts)
     return {
         "meta": _meta(
             scope="teacher",

@@ -18,6 +18,9 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+POSTGRES_HOST = "127.0.0.1"
+POSTGRES_PORT = "55432"
+TASK_TEST_NAME_PREFIX = "task52_live_load"
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -97,9 +100,17 @@ def _validate(args: argparse.Namespace, environment: dict[str, str]) -> int:
         except OSError as exc:
             raise ValueError(f"--base-url port is not free: {args.base_url}") from exc
 
-    postgres_host = environment.get("LIVECLASSROOM_POSTGRES_HOST", "127.0.0.1")
-    if postgres_host not in {"127.0.0.1", "localhost"}:
+    postgres_host = environment.get("LIVECLASSROOM_POSTGRES_HOST", POSTGRES_HOST)
+    if postgres_host not in {POSTGRES_HOST, "localhost"}:
         raise ValueError("LIVECLASSROOM_POSTGRES_HOST must be loopback for task-owned acceptance")
+    postgres_port = environment.get("LIVECLASSROOM_POSTGRES_PORT", POSTGRES_PORT)
+    if postgres_port != POSTGRES_PORT:
+        raise ValueError(f"LIVECLASSROOM_POSTGRES_PORT must be {POSTGRES_PORT} for task-owned acceptance")
+    if "LIVECLASSROOM_POSTGRES_TEST_NAME" in environment:
+        raise ValueError(
+            "LIVECLASSROOM_POSTGRES_TEST_NAME must not be inherited; "
+            "the acceptance wrapper generates a task-owned name"
+        )
     return parsed.port
 
 
@@ -113,7 +124,15 @@ def main(argv: list[str] | None = None) -> int:
 
     environment.update(
         {
-            "DJANGO_SETTINGS_MODULE": environment.get("DJANGO_SETTINGS_MODULE", "tests.postgres_settings"),
+            # Keep pytest --create-db on the checked-in PostgreSQL settings,
+            # even when the caller's shell has a host application's settings
+            # module active.
+            "DJANGO_SETTINGS_MODULE": "tests.postgres_settings",
+            "LIVECLASSROOM_POSTGRES_HOST": POSTGRES_HOST,
+            "LIVECLASSROOM_POSTGRES_PORT": POSTGRES_PORT,
+            "LIVECLASSROOM_POSTGRES_TEST_NAME": (
+                f"{TASK_TEST_NAME_PREFIX}_{os.getpid()}_{time.time_ns()}"
+            ),
             "LIVECLASSROOM_LOAD_BASE_URL": args.base_url,
             "LIVECLASSROOM_LOAD_PARTICIPANTS": str(args.participants_per_class),
             "LIVECLASSROOM_LOAD_WARMUP_SECONDS": str(args.warmup_seconds),
@@ -123,7 +142,6 @@ def main(argv: list[str] | None = None) -> int:
             "PYTHONPATH": f".:src{os.pathsep}{environment.get('PYTHONPATH', '')}".rstrip(os.pathsep),
         }
     )
-    environment.setdefault("LIVECLASSROOM_POSTGRES_TEST_NAME", f"task52_live_load_{os.getpid()}_{int(time.time())}")
 
     command = [
         sys.executable,

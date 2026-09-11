@@ -8,6 +8,7 @@ from typing import Any
 from django.contrib.auth import get_user_model
 from django.db.models import Q
 
+from liveclassroom.integrations.host import host_can_view_assessment_results, host_can_view_roster
 from liveclassroom.models import (
     AssessmentAttempt,
     AssessmentAttemptGrade,
@@ -51,9 +52,14 @@ def can_read_run_progress(actor, run: AssessmentRun) -> bool:
     """Return whether the actor may read named progress for ``run``."""
     if not _authenticated(actor):
         return False
-    if getattr(actor, "is_superuser", False) or run.owner_id == actor.pk:
-        return True
-    return _can_read_course(actor, getattr(run, "course", None))
+    package_allowed = bool(
+        getattr(actor, "is_superuser", False)
+        or run.owner_id == actor.pk
+        or _can_read_course(actor, getattr(run, "course", None))
+    )
+    return host_can_view_assessment_results(
+        actor=actor, run_id=run.pk, package_allowed=package_allowed
+    )
 
 
 def _run_or_denied(actor, run: AssessmentRun) -> AssessmentRun:
@@ -185,8 +191,12 @@ def _row(user, attempts: list[AssessmentAttempt], grades: Mapping[int, Assessmen
     }
 
 
-def _roster_users(run: AssessmentRun):
+def _roster_users(actor, run: AssessmentRun):
     if run.course_id is None:
+        return []
+    if not host_can_view_roster(
+        actor=actor, course_id=run.course_id, package_allowed=_can_read_course(actor, run.course)
+    ):
         return []
     user_model = get_user_model()
     return list(
@@ -227,7 +237,7 @@ def list_run_progress(
         for grade in AssessmentAttemptGrade.objects.filter(attempt_id__in=[attempt.pk for attempt in attempts])
     }
     users = {attempt.user_id: attempt.user for attempt in attempts}
-    roster = _roster_users(run)
+    roster = _roster_users(actor, run)
     if roster:
         for user in roster:
             if options["include_test"] or user.pk not in _test_user_ids():
@@ -303,7 +313,9 @@ def get_student_overview(actor, user, class_id: int | None = None) -> dict[str, 
             raise AssessmentProgressError("The selected class was not found.") from exc
         if not _can_read_course(actor, course):
             raise AssessmentProgressError("You do not have permission to view this student.")
-    runs = _accessible_runs(actor, class_id=class_id)
+    # A configured host can narrow access below the package's owner/course
+    # scope.  Apply that per run before retrieving this learner's attempts.
+    runs = [run for run in _accessible_runs(actor, class_id=class_id) if can_read_run_progress(actor, run)]
     attempts = list(
         AssessmentAttempt.objects.filter(run__in=runs, user_id=user.pk)
         .select_related("run", "user")

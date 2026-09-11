@@ -15,7 +15,7 @@ from .services.question_banks import (
     copy_question,
     create_question_bank,
     delete_question_bank,
-    list_bank_questions,
+    page_bank_questions,
     remove_question_from_bank,
     update_bank_question,
     update_question_bank,
@@ -150,11 +150,13 @@ def question_bank_questions(request, bank_id: int):
             limit = int(request.GET.get("limit", "20"))
             if offset < 0 or limit < 1 or limit > 100:
                 raise ClassroomError("offset and limit are out of range.")
-            results = list_bank_questions(actor=request.user, bank=bank, filters=filters)
+            results, count = page_bank_questions(
+                actor=request.user, bank=bank, filters=filters, offset=offset, limit=limit
+            )
             return JsonResponse(
                 {
-                    "questions": [_question(item) for item in results[offset : offset + limit]],
-                    "count": len(results),
+                    "questions": [_question(item) for item in results],
+                    "count": count,
                     "offset": offset,
                     "limit": limit,
                 }

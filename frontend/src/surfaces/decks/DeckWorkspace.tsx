@@ -68,15 +68,23 @@ function DeckWorkspace({ apiRoot, assetsUrl, previewTemplate }: { apiRoot: strin
     setSaving(true); setStatus("");
     const theme = ["default", "light", "dark"].includes(deck.theme) ? deck.theme : "default";
     const body = { title: deck.title.trim(), theme, slides: cleanSlides(deck.slides).map(({ key, markdown, notes, asset_ids }) => ({ key, markdown, notes, asset_ids })) };
+    let acknowledgedVersion: number | null = null;
     try {
       let saved: Deck;
       if (!deck.id) saved = await postJson<Deck>(apiRoot, body, crypto.randomUUID());
       else {
         const changed = await patchJson<Deck>(`${apiRoot}${deck.id}/`, { title: body.title, theme: body.theme, expected_version: deck.version }, crypto.randomUUID());
+        acknowledgedVersion = changed.version;
         saved = await putJson<Deck>(`${apiRoot}${deck.id}/slides/`, { expected_version: changed.version, slides: body.slides }, crypto.randomUUID());
       }
       await refresh(); selectDeck(saved); setStatus(tr("Deck saved.", "幻灯片已保存。"));
     } catch (error) {
+      if (acknowledgedVersion !== null) {
+        setDeck({ ...deck, version: acknowledgedVersion });
+        setDirty(true);
+        setStatus(tr("Details saved, but slides are still local. Retry to save them.", "详情已保存，但幻灯片仍在本地。请重试保存。"));
+        return;
+      }
       setStatus(error instanceof Error ? error.message : tr("Save failed; your draft is still here.", "保存失败；草稿仍已保留。"));
     } finally { setSaving(false); }
   };

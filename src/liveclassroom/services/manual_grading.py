@@ -19,7 +19,7 @@ from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
-from liveclassroom.integrations.host import host_can_grade
+from liveclassroom.integrations.host import host_can_grade, host_can_manage_assessment_results
 from liveclassroom.models import (
     AssessmentAttempt,
     AssessmentAttemptItem,
@@ -100,6 +100,31 @@ def _has_grading_scope(actor) -> bool:
     ).exists()
 
 
+def _can_manage_run(actor, run: AssessmentRun) -> bool:
+    """Gate a queue run before retrieving any submitted learner rows."""
+    course = getattr(run, "course", None)
+    package_allowed = bool(
+        getattr(actor, "is_authenticated", False)
+        and can_teach(actor)
+        and (
+            getattr(actor, "is_superuser", False)
+            or run.owner_id == actor.pk
+            or (
+                course is not None
+                and (
+                    course.created_by_id == actor.pk
+                    or CourseMembership.objects.filter(
+                        course=course, user=actor, role__in=_STAFF_ROLES
+                    ).exists()
+                )
+            )
+        )
+    )
+    return host_can_manage_assessment_results(
+        actor=actor, run_id=run.pk, package_allowed=package_allowed
+    )
+
+
 def can_grade_attempt(actor, attempt: AssessmentAttempt) -> bool:
     """Apply package teacher policy and the configured host grading capability."""
     if not getattr(actor, "is_authenticated", False) or not can_teach(actor):
@@ -135,6 +160,30 @@ def _resolve_run_filter(run_id: Any) -> Q:
         except (TypeError, ValueError) as exc:
             raise ManualGradingError("run_id must identify an assessment run.") from exc
     return Q(run__public_id=value)
+
+
+def _run_metadata_filter(actor, run_id: Any) -> Q:
+    """The queue's preflight runs against AssessmentRun, not attempts."""
+    if getattr(actor, "is_superuser", False):
+        scope = Q()
+    else:
+        scope = (
+            Q(owner_id=actor.pk)
+            | Q(course__created_by_id=actor.pk)
+            | Q(course__memberships__user_id=actor.pk, course__memberships__role__in=_STAFF_ROLES)
+        )
+    if run_id in (None, ""):
+        return scope
+    if isinstance(run_id, AssessmentRun):
+        return scope & Q(pk=run_id.pk)
+    try:
+        value = UUID(str(run_id))
+    except (AttributeError, TypeError, ValueError):
+        try:
+            return scope & Q(pk=int(run_id))
+        except (TypeError, ValueError) as exc:
+            raise ManualGradingError("run_id must identify an assessment run.") from exc
+    return scope & Q(public_id=value)
 
 
 def _resolve_item_type(item: AssessmentAttemptItem):
@@ -238,9 +287,21 @@ def list_manual_grading_items(actor, run_id=None, class_id=None) -> list[dict[st
             filters &= Q(run__course_id=int(class_id))
         except (TypeError, ValueError) as exc:
             raise ManualGradingError("class_id must be an integer.") from exc
+    # Discover only run metadata first.  A configured host's result-management
+    # denial must not fetch named attempt/answer rows merely to render an
+    # empty grading queue.
+    permitted_run_ids = [
+        run.pk
+        for run in AssessmentRun.objects.filter(_run_metadata_filter(actor, run_id))
+        .select_related("course")
+        .distinct()
+        if _can_manage_run(actor, run)
+    ]
+    if not permitted_run_ids:
+        return []
     attempts = list(
         AssessmentAttempt.objects.filter(
-            filters,
+            filters & Q(run_id__in=permitted_run_ids),
             status=AssessmentAttempt.Status.SUBMITTED,
         )
         .select_related("run", "run__course", "user")
@@ -250,6 +311,9 @@ def list_manual_grading_items(actor, run_id=None, class_id=None) -> list[dict[st
     )
     rows: list[dict[str, Any]] = []
     for attempt in attempts:
+        # ``can_grade`` is deliberately per concrete persisted attempt.
+        if not can_grade_attempt(actor, attempt):
+            continue
         for item in attempt.items.all():
             try:
                 _resolve_item_type(item)

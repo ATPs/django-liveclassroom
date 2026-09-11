@@ -92,7 +92,32 @@ def create_share(*, actor, kind, object_id, recipient):
 def list_shares(*, actor):
     if not getattr(actor, "is_authenticated", False):
         raise ContentShareError("Authentication required.")
-    return ContentShare.objects.filter(owner=actor).select_related("recipient")
+    # Keep the original owner-list contract for ordinary teachers.  A
+    # superuser can administer grants for every owner, so returning all rows
+    # here also makes the API's elevated revoke path discoverable.
+    queryset = (
+        ContentShare.objects.all()
+        if getattr(actor, "is_superuser", False)
+        else ContentShare.objects.filter(owner=actor)
+    )
+    return queryset.select_related("owner", "recipient")
+
+
+def list_received_shares(*, actor, include_revoked: bool = False):
+    """Return grants that make reusable content discoverable to ``actor``.
+
+    Revoked grants are intentionally omitted from the recipient view by
+    default.  A revoked source must not remain a usable preview/copy entry;
+    the owner list still retains revoked rows for audit and idempotent revoke.
+    ``include_revoked`` is available to administrative callers that need a
+    complete history, but the HTTP API does not use it for recipients.
+    """
+    if not getattr(actor, "is_authenticated", False):
+        raise ContentShareError("Authentication required.")
+    queryset = ContentShare.objects.filter(recipient=actor)
+    if not include_revoked:
+        queryset = queryset.filter(revoked_at__isnull=True)
+    return queryset.select_related("owner", "recipient")
 
 
 @transaction.atomic
@@ -109,6 +134,27 @@ def revoke_share(*, actor, share, now: datetime | None = None):
 def shared_resource(*, actor, share):
     share = ContentShare.objects.select_related("owner", "recipient").get(pk=share.pk)
     if share.revoked_at is not None or share.recipient_id != getattr(actor, "pk", None):
+        raise ContentShareError("This content share is not available.")
+    resource = _resource(share.kind, share.resource_id)
+    if _owner(resource).pk != share.owner_id:
+        raise ContentShareError("This content share is no longer available.")
+    return resource
+
+
+def describe_shared_resource(*, actor, share):
+    """Resolve a safe source object for a share preview.
+
+    Owners (and superusers) may inspect their grant metadata even after
+    revocation.  Recipients may inspect it only while the grant is active;
+    this keeps a revoked source from becoming an alternate content lookup
+    path.  The returned model object is for trusted server-side serializers;
+    callers must not expose its definition as a share summary.
+    """
+    share = ContentShare.objects.select_related("owner", "recipient").get(pk=share.pk)
+    actor_id = getattr(actor, "pk", None)
+    is_owner = getattr(actor, "is_superuser", False) or share.owner_id == actor_id
+    is_recipient = share.recipient_id == actor_id and share.revoked_at is None
+    if not (is_owner or is_recipient):
         raise ContentShareError("This content share is not available.")
     resource = _resource(share.kind, share.resource_id)
     if _owner(resource).pk != share.owner_id:
@@ -162,7 +208,9 @@ __all__ = [
     "ContentShareError",
     "copy_shared_content",
     "create_share",
+    "describe_shared_resource",
     "list_shares",
+    "list_received_shares",
     "revoke_share",
     "shared_resource",
 ]

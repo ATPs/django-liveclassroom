@@ -1,4 +1,5 @@
 import pytest
+from django.contrib.auth import get_user_model
 from django.test import Client
 from django.urls import reverse
 
@@ -17,3 +18,14 @@ def test_history_and_review_endpoints_are_mounted_and_own_only():
     foreign = Client()
     foreign.force_login(other)
     assert foreign.get(review).status_code == 404
+
+
+@pytest.mark.django_db
+def test_student_history_page_is_authenticated_and_has_no_attempt_side_effects():
+    user = get_user_model().objects.create_user(username="review-page-user")
+    client = Client()
+    assert client.get(reverse("liveclassroom:assessment-history")).status_code == 302
+    client.force_login(user)
+    response = client.get(reverse("liveclassroom:assessment-history"))
+    assert response.status_code == 200
+    assert 'data-student-review' in response.content.decode()
