@@ -746,6 +746,10 @@ function FlowBuilder({
   const [currentFlow, setCurrentFlow] = useState<FlowDetail | null>(null);
   const [previewOpen, setPreviewOpen] = useState<Set<number>>(new Set());
   const [editingStep, setEditingStep] = useState<FlowStep | null>(null);
+  const [editingDirty, setEditingDirty] = useState(false);
+  const [editingSaving, setEditingSaving] = useState(false);
+  const editingForm = useRef<HTMLDivElement>(null);
+  const editingSaveResolver = useRef<((saved: boolean) => void) | null>(null);
   const [addStepOpen, setAddStepOpen] = useState(false);
   const [aiSidebarOpen, setAiSidebarOpen] = useState(true);
   const [status, setStatus] = useState<{ msg: string; error: boolean } | null>(null);
@@ -755,6 +759,7 @@ function FlowBuilder({
   const [addStepDirty, setAddStepDirty] = useState(false);
 
   const currentFlowRef = useRef<FlowDetail | null>(null);
+  const flowLoadGeneration = useRef(0);
   currentFlowRef.current = currentFlow;
   const sidebarRef = useRef<HTMLDivElement>(null);
   const flowSelectRef = useRef<HTMLSelectElement>(null);
@@ -767,14 +772,23 @@ function FlowBuilder({
     setAddStepOpen(false);
     setAddStepDirty(false);
     addStepSaveRef.current = null;
+    setEditingStep(null);
+    setEditingDirty(false);
   }, []);
   const saveAddStep = useCallback(async () => {
+    if (editingSaving) return false;
+    if (editingDirty) {
+      const form = editingForm.current?.querySelector("form");
+      if (!form || !form.reportValidity()) return false;
+      const saved = await new Promise<boolean>(resolve => { editingSaveResolver.current = resolve; form.requestSubmit(); });
+      if (!saved) return false;
+    }
     const save = addStepSaveRef.current;
-    return save ? save() : false;
-  }, []);
-  useUnsavedChangesWarning(addStepDirty);
+    return addStepDirty ? Boolean(save && await save()) : true;
+  }, [addStepDirty, editingDirty, editingSaving]);
+  useUnsavedChangesWarning(addStepDirty || editingDirty);
   const { requestNavigation, dialog: unsavedDialog } = useUnsavedNavigationGuard({
-    dirty: addStepDirty,
+    dirty: addStepDirty || editingDirty,
     onSave: saveAddStep,
     onBeforeLeave: closeAddStep,
     labels: locale.startsWith("zh") ? {
@@ -792,8 +806,10 @@ function FlowBuilder({
   }, []);
 
   const loadFlow = useCallback(async (flowId: number) => {
+    const generation = ++flowLoadGeneration.current;
     try {
       const data = await getJson<FlowDetail>(apiUrl(`flows/${flowId}/`));
+      if (generation !== flowLoadGeneration.current) return;
       setCurrentFlow(data);
     } catch (err) {
       showStatus(err instanceof Error ? err.message : t("failedLoadFlowDetails"), true);
@@ -821,12 +837,19 @@ function FlowBuilder({
   }, [routeFlowId, loadFlow, loadFlows]);
 
   useEffect(() => {
+    const query = new URL(window.location.href).searchParams;
+    if (currentFlow && Number(query.get("flow_id") ?? query.get("flow")) === currentFlow.id) {
+      updateLocation(routeUrl(flowUrlTemplate.replace(/\/0\//, `/${currentFlow.id}/`), { step: stepSelection || null }), { replace: true });
+    }
+  }, [currentFlow, flowUrlTemplate, stepSelection]);
+
+  useEffect(() => {
     if (!currentFlow || !stepSelection) return;
+    if (routeFlowId && currentFlow.id !== routeFlowId) return;
     const step = currentFlow.steps.find((item) => String(item.id) === stepSelection);
-    if (!step) return;
+    if (!step) { selectStepUrl(currentFlow.steps[0] ? String(currentFlow.steps[0].id) : "", { replace: true }); return; }
     setPreviewOpen(new Set([step.id]));
-    window.requestAnimationFrame(() => document.getElementById(`step-card-${step.id}`)?.scrollIntoView({ block: "nearest" }));
-  }, [currentFlow, stepSelection]);
+  }, [currentFlow, stepSelection, routeFlowId, selectStepUrl]);
 
   useEffect(() => {
     if (!sidebarRef.current) return;
@@ -968,6 +991,7 @@ function FlowBuilder({
       <div className="lc-builder-root">
         <Breadcrumbs items={[{ href: libraryUrl, label: locale.startsWith("zh") ? "资料库" : "Library" }, { label: currentFlow?.title ?? t("builderTitle") }]} />
         <div className="lc-builder-layout">
+          {currentFlow ? <nav className="lc-builder-outline" aria-label={locale.startsWith("zh") ? "教案大纲" : "Lesson outline"}><h2>{locale.startsWith("zh") ? "活动" : "Activities"}</h2>{currentFlow.steps.map((step, index) => <button type="button" key={step.id} className="lc-btn lc-btn-outline" aria-current={String(step.id) === stepSelection ? "true" : undefined} onClick={() => requestNavigation(() => selectStepUrl(String(step.id)))}>{index + 1}. {step.activity_definition?.title || (locale.startsWith("zh") ? "活动" : "Activity")}</button>)}</nav> : null}
           <div className="lc-builder-main">
             <div className="lc-builder-topbar">
               <div className="lc-builder-title-group">
@@ -1058,17 +1082,21 @@ function FlowBuilder({
                   onSuccess={() => void loadFlow(currentFlow.id)}
                 />
               ) : null}
-              {editable && editingStep?.activity_definition && currentFlow && <ActivityEditor key={editingStep.id}
+              {editable && editingStep?.activity_definition && currentFlow && <div ref={editingForm} onChangeCapture={() => setEditingDirty(true)}><ActivityEditor key={editingStep.id}
                 initial={{title:editingStep.activity_definition.title,type_key:editingStep.activity_definition.type_key,content:editingStep.activity_definition.definition}}
-                onCancel={()=>setEditingStep(null)} onSave={async(snapshot)=>{
+                onSaveResult={saved => { editingSaveResolver.current?.(saved); editingSaveResolver.current = null; }}
+                onCancel={()=>requestNavigation(() => { setEditingStep(null); setEditingDirty(false); })} onSave={async(snapshot)=>{
+                  setEditingSaving(true);
+                  try {
                   const updated=await postJson<FlowDetail>(apiUrl(`flows/${currentFlow.id}/steps/${editingStep.id}/edit/`),{token:currentFlow.token,snapshot},crypto.randomUUID());
-                  setCurrentFlow(updated);setEditingStep(null);
-                }}/>}
+                  setCurrentFlow(updated);setEditingStep(null);setEditingDirty(false);
+                  } finally { setEditingSaving(false); }
+                }}/></div>}
               <div className="lc-builder-step-list">
                 {currentFlow && currentFlow.steps.length === 0 ? (
                   <p className="lc-empty-notice">{t("noStepsYet")}</p>
                 ) : (
-                  currentFlow?.steps.map((step, index) => (
+                  currentFlow?.steps.map((step, index) => ((stepSelection ? String(step.id) === stepSelection : index === 0) ? (
                     <StepCard
                       key={step.id}
                       step={step}
@@ -1083,7 +1111,7 @@ function FlowBuilder({
                       onLaunch={(s) => void launchStep(s)}
                       onEdit={(step) => requestNavigation(() => { selectStepUrl(String(step.id)); setEditingStep(step); })}
                     />
-                  ))
+                  ) : null))
                 )}
               </div>
             </section>
@@ -1102,7 +1130,8 @@ function FlowBuilder({
 export function mountBuilder(container: HTMLElement): void {
   const locale: Locale = getLocale(container);
   const dataset = container.dataset;
-  const flowsUrl = dataset.apiV1Url ?? "/api/v1/flows/";
+  const flowsUrl = dataset.apiV1Url;
+  if (!flowsUrl) return;
 
   let sessionId: number | null = dataset.sessionId ? parseInt(dataset.sessionId, 10) || null : null;
   if (!sessionId && typeof window !== "undefined") {
@@ -1111,7 +1140,8 @@ export function mountBuilder(container: HTMLElement): void {
   }
   let flowId: number | null = dataset.flowId ? parseInt(dataset.flowId, 10) || null : null;
   if (!flowId && typeof window !== "undefined") {
-    const param = new URLSearchParams(window.location.search).get("flow_id");
+    const params = new URLSearchParams(window.location.search);
+    const param = params.get("flow_id") ?? params.get("flow");
     if (param) flowId = parseInt(param, 10) || null;
   }
   const isSuperuser = dataset.isSuperuser === "true";

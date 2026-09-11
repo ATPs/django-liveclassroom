@@ -4,6 +4,8 @@
 {% block content %}
   <section class="lc-card lc-wide" data-results-workspace
     data-summary-url="{{ summary_url }}"
+    data-api-root="{{ api_root }}"
+    data-runs-url="{{ runs_url }}"
     data-parent-url="{{ parent_url }}"
     data-locale="{{ active_lang|default:'en' }}">
     <h1>{% translate "Class results" %}</h1>

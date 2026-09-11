@@ -1,10 +1,11 @@
 import * as React from "react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 
 import { MarkdownView } from "../../activities/MarkdownView.js";
 import { ApiError, getJson, postJson } from "../../protocol.js";
 import { LocaleProvider, useLocale } from "../../i18n.js";
+import { useUnsavedChangesWarning, useUnsavedNavigationGuard } from "../../navigation.js";
 
 type ManualDecision = {
   status?: string;
@@ -33,10 +34,18 @@ export type ManualGradingItem = {
   decision?: ManualDecision;
 };
 
-type ManualGradingQueueProps = { apiRoot: string };
+export type ManualGradingQueueProps = {
+  apiRoot: string;
+  runId?: string;
+  attemptId?: string;
+  itemKey?: string;
+  classId?: string;
+  courseId?: string;
+};
 
 function endpoint(apiRoot: string, path: string): string {
   const base = new URL(apiRoot, window.location.href);
+  base.pathname = base.pathname.replace(/workspace\/?$/, "");
   if (!base.pathname.endsWith("/")) base.pathname += "/";
   return new URL(path.replace(/^\/+/, ""), base).toString();
 }
@@ -80,50 +89,87 @@ function ManualGradingCard({
   item,
   apiRoot,
   locale,
+  dirtyKey,
+  resetToken,
   onSaved,
+  onDirtyChange,
+  registerSave,
 }: {
   item: ManualGradingItem;
   apiRoot: string;
   locale: string;
-  onSaved: () => void;
+  dirtyKey: string;
+  resetToken: number;
+  onSaved: () => void | Promise<void>;
+  onDirtyChange: (key: string, dirty: boolean) => void;
+  registerSave: (key: string, save: (() => Promise<boolean>) | null) => void;
 }) {
   const possible = decimal(item.possible_points) ?? 0;
   const [awarded, setAwarded] = useState(item.awarded_points ?? "");
   const [comment, setComment] = useState(item.comment ?? "");
-  const [reason, setReason] = useState("");
+  const [reason, setReason] = useState(item.decision?.reason ?? "");
+  const [savedBaseline, setSavedBaseline] = useState(() => ({
+    awarded: item.awarded_points ?? "",
+    comment: item.comment ?? "",
+    reason: item.decision?.reason ?? "",
+  }));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
-  const save = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  useEffect(() => {
+    setAwarded(item.awarded_points ?? "");
+    setComment(item.comment ?? "");
+    setReason(item.decision?.reason ?? "");
+    setSavedBaseline({ awarded: item.awarded_points ?? "", comment: item.comment ?? "", reason: item.decision?.reason ?? "" });
+    setError("");
+  }, [item.attempt_id, item.item_key, resetToken]);
+
+  const dirty = awarded !== savedBaseline.awarded || comment !== savedBaseline.comment || reason !== savedBaseline.reason;
+  const reportDirty = useCallback((value: boolean) => onDirtyChange(dirtyKey, value), [dirtyKey, onDirtyChange]);
+  const reportSave = useCallback((value: (() => Promise<boolean>) | null) => registerSave(dirtyKey, value), [dirtyKey, registerSave]);
+
+  useEffect(() => {
+    reportDirty(dirty);
+  }, [dirty, reportDirty]);
+
+  const save = async (): Promise<boolean> => {
     const points = decimal(awarded);
     if (points === null || points < 0 || points > possible) {
       setError(text(locale, `Awarded points must be between 0 and ${item.possible_points}.`, `得分必须在 0 到 ${item.possible_points} 之间。`));
-      return;
+      return false;
     }
     if (!reason.trim()) {
       setError(text(locale, "A grading reason is required.", "请填写评分理由。"));
-      return;
+      return false;
     }
     if (comment.length > 4000) {
       setError(text(locale, "Comment is too long.", "评语过长。"));
-      return;
+      return false;
     }
     setSaving(true);
     setError("");
     try {
       await postJson(
         endpoint(apiRoot, `attempts/${item.attempt_id}/items/${item.item_key}/manual-grade/`),
-        { normalized_score: String(points / possible), comment, reason },
+        { normalized_score: possible > 0 ? (points / possible).toFixed(10) : "0", comment, reason },
         requestKey(),
       );
-      onSaved();
+      setSavedBaseline({ awarded, comment, reason });
+      reportDirty(false);
+      await onSaved();
+      return true;
     } catch (cause) {
       setError(cause instanceof ApiError ? cause.message : text(locale, "Unable to save this grade. Your entry is still here.", "无法保存评分，当前输入仍保留。"));
+      return false;
     } finally {
       setSaving(false);
     }
   };
+
+  useEffect(() => {
+    reportSave(save);
+    return () => reportSave(null);
+  }, [reportSave, save]);
 
   return (
     <article className="lc-card lc-manual-grade-card" data-manual-grade-item={item.item_key}>
@@ -142,7 +188,7 @@ function ManualGradingCard({
         <h4>{text(locale, "Student answer", "学生答案")}</h4>
         <pre>{answerText(item.answer) || text(locale, "No answer submitted.", "未提交答案。")}</pre>
       </section>
-      <form className="lc-manual-grade-form" onSubmit={save}>
+      <form className="lc-manual-grade-form" onSubmit={(event) => { event.preventDefault(); void save(); }}>
         <div className="lc-manual-grade-points">
           <label>
             {text(locale, "Awarded points", "得分")}
@@ -178,28 +224,93 @@ function ManualGradingCard({
   );
 }
 
-export function ManualGradingQueue({ apiRoot }: ManualGradingQueueProps) {
+export function ManualGradingQueue({ apiRoot, runId, attemptId, itemKey, classId, courseId }: ManualGradingQueueProps) {
   const locale = useLocale();
   const [items, setItems] = useState<ManualGradingItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [dirtyKeys, setDirtyKeys] = useState<Set<string>>(new Set());
+  const dirtyRef = useRef<Set<string>>(new Set());
+  const saveRefs = useRef<Map<string, () => Promise<boolean>>>(new Map());
+  const bulkSaving = useRef(false);
+  const [resetToken, setResetToken] = useState(0);
+
+  const markDirty = useCallback((key: string, dirty: boolean) => {
+    const next = new Set(dirtyRef.current);
+    if (dirty) next.add(key); else next.delete(key);
+    dirtyRef.current = next;
+    setDirtyKeys(next);
+  }, []);
+
+  const registerSave = useCallback((key: string, save: (() => Promise<boolean>) | null) => {
+    if (save) saveRefs.current.set(key, save); else saveRefs.current.delete(key);
+  }, []);
 
   const load = useCallback(async () => {
     setError("");
     try {
-      const response = await getJson<{ items?: ManualGradingItem[] }>(endpoint(apiRoot, "grading/queue/"));
-      setItems(response.items ?? []);
+      const queueUrl = new URL(endpoint(apiRoot, "grading/queue/"), window.location.href);
+      // Let the server apply the authorized class/course/run scope before
+      // serializing the queue. Attempt/item narrowing remains client-side.
+      if (runId) queueUrl.searchParams.set("run_id", runId);
+      if (classId) queueUrl.searchParams.set("class_id", classId);
+      if (courseId) queueUrl.searchParams.set("course_id", courseId);
+      const response = await getJson<{ items?: ManualGradingItem[] }>(queueUrl.toString());
+      const nextItems = (response.items ?? []).filter((item) => (
+        (!runId || item.run_id === runId)
+        && (!attemptId || item.attempt_id === attemptId)
+        && (!itemKey || item.item_key === itemKey)
+      ));
+      setItems(nextItems);
+      const available = new Set(nextItems.map((item) => `${item.attempt_id}:${item.item_key}`));
+      const nextDirty = new Set([...dirtyRef.current].filter((key) => available.has(key)));
+      dirtyRef.current = nextDirty;
+      setDirtyKeys(nextDirty);
     } catch (cause) {
       setError(cause instanceof ApiError ? cause.message : text(locale, "Unable to load the grading queue.", "无法加载评分队列。"));
     } finally {
       setLoading(false);
     }
-  }, [apiRoot, locale]);
+  }, [apiRoot, attemptId, classId, courseId, itemKey, locale, runId]);
 
   useEffect(() => {
     setLoading(true);
     void load();
   }, [load]);
+
+  const saveAll = useCallback(async (): Promise<boolean> => {
+    bulkSaving.current = true;
+    try {
+      for (const key of [...dirtyRef.current]) {
+        const save = saveRefs.current.get(key);
+        if (!save || !(await save())) return false;
+      }
+      await load();
+      return true;
+    } finally {
+      bulkSaving.current = false;
+    }
+  }, [load]);
+
+  const dirty = dirtyKeys.size > 0;
+  useUnsavedChangesWarning(dirty);
+  const discardAll = useCallback(() => {
+    dirtyRef.current = new Set();
+    setDirtyKeys(new Set());
+    setResetToken((value) => value + 1);
+  }, []);
+  const { dialog: unsavedDialog } = useUnsavedNavigationGuard({
+    dirty,
+    onSave: saveAll,
+    onBeforeLeave: discardAll,
+    labels: {
+      title: text(locale, "Unsaved grading changes", "评分有未保存的更改"),
+      body: text(locale, "Save all grading changes before leaving?", "离开前保存所有评分更改吗？"),
+      save: text(locale, "Save and leave", "保存并离开"),
+      discard: text(locale, "Discard and leave", "放弃并离开"),
+      stay: text(locale, "Stay", "留在此页"),
+    },
+  });
 
   return (
     <section className="lc-manual-grading-queue" aria-labelledby="manual-grading-heading">
@@ -217,8 +328,12 @@ export function ManualGradingQueue({ apiRoot }: ManualGradingQueueProps) {
       {loading ? <p role="status">{text(locale, "Loading…", "加载中…")}</p> : null}
       {!loading && !error && !items.length ? <p className="lc-card lc-empty-notice">{text(locale, "No submitted responses need grading.", "没有待评分的已提交答案。")}</p> : null}
       <div className="lc-manual-grading-list">
-        {items.map((item) => <ManualGradingCard key={`${item.attempt_id}-${item.item_key}`} item={item} apiRoot={apiRoot} locale={locale} onSaved={() => void load()} />)}
+        {items.map((item) => {
+          const key = `${item.attempt_id}:${item.item_key}`;
+          return <ManualGradingCard key={key} item={item} apiRoot={apiRoot} locale={locale} dirtyKey={key} resetToken={resetToken} onSaved={() => { if (!bulkSaving.current) void load(); }} onDirtyChange={markDirty} registerSave={registerSave} />;
+        })}
       </div>
+      {unsavedDialog}
     </section>
   );
 }

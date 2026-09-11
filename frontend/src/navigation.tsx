@@ -11,11 +11,15 @@ export type QueryValue = string | number | null | undefined;
 export type HistoryEntryState = {
   liveclassroomScroll?: { x?: number; y?: number };
   liveclassroomFocusId?: string;
+  /** Internal same-document traversal bookkeeping; never contains product data. */
+  liveclassroomHistoryIndex?: number;
 };
 
 export type NavigationOptions = {
   replace?: boolean;
   focusId?: string;
+  /** Internal escape hatch for a navigation already accepted by a guard. */
+  guard?: boolean;
 };
 
 export type NavigationLinkProps = Omit<React.AnchorHTMLAttributes<HTMLAnchorElement>, "href"> & {
@@ -25,12 +29,78 @@ export type NavigationLinkProps = Omit<React.AnchorHTMLAttributes<HTMLAnchorElem
 
 const NAVIGATION_EVENT = "liveclassroom:navigation";
 const NAVIGATION_REQUEST_EVENT = "liveclassroom:request-navigation";
+const CONTENT_READY_EVENT = "liveclassroom:content-ready";
 let skipNextBeforeUnload = false;
+let skipNextNavigationGuard = false;
+let guardTransactionDepth = 0;
+
+type UnsavedGuardRecord = {
+  dirty: boolean;
+  request: (navigate: () => void) => void;
+  onSave: () => Promise<boolean>;
+  onBeforeLeave?: () => void;
+};
+
+const unsavedGuards = new Set<UnsavedGuardRecord>();
+let historyIndex: number | null = null;
+let pendingHistoryTraversal: { targetIndex: number } | null = null;
+let restoringHistoryTraversal = false;
+let approvedHistoryTraversal = false;
+let pendingContentRestore: HistoryEntryState | null = null;
+let contentRestoreTimer: number | null = null;
+let contentRestoreStartedAt = 0;
+let contentRestoreScrollDone = false;
+let contentRestoreFocusDone = false;
+
+function dirtyGuards(): UnsavedGuardRecord[] {
+  return [...unsavedGuards].filter((record) => record.dirty);
+}
+
+async function saveDirtyGuards(): Promise<boolean> {
+  guardTransactionDepth += 1;
+  // Read the set on each step: a successful save can remove its own dirty bit,
+  // while an unrelated draft must remain part of the same departure decision.
+  try {
+    for (const record of [...unsavedGuards]) {
+      if (!record.dirty) continue;
+      try {
+        if (!(await record.onSave())) return false;
+      } catch {
+        return false;
+      }
+    }
+    return true;
+  } finally {
+    guardTransactionDepth -= 1;
+  }
+}
+
+function beforeLeavingDirtyGuards(): void {
+  for (const record of [...unsavedGuards]) {
+    if (record.dirty) record.onBeforeLeave?.();
+  }
+}
+
+function requestFromDirtyGuard(navigate: () => void): boolean {
+  const record = dirtyGuards()[0];
+  if (!record) return false;
+  record.request(navigate);
+  return true;
+}
+
+if (typeof window !== "undefined") {
+  window.addEventListener(NAVIGATION_REQUEST_EVENT, (event) => {
+    if (guardTransactionDepth > 0 || event.defaultPrevented || !requestFromDirtyGuard((event as CustomEvent<{ navigate: () => void }>).detail.navigate)) return;
+    event.preventDefault();
+  });
+}
 
 function allowControlledDeparture(): void {
   skipNextBeforeUnload = true;
+  skipNextNavigationGuard = true;
   window.setTimeout(() => {
     skipNextBeforeUnload = false;
+    skipNextNavigationGuard = false;
   }, 0);
 }
 
@@ -38,8 +108,83 @@ function currentState(): HistoryEntryState {
   return (window.history.state ?? {}) as HistoryEntryState;
 }
 
-function notifyNavigation(): void {
-  window.dispatchEvent(new Event(NAVIGATION_EVENT));
+function notifyNavigation(focusId?: string): void {
+  window.dispatchEvent(new CustomEvent(NAVIGATION_EVENT, { detail: { focusId } }));
+}
+
+export function notifyContentReady(): void {
+  if (typeof window !== "undefined") window.dispatchEvent(new Event(CONTENT_READY_EVENT));
+}
+
+function activeElementId(): string | undefined {
+  const active = document.activeElement;
+  return active instanceof HTMLElement && active.id ? active.id : undefined;
+}
+
+function navigationState(focusId?: string): HistoryEntryState {
+  const state: HistoryEntryState = {
+    ...currentState(),
+    liveclassroomHistoryIndex: historyIndex ?? currentState().liveclassroomHistoryIndex ?? 0,
+    liveclassroomScroll: { x: window.scrollX, y: window.scrollY },
+  };
+  const focused = activeElementId();
+  if (focused) state.liveclassroomFocusId = focused;
+  else delete state.liveclassroomFocusId;
+  if (focusId) state.liveclassroomFocusId = focusId;
+  return state;
+}
+
+function restoreAfterContentReady(): void {
+  const state = pendingContentRestore;
+  if (!state) return;
+  if (contentRestoreTimer !== null) window.clearTimeout(contentRestoreTimer);
+  contentRestoreTimer = null;
+  const point = state.liveclassroomScroll;
+  const focusId = state.liveclassroomFocusId;
+  const elapsed = Date.now() - contentRestoreStartedAt;
+  window.requestAnimationFrame(() => {
+    if (pendingContentRestore !== state) return;
+    if (point && !contentRestoreScrollDone) {
+      window.scrollTo(point.x ?? 0, point.y ?? 0);
+      // A late content-ready event can arrive after the bounded fallback. Keep
+      // the requested position pending when the document is still too short;
+      // a later event can then restore it once the async surface has grown.
+      const maxY = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+      contentRestoreScrollDone = (point.y ?? 0) <= maxY + 2;
+    } else if (!point) {
+      contentRestoreScrollDone = true;
+    }
+
+    if (!contentRestoreFocusDone) {
+      const focused = focusId ? document.getElementById(focusId) : null;
+      const fallback = document.querySelector<HTMLElement>("h1[tabindex='-1'], h2[tabindex='-1'], [data-liveclassroom-heading]");
+      const target = focused || fallback;
+      if (target) {
+        target.focus({ preventScroll: true });
+        contentRestoreFocusDone = true;
+      }
+    }
+
+    if (contentRestoreScrollDone && contentRestoreFocusDone) {
+      pendingContentRestore = null;
+      return;
+    }
+    // Retry briefly while the current response is laying out. After the
+    // fallback deadline, leave the state queued for a future content-ready
+    // notification instead of losing the user's requested scroll position.
+    if (elapsed < 1200) {
+      contentRestoreTimer = window.setTimeout(restoreAfterContentReady, 50);
+    }
+  });
+}
+
+function queueContentRestore(state: HistoryEntryState): void {
+  pendingContentRestore = state;
+  contentRestoreStartedAt = Date.now();
+  contentRestoreScrollDone = !state.liveclassroomScroll;
+  contentRestoreFocusDone = !state.liveclassroomFocusId;
+  if (contentRestoreTimer !== null) window.clearTimeout(contentRestoreTimer);
+  contentRestoreTimer = window.setTimeout(restoreAfterContentReady, 1200);
 }
 
 /** Ask an active editor to guard a controlled application navigation. */
@@ -66,7 +211,7 @@ export function preserveLocale(url: string): string {
 
 export function updateQuery(
   changes: Record<string, QueryValue>,
-  { replace = false, focusId }: NavigationOptions = {},
+  { replace = false, focusId, guard = true }: NavigationOptions = {},
 ): void {
   const url = new URL(window.location.href);
   for (const [name, value] of Object.entries(changes)) {
@@ -76,41 +221,64 @@ export function updateQuery(
   const next = `${url.pathname}${url.search}${url.hash}`;
   const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
   if (next === current) return;
+  if (!replace && guard && guardTransactionDepth === 0 && !skipNextNavigationGuard && dirtyGuards().length) {
+    requestApplicationNavigation(() => updateQuery(changes, { replace, focusId, guard: false }));
+    return;
+  }
+  const currentIndex = currentState().liveclassroomHistoryIndex ?? historyIndex ?? 0;
+  const outgoingState = navigationState();
+  outgoingState.liveclassroomHistoryIndex = currentIndex;
+  window.history.replaceState(outgoingState, "", current);
   const state: HistoryEntryState = {
-    ...currentState(),
+    ...outgoingState,
     liveclassroomScroll: { x: window.scrollX, y: window.scrollY },
     ...(focusId ? { liveclassroomFocusId: focusId } : {}),
   };
-  if (replace) window.history.replaceState(state, "", next);
-  else window.history.pushState({ liveclassroomScroll: { x: 0, y: 0 }, ...(focusId ? { liveclassroomFocusId: focusId } : {}) }, "", next);
-  notifyNavigation();
+  if (replace) {
+    window.history.replaceState(state, "", next);
+  } else {
+    window.history.pushState({ ...state, liveclassroomHistoryIndex: currentIndex + 1, liveclassroomScroll: { x: 0, y: 0 } }, "", next);
+    historyIndex = currentIndex + 1;
+  }
+  if (replace) historyIndex = currentIndex;
+  notifyNavigation(focusId);
 }
 
 /** Change a route within the mounted application without a document reload. */
-export function updateLocation(destination: string, { replace = false, focusId }: NavigationOptions = {}): void {
+export function updateLocation(destination: string, { replace = false, focusId, guard = true }: NavigationOptions = {}): void {
   const target = new URL(destination, window.location.href);
   const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
   const next = `${target.pathname}${target.search}${target.hash}`;
   if (next === current) return;
-  window.history.replaceState(
-    { ...currentState(), liveclassroomScroll: { x: window.scrollX, y: window.scrollY } },
-    "",
-    current,
-  );
-  const state: HistoryEntryState = { liveclassroomScroll: { x: 0, y: 0 }, ...(focusId ? { liveclassroomFocusId: focusId } : {}) };
-  if (replace) window.history.replaceState(state, "", next);
-  else window.history.pushState(state, "", next);
-  notifyNavigation();
+  if (!replace && guard && guardTransactionDepth === 0 && !skipNextNavigationGuard && dirtyGuards().length) {
+    requestApplicationNavigation(() => updateLocation(destination, { replace, focusId, guard: false }));
+    return;
+  }
+  const currentIndex = currentState().liveclassroomHistoryIndex ?? historyIndex ?? 0;
+  const outgoingState = navigationState();
+  outgoingState.liveclassroomHistoryIndex = currentIndex;
+  window.history.replaceState(outgoingState, "", current);
+  const state: HistoryEntryState = {
+    ...outgoingState,
+    liveclassroomScroll: { x: 0, y: 0 },
+    ...(focusId ? { liveclassroomFocusId: focusId } : {}),
+  };
+  if (replace) {
+    window.history.replaceState(state, "", next);
+    historyIndex = currentIndex;
+  } else {
+    window.history.pushState({ ...state, liveclassroomHistoryIndex: currentIndex + 1 }, "", next);
+    historyIndex = currentIndex + 1;
+  }
+  notifyNavigation(focusId);
 }
 
 export function useLocationPath(): string {
   const [path, setPath] = useState(() => `${window.location.pathname}${window.location.search}${window.location.hash}`);
   useEffect(() => {
     const update = () => setPath(`${window.location.pathname}${window.location.search}${window.location.hash}`);
-    window.addEventListener("popstate", update);
     window.addEventListener(NAVIGATION_EVENT, update);
     return () => {
-      window.removeEventListener("popstate", update);
       window.removeEventListener(NAVIGATION_EVENT, update);
     };
   }, []);
@@ -133,11 +301,66 @@ export function NavigationLink({ href, onNavigate, onClick, ...props }: Navigati
   return <a {...props} href={preserveLocale(href)} onClick={(event) => {
     onClick?.(event);
     if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    const anchor = event.currentTarget;
+    if (anchor.hasAttribute("download")) return;
+    const target = (anchor.getAttribute("target") || "").toLowerCase();
+    if (target && target !== "_self") return;
+    const destination = new URL(anchor.href, window.location.href);
+    if (destination.origin !== window.location.origin) return;
+    if (`${destination.pathname}${destination.search}` === `${window.location.pathname}${window.location.search}`) return;
     event.preventDefault();
-    const navigate = () => window.location.assign(preserveLocale(href));
+    const navigate = () => window.location.assign(preserveLocale(anchor.href));
     if (onNavigate) onNavigate(navigate);
     else requestApplicationNavigation(navigate);
   }} />;
+}
+
+function classroomMountPath(): string | null {
+  const bootstrap = document.getElementById("liveclassroom-navigation-bootstrap");
+  if (!bootstrap?.textContent) return null;
+  try {
+    const parsed = JSON.parse(bootstrap.textContent) as { links?: { home?: string } };
+    const home = parsed.links?.home;
+    if (!home) return null;
+    const path = new URL(home, window.location.href).pathname;
+    return path.endsWith("/") ? path : `${path}/`;
+  } catch {
+    return null;
+  }
+}
+
+function isInClassroomMount(pathname: string, mountPath: string): boolean {
+  return pathname === mountPath.slice(0, -1) || pathname.startsWith(mountPath);
+}
+
+/**
+ * Guard ordinary server-rendered anchors as well as React NavigationLink.
+ * React's delegated handler runs before this document bubble listener, so a
+ * link that already made an application decision is left alone.
+ */
+function installDirtyAnchorGuard(): void {
+  const root = document.getElementById("liveclassroom-root");
+  const mountPath = classroomMountPath();
+  if (!root || !mountPath) return;
+  document.addEventListener("click", (event) => {
+    if (event.defaultPrevented || guardTransactionDepth > 0 || skipNextNavigationGuard) return;
+    if (!(event.target instanceof Element)) return;
+    const anchor = event.target.closest<HTMLAnchorElement>("a[href]");
+    if (!anchor || !root.contains(anchor) || event.button !== 0) return;
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    if (anchor.hasAttribute("download")) return;
+    const target = (anchor.getAttribute("target") || "").toLowerCase();
+    if (target && target !== "_self") return;
+    const destination = new URL(anchor.href, window.location.href);
+    if (destination.origin !== window.location.origin || !isInClassroomMount(destination.pathname, mountPath)) return;
+    const currentDocument = `${window.location.pathname}${window.location.search}`;
+    const targetDocument = `${destination.pathname}${destination.search}`;
+    // Let the browser perform native same-document hash scrolling.
+    if (currentDocument === targetDocument) return;
+    if (!dirtyGuards().length) return;
+    event.preventDefault();
+    requestApplicationNavigation(() => window.location.assign(preserveLocale(anchor.href)));
+  });
 }
 
 export function Breadcrumbs({ items }: { items: Array<{ href?: string; label: string }> }): React.ReactElement {
@@ -156,17 +379,59 @@ export function installHistoryRestoration(): void {
   if (page.liveclassroomHistoryInstalled) return;
   page.liveclassroomHistoryInstalled = true;
   window.history.scrollRestoration = "manual";
+  const initial = currentState();
+  historyIndex = initial.liveclassroomHistoryIndex ?? 0;
+  if (initial.liveclassroomScroll || initial.liveclassroomFocusId) queueContentRestore(initial);
   const save = () => window.history.replaceState(
-    { ...currentState(), liveclassroomScroll: { x: window.scrollX, y: window.scrollY } },
+    { ...navigationState(), liveclassroomHistoryIndex: historyIndex },
     "",
     window.location.href,
   );
   save();
+  installDirtyAnchorGuard();
   window.addEventListener("pagehide", save);
+  window.addEventListener(CONTENT_READY_EVENT, restoreAfterContentReady);
   window.addEventListener("popstate", (event) => {
-    const point = (event.state as { liveclassroomScroll?: { x?: number; y?: number } } | null)?.liveclassroomScroll;
-    if (!point) return;
-    window.requestAnimationFrame(() => window.scrollTo(point.x ?? 0, point.y ?? 0));
+    const state = (event.state ?? {}) as HistoryEntryState;
+    const targetIndex = state.liveclassroomHistoryIndex;
+    const currentIndex = historyIndex ?? 0;
+
+    if (restoringHistoryTraversal) {
+      restoringHistoryTraversal = false;
+      if (targetIndex === currentIndex && pendingHistoryTraversal) {
+        const pending = pendingHistoryTraversal;
+        const accepted = requestFromDirtyGuard(() => {
+          pendingHistoryTraversal = null;
+          approvedHistoryTraversal = true;
+          window.history.go(pending.targetIndex - currentIndex);
+        });
+        if (!accepted) {
+          pendingHistoryTraversal = null;
+          approvedHistoryTraversal = true;
+          window.history.go(pending.targetIndex - currentIndex);
+        }
+      }
+      return;
+    }
+
+    if (approvedHistoryTraversal) {
+      approvedHistoryTraversal = false;
+      pendingHistoryTraversal = null;
+      historyIndex = targetIndex ?? currentIndex;
+      queueContentRestore(state);
+      notifyNavigation();
+      return;
+    }
+
+    if (targetIndex !== undefined && targetIndex !== currentIndex && dirtyGuards().length) {
+      pendingHistoryTraversal = { targetIndex };
+      restoringHistoryTraversal = true;
+      window.history.go(currentIndex - targetIndex);
+      return;
+    }
+
+    historyIndex = targetIndex ?? currentIndex;
+    queueContentRestore(state);
     notifyNavigation();
   });
 }
@@ -177,10 +442,8 @@ export function useQuerySelection(name: string, fallback = ""): [string, (value:
 
   useEffect(() => {
     const onPopState = () => setValue(queryValue(name) ?? fallback);
-    window.addEventListener("popstate", onPopState);
     window.addEventListener(NAVIGATION_EVENT, onPopState);
     return () => {
-      window.removeEventListener("popstate", onPopState);
       window.removeEventListener(NAVIGATION_EVENT, onPopState);
     };
   }, [fallback, name]);
@@ -197,7 +460,6 @@ export function useUnsavedChangesWarning(dirty: boolean): void {
     if (!dirty) return;
     const warn = (event: BeforeUnloadEvent) => {
       if (skipNextBeforeUnload) {
-        skipNextBeforeUnload = false;
         return;
       }
       event.preventDefault();
@@ -211,10 +473,24 @@ export function useUnsavedChangesWarning(dirty: boolean): void {
 /** Focus the current page heading after direct navigation or history restoration. */
 export function useNavigationHeading(id: string): void {
   useEffect(() => {
-    const focus = () => {
-      const requested = currentState().liveclassroomFocusId;
-      if (requested && requested !== id) return;
-      window.requestAnimationFrame(() => document.getElementById(id)?.focus({ preventScroll: true }));
+    const focus = (event: Event) => {
+      const requested = (event as CustomEvent<{ focusId?: string }>).detail?.focusId;
+      if (requested !== id) return;
+      const started = Date.now();
+      let observer: MutationObserver | null = null;
+      const tryFocus = () => {
+        const heading = document.getElementById(id);
+        if (heading) {
+          observer?.disconnect();
+          heading.focus({ preventScroll: true });
+          return;
+        }
+        if (Date.now() - started > 1500) observer?.disconnect();
+      };
+      observer = new MutationObserver(tryFocus);
+      observer.observe(document.body, { childList: true, subtree: true });
+      window.setTimeout(() => observer?.disconnect(), 1500);
+      window.requestAnimationFrame(tryFocus);
     };
     window.addEventListener(NAVIGATION_EVENT, focus);
     return () => window.removeEventListener(NAVIGATION_EVENT, focus);
@@ -242,35 +518,98 @@ export function useUnsavedNavigationGuard({
 } {
   const [pending, setPending] = useState<(() => void) | null>(null);
   const [saving, setSaving] = useState(false);
+  const dialogRef = React.useRef<HTMLElement>(null);
+  const returnFocusRef = React.useRef<HTMLElement | null>(null);
   const requestNavigation = useCallback((navigate: () => void) => {
     if (!dirty) navigate();
-    else setPending(() => navigate);
+    else setPending((current) => {
+      if (!current) {
+        const active = document.activeElement;
+        returnFocusRef.current = active instanceof HTMLElement ? active : null;
+      }
+      return current ?? navigate;
+    });
   }, [dirty]);
   useEffect(() => {
-    if (!dirty) return;
-    const guard = (event: Event) => {
-      if (event.defaultPrevented) return;
-      event.preventDefault();
-      requestNavigation((event as CustomEvent<{ navigate: () => void }>).detail.navigate);
+    const record: UnsavedGuardRecord = {
+      dirty,
+      request: requestNavigation,
+      onSave,
+      onBeforeLeave,
     };
-    window.addEventListener(NAVIGATION_REQUEST_EVENT, guard);
-    return () => window.removeEventListener(NAVIGATION_REQUEST_EVENT, guard);
-  }, [dirty, requestNavigation]);
+    unsavedGuards.add(record);
+    return () => {
+      unsavedGuards.delete(record);
+    };
+  }, [dirty, onBeforeLeave, onSave, requestNavigation]);
   const leave = useCallback(() => {
     const navigate = pending;
     setPending(null);
-    onBeforeLeave?.();
+    returnFocusRef.current = null;
+    beforeLeavingDirtyGuards();
     allowControlledDeparture();
     navigate?.();
-  }, [onBeforeLeave, pending]);
+  }, [pending]);
   const save = useCallback(async () => {
     setSaving(true);
     try {
-      if (await onSave()) leave();
+      if (await saveDirtyGuards()) leave();
     } finally {
       setSaving(false);
     }
-  }, [leave, onSave]);
+  }, [leave]);
+  const restoreFocus = useCallback(() => {
+    const target = returnFocusRef.current;
+    returnFocusRef.current = null;
+    if (!target) return;
+    window.requestAnimationFrame(() => {
+      if (target.isConnected) target.focus({ preventScroll: true });
+    });
+  }, []);
+  const stay = useCallback(() => {
+    setPending(null);
+    pendingHistoryTraversal = null;
+    restoreFocus();
+  }, [restoreFocus]);
+  const dialogOpen = Boolean(pending);
+  useEffect(() => {
+    if (!dialogOpen) return;
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    const selector = "button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])";
+    const focusable = () => Array.from(dialog.querySelectorAll<HTMLElement>(selector)).filter((element) => !element.hidden);
+    window.requestAnimationFrame(() => {
+      const first = focusable()[0];
+      (first ?? dialog).focus();
+    });
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        if (!saving) {
+          event.preventDefault();
+          stay();
+        }
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const controls = focusable();
+      if (!controls.length) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+      const first = controls[0];
+      const last = controls[controls.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [dialogOpen, saving, stay]);
   const text = {
     title: labels.title ?? "Unsaved changes",
     body: labels.body ?? "Save your changes before leaving this editor?",
@@ -280,6 +619,6 @@ export function useUnsavedNavigationGuard({
   };
   return {
     requestNavigation,
-    dialog: pending ? <div className="lc-modal-overlay" role="presentation"><section className="lc-modal" role="dialog" aria-modal="true" aria-labelledby="lc-unsaved-title"><h2 id="lc-unsaved-title">{text.title}</h2><p>{text.body}</p><div className="lc-actions"><button type="button" className="lc-btn lc-btn-primary" disabled={saving} onClick={() => void save()}>{text.save}</button><button type="button" className="lc-btn lc-btn-danger" disabled={saving} onClick={leave}>{text.discard}</button><button type="button" className="lc-btn lc-btn-outline" disabled={saving} onClick={() => setPending(null)}>{text.stay}</button></div></section></div> : null,
+    dialog: pending ? <div className="lc-modal-overlay" role="presentation"><section ref={dialogRef} className="lc-modal" role="dialog" aria-modal="true" aria-labelledby="lc-unsaved-title" tabIndex={-1}><h2 id="lc-unsaved-title">{text.title}</h2><p>{text.body}</p><div className="lc-actions"><button type="button" className="lc-btn lc-btn-primary" disabled={saving} onClick={() => void save()}>{text.save}</button><button type="button" className="lc-btn lc-btn-danger" disabled={saving} onClick={leave}>{text.discard}</button><button type="button" className="lc-btn lc-btn-outline" disabled={saving} onClick={stay}>{text.stay}</button></div></section></div> : null,
   };
 }

@@ -56,6 +56,7 @@ def grading_queue(request):
             request.user,
             run_id=request.GET.get("run_id"),
             class_id=request.GET.get("class_id"),
+            course_id=request.GET.get("course_id"),
         )
     except ManualGradingError as exc:
         return _error(str(exc), 403 if "permission" in str(exc).casefold() or "teacher" in str(exc).casefold() else 400)

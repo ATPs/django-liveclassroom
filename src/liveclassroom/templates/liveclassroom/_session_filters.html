@@ -1,0 +1,8 @@
+{% load i18n %}
+<form method="get" class="lc-actions lc-session-filters">
+  <input type="hidden" name="lang" value="{{ active_lang }}">
+  <label>{% translate "Search" %}<input class="lc-input" type="search" name="q" value="{{ browse_q }}"></label>
+  <label>{% translate "Status" %}<select class="lc-input" name="status"><option value="">{% translate "All" %}</option>{% for value,label in session_statuses %}<option value="{{ value }}" {% if browse_status == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+  <label>{% translate "Sort" %}<select class="lc-input" name="sort"><option value="recent" {% if browse_sort == 'recent' %}selected{% endif %}>{% translate "Recent" %}</option><option value="title" {% if browse_sort == 'title' %}selected{% endif %}>{% translate "Title" %}</option></select></label>
+  <button class="lc-btn lc-btn-outline" type="submit">{% translate "Apply" %}</button>
+</form>

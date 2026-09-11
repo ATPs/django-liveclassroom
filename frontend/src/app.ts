@@ -17,9 +17,11 @@ import { mountResultsWorkspace } from "./surfaces/assessments/ResultsWorkspace.j
 import { mountAppShell } from "./surfaces/navigation/AppShell.js";
 import { mountHomeWorkspace } from "./surfaces/workspace/HomeWorkspace.js";
 import { installHistoryRestoration } from "./navigation.js";
+import { installBrowseForms } from "./surfaces/navigation/BrowseForms.js";
 
 if (typeof document !== "undefined") {
   installHistoryRestoration();
+  installBrowseForms();
   mountAppShell();
   for (const el of document.querySelectorAll<HTMLElement>("[data-home-workspace]")) mountHomeWorkspace(el);
   for (const el of document.querySelectorAll<HTMLElement>("[data-teacher-workspace]")) mountTeacherWorkspace(el);
