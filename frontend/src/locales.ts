@@ -69,6 +69,10 @@ export const translations = {
     history: "Previous activities",
     noHistory: "No previous activities are available.",
     historyUnavailable: "Activity history is unavailable.",
+    reviewingActivity: "Reviewing a previous activity.",
+    reviewingSlide: "Reviewing a previous slide.",
+    reviewUnavailable: "This review is no longer available. Showing current classroom content.",
+    returnToCurrent: "Return to current content",
 
     // Published assessment attempts
     assessmentKicker: "Student assessment",
@@ -113,6 +117,7 @@ export const translations = {
     assessmentScoresHidden: "Scores and feedback are not released yet.",
     assessmentAnswerRecorded: "Your saved answer is recorded for this attempt.",
     assessmentNoQuestions: "This assessment has no questions.",
+    assessmentQuestionUnavailable: "That question is not available in this attempt. Showing the current question.",
 
     // Teacher controls & lifecycle
     start: "Start classroom",
@@ -462,6 +467,10 @@ export const translations = {
     history: "历史活动",
     noHistory: "暂无历史活动。",
     historyUnavailable: "历史活动不可用。",
+    reviewingActivity: "正在查看历史活动。",
+    reviewingSlide: "正在查看历史页面。",
+    reviewUnavailable: "该历史内容已无法查看，正在显示当前课堂内容。",
+    returnToCurrent: "返回当前内容",
 
     // 已发布测验作答
     assessmentKicker: "学生测验",
@@ -506,6 +515,7 @@ export const translations = {
     assessmentScoresHidden: "成绩和反馈尚未发布。",
     assessmentAnswerRecorded: "本次作答的已保存答案已记录。",
     assessmentNoQuestions: "此测验没有题目。",
+    assessmentQuestionUnavailable: "此题目前不可用。正在显示当前题目。",
 
     // 教师端控制与生命周期
     start: "开始课堂",

@@ -218,6 +218,9 @@
   padding: .65rem;
 }
 
+#liveclassroom-root .lc-shell-drawer-title { display: none; }
+#liveclassroom-root .lc-shell-drawer-overlay { display: none; }
+
 #liveclassroom-root .lc-shell-filter {
   display: grid;
   gap: .25rem;
@@ -303,6 +306,8 @@
   cursor: pointer;
 }
 
+#liveclassroom-root .lc-shell-saved-actions { display: inline-flex; align-items: center; }
+
 #liveclassroom-root .lc-shell-utility-links {
   display: grid;
   gap: .1rem;
@@ -360,6 +365,9 @@
 #liveclassroom-root .lc-home-section { min-width: 0; padding: 1rem; border: 1px solid var(--lc-border); border-radius: var(--lc-radius); background: var(--lc-surface); }
 #liveclassroom-root .lc-home-section-primary { grid-column: span 2; }
 #liveclassroom-root .lc-home-section h2 { margin-top: 0; font-size: 1rem; }
+#liveclassroom-root .lc-home-section-heading { display: flex; align-items: baseline; justify-content: space-between; gap: .75rem; margin-bottom: .65rem; }
+#liveclassroom-root .lc-home-section-heading h2 { margin: 0; }
+#liveclassroom-root .lc-home-section-heading a { flex: 0 0 auto; font-size: .86rem; }
 #liveclassroom-root .lc-data-list { display: grid; gap: .35rem; }
 #liveclassroom-root .lc-data-list-row { min-height: 2.75rem; display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: .45rem .55rem; border: 1px solid var(--lc-border); border-radius: var(--lc-radius-sm); color: var(--lc-text); text-decoration: none; }
 #liveclassroom-root .lc-data-list-row:hover { border-color: var(--lc-accent-border); background: var(--lc-accent-soft); color: var(--lc-text); }
@@ -389,7 +397,11 @@
   #liveclassroom-root .lc-shell-body,
   #liveclassroom-root .lc-shell[data-sidebar="collapsed"] .lc-shell-body { display: block; }
   #liveclassroom-root .lc-shell-sidebar { position: fixed; z-index: 40; top: 3.5rem; left: 0; width: min(18rem, calc(100vw - 2.5rem)); transform: translateX(-105%); transition: transform var(--lc-transition); box-shadow: var(--lc-shadow-md); }
-  #liveclassroom-root .lc-shell[data-sidebar="expanded"] .lc-shell-sidebar { transform: translateX(0); }
+  #liveclassroom-root .lc-shell[data-drawer="open"] .lc-shell-sidebar { transform: translateX(0); }
+  #liveclassroom-root .lc-shell-drawer-overlay { position: fixed; z-index: 35; inset: 3.5rem 0 0; display: block; pointer-events: none; }
+  #liveclassroom-root .lc-shell[data-drawer="open"] .lc-shell-drawer-overlay { pointer-events: auto; background: color-mix(in srgb, var(--lc-text) 35%, transparent); }
+  #liveclassroom-root .lc-shell-drawer-dismiss { width: 100%; height: 100%; border: 0; padding: 0; background: transparent; cursor: default; }
+  #liveclassroom-root .lc-shell-drawer-title { min-height: 2.25rem; display: flex; align-items: center; justify-content: space-between; gap: .5rem; font-size: .9rem; font-weight: 750; }
   #liveclassroom-root .lc-shell-content { padding: .75rem; }
   #liveclassroom-root .lc-home-grid { grid-template-columns: 1fr; }
   #liveclassroom-root .lc-home-section-primary { grid-column: auto; }

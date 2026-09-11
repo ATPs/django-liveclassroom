@@ -4,11 +4,20 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { deleteJson, getJson, postJson, putJson } from "../../protocol.js";
 import { getLocale, type Locale, type TranslationKey } from "../../locales.js";
-import { LanguageSwitcher, LocaleProvider, useLocale, useT } from "../../i18n.js";
+import { LocaleProvider, useLocale, useT } from "../../i18n.js";
 import { mountAiChat } from "../../ai_chat.js";
 import { FilePicker } from "../FilePicker.js";
 import { QuestionBankWorkspace } from "../questions/QuestionBankWorkspace.js";
-import { Breadcrumbs, routeUrl, updateLocation, useLocationPath, useNavigationHeading, useQuerySelection } from "../../navigation.js";
+import {
+  Breadcrumbs,
+  routeUrl,
+  updateLocation,
+  useLocationPath,
+  useNavigationHeading,
+  useQuerySelection,
+  useUnsavedChangesWarning,
+  useUnsavedNavigationGuard,
+} from "../../navigation.js";
 
 export type FlowSummary = {
   id: number;
@@ -261,20 +270,36 @@ function AddStepForm({
   initialDraft,
   onSaved,
   onCancel,
+  onDirtyChange,
+  onSaveReady,
 }: {
   flowId: number;
   apiUrl: (path: string) => string;
   initialDraft: string;
   onSaved: () => void;
   onCancel: () => void;
+  onDirtyChange?: (dirty: boolean) => void;
+  onSaveReady?: (save: (() => Promise<boolean>) | null) => void;
 }) {
   const t = useT();
   const [type, setType] = useState(ACTIVITY_TYPES[0].type_key);
   const [fields, setFields] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const submitRef = useRef<() => Promise<boolean>>(() => Promise.resolve(false));
 
   const set = (key: string, value: string) => setFields((prev) => ({ ...prev, [key]: value }));
+  const defaultFieldValues: Record<string, string> = {
+    ...(type === "liveclassroom.rating" ? { min: "1", max: "5" } : {}),
+    ...(type === "liveclassroom.essay" ? { maxLength: "10000" } : {}),
+    ...(type === "liveclassroom.timer" ? { duration: "60" } : {}),
+    ...(type === "liveclassroom.media" ? { mediaType: "image" } : {}),
+    initialDirectory: "/",
+  };
+  const dirty = type !== ACTIVITY_TYPES[0].type_key || Object.entries(fields).some(([key, value]) => {
+    const normalized = value.trim();
+    return normalized !== "" && normalized !== (defaultFieldValues[key] ?? "");
+  });
   const choiceIds = (fields.options ?? "").split("\n").map((line, index) =>
     line.trim() ? String.fromCharCode(65 + index) : ""
   ).filter(Boolean);
@@ -292,7 +317,8 @@ function AddStepForm({
     }
   }, [initialDraft]);
 
-  const submit = async () => {
+  const submit = async (): Promise<boolean> => {
+    if (saving) return false;
     setError("");
     const title = (fields.title ?? "").trim();
     const prompt = (fields.prompt ?? "").trim();
@@ -304,7 +330,7 @@ function AddStepForm({
 
     if ((isChoice || isText || isEssay || isNum || isBashSimulator || type === "liveclassroom.true_false") && !prompt && !title) {
       setError(t("validationError"));
-      return;
+      return false;
     }
 
     let payload: Record<string, unknown>;
@@ -312,7 +338,7 @@ function AddStepForm({
       const lines = (fields.options ?? "").split("\n").map((l) => l.trim()).filter(Boolean);
       if (lines.length < 2) {
         setError(t("atLeastTwoOptions"));
-        return;
+        return false;
       }
       const options = lines.map((text, idx) => {
         const id = String.fromCharCode(65 + idx);
@@ -347,7 +373,7 @@ function AddStepForm({
       const maxLength = Number(fields.maxLength || "10000");
       if (!Number.isInteger(maxLength) || maxLength < 1 || maxLength > 50000) {
         setError(t("essayLengthInvalid"));
-        return;
+        return false;
       }
       const definition: Record<string, unknown> = { prompt: prompt || title, max_length: maxLength };
       payload = { kind: "activity", title: title || prompt, activity_definition: { title: title || prompt, type_key: type, definition } };
@@ -378,11 +404,11 @@ function AddStepForm({
         completion = JSON.parse(fields.completion || "{}");
       } catch {
         setError(t("bashSimulatorJsonError"));
-        return;
+        return false;
       }
       if (!filesystem || typeof filesystem !== "object" || Array.isArray(filesystem) || !completion || typeof completion !== "object" || Array.isArray(completion)) {
         setError(t("bashSimulatorJsonError"));
-        return;
+        return false;
       }
       const definition = {
         prompt: prompt || title,
@@ -395,7 +421,7 @@ function AddStepForm({
       const dur = parseFloat(fields.duration || "0");
       if (!dur || dur <= 0) {
         setError(t("durationPositive"));
-        return;
+        return false;
       }
       payload = {
         kind: "activity",
@@ -406,14 +432,14 @@ function AddStepForm({
       const md = (fields.markdown ?? "").trim();
       if (!md) {
         setError(t("markdownRequired"));
-        return;
+        return false;
       }
       payload = { kind: "markdown", title: title || t("defaultLectureNote"), content: { markdown: md } };
     } else {
       const url = (fields.url ?? "").trim();
       if (!url) {
         setError(t("mediaUrlRequired"));
-        return;
+        return false;
       }
       payload = {
         kind: "activity",
@@ -430,11 +456,25 @@ function AddStepForm({
     try {
       await postJson(apiUrl(`flows/${flowId}/steps/`), payload);
       onSaved();
+      return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : t("failedAddStep"));
+      return false;
+    } finally {
       setSaving(false);
     }
   };
+  submitRef.current = submit;
+
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
+
+  useEffect(() => {
+    const save = () => submitRef.current();
+    onSaveReady?.(save);
+    return () => onSaveReady?.(null);
+  }, [onSaveReady]);
 
   const input = (key: string, extra: Record<string, unknown> = {}) => (
     <input className="lc-input" value={fields[key] ?? ""} onChange={(e) => set(key, e.target.value)} {...extra} />
@@ -712,11 +752,39 @@ function FlowBuilder({
   const [importOpen, setImportOpen] = useState(false);
   const [draftPrompt, setDraftPrompt] = useState("");
   const [questionPickerOpen, setQuestionPickerOpen] = useState(false);
+  const [addStepDirty, setAddStepDirty] = useState(false);
 
   const currentFlowRef = useRef<FlowDetail | null>(null);
   currentFlowRef.current = currentFlow;
   const sidebarRef = useRef<HTMLDivElement>(null);
   const flowSelectRef = useRef<HTMLSelectElement>(null);
+  const addStepSaveRef = useRef<(() => Promise<boolean>) | null>(null);
+
+  const registerAddStepSave = useCallback((save: (() => Promise<boolean>) | null) => {
+    addStepSaveRef.current = save;
+  }, []);
+  const closeAddStep = useCallback(() => {
+    setAddStepOpen(false);
+    setAddStepDirty(false);
+    addStepSaveRef.current = null;
+  }, []);
+  const saveAddStep = useCallback(async () => {
+    const save = addStepSaveRef.current;
+    return save ? save() : false;
+  }, []);
+  useUnsavedChangesWarning(addStepDirty);
+  const { requestNavigation, dialog: unsavedDialog } = useUnsavedNavigationGuard({
+    dirty: addStepDirty,
+    onSave: saveAddStep,
+    onBeforeLeave: closeAddStep,
+    labels: locale.startsWith("zh") ? {
+      title: "有未保存的更改",
+      body: "离开步骤编辑器前要保存更改吗？",
+      save: "保存并离开",
+      discard: "放弃并离开",
+      stay: "留在此处",
+    } : undefined,
+  });
 
   const showStatus = useCallback((msg: string, error = false) => {
     setStatus({ msg, error });
@@ -876,12 +944,14 @@ function FlowBuilder({
   };
 
   const togglePreview = (id: number) => {
-    selectStepUrl(String(id));
-    setPreviewOpen((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
+    requestNavigation(() => {
+      selectStepUrl(String(id));
+      setPreviewOpen((prev) => {
+        const next = new Set(prev);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        return next;
+      });
     });
   };
 
@@ -895,7 +965,6 @@ function FlowBuilder({
 
   return (
     <>
-      <LanguageSwitcher />
       <div className="lc-builder-root">
         <Breadcrumbs items={[{ href: libraryUrl, label: locale.startsWith("zh") ? "资料库" : "Library" }, { label: currentFlow?.title ?? t("builderTitle") }]} />
         <div className="lc-builder-layout">
@@ -909,7 +978,7 @@ function FlowBuilder({
                     className="lc-builder-flow-select"
                     ref={flowSelectRef}
                     value={activeFlowId ? String(activeFlowId) : ""}
-                    onChange={(e) => openFlow(Number(e.target.value))}
+                    onChange={(e) => requestNavigation(() => openFlow(Number(e.target.value)))}
                   >
                     {flows.length === 0 ? (
                       <option value="">{t("noStepsYet")}</option>
@@ -924,11 +993,11 @@ function FlowBuilder({
                 </label>
               </div>
               <div className="lc-builder-actions">
-                <button type="button" className="lc-btn-sm" onClick={() => void createFlow()}>+ {t("createFlow")}</button>
-                <button type="button" className="lc-btn-sm lc-btn-outline" onClick={() => void duplicateFlow()}>{t("duplicateFlow")}</button>
+                <button type="button" className="lc-btn-sm" onClick={() => requestNavigation(() => { void createFlow(); })}>+ {t("createFlow")}</button>
+                <button type="button" className="lc-btn-sm lc-btn-outline" onClick={() => requestNavigation(() => { void duplicateFlow(); })}>{t("duplicateFlow")}</button>
                 {editable ? <button type="button" className="lc-btn-sm lc-btn-outline" onClick={() => setImportOpen(true)}>{t("importContent")}</button> : null}
                 {sessionId ? (
-                  <button type="button" className="lc-btn-sm lc-btn-outline" onClick={() => void saveSessionAsFlow()}>{t("saveSessionAsFlow")}</button>
+                  <button type="button" className="lc-btn-sm lc-btn-outline" onClick={() => requestNavigation(() => { void saveSessionAsFlow(); })}>{t("saveSessionAsFlow")}</button>
                 ) : null}
                 <button type="button" className="lc-btn-sm lc-btn-subtle" onClick={() => setAiSidebarOpen((v) => !v)}>
                   🤖 {t("aiAssistant")}
@@ -953,7 +1022,11 @@ function FlowBuilder({
             <section className="lc-builder-steps-section">
               <div className="lc-builder-steps-header">
                 <h3>{t("steps")}</h3>
-                {editable ? <button type="button" className="lc-btn-sm lc-btn-primary" onClick={() => setAddStepOpen((v) => !v)}>+ {t("addStep")}</button> : null}
+                {editable ? <button type="button" className="lc-btn-sm lc-btn-primary" onClick={() => {
+                  if (addStepOpen && addStepDirty) requestNavigation(closeAddStep);
+                  else if (addStepOpen) closeAddStep();
+                  else setAddStepOpen(true);
+                }}>+ {t("addStep")}</button> : null}
                 {editable ? <button type="button" className="lc-btn-sm lc-btn-outline" onClick={() => setQuestionPickerOpen((v) => !v)}>{locale.startsWith("zh") ? "从题库加入" : "Add from question bank"}</button> : null}
               </div>
               {editable && addStepOpen && currentFlow ? (
@@ -962,12 +1035,14 @@ function FlowBuilder({
                   apiUrl={apiUrl}
                   initialDraft={draftPrompt}
                   onSaved={() => {
-                    setAddStepOpen(false);
+                    closeAddStep();
                     setDraftPrompt("");
                     showStatus(t("stepAdded"));
                     void loadFlow(currentFlow.id);
                   }}
-                  onCancel={() => setAddStepOpen(false)}
+                  onCancel={closeAddStep}
+                  onDirtyChange={setAddStepDirty}
+                  onSaveReady={registerAddStepSave}
                 />
               ) : null}
               {editable && currentFlow && questionPickerOpen ? (
@@ -1006,7 +1081,7 @@ function FlowBuilder({
                       onTogglePreview={togglePreview}
                       onDelete={(s) => void deleteStep(s)}
                       onLaunch={(s) => void launchStep(s)}
-                      onEdit={(step) => { selectStepUrl(String(step.id)); setEditingStep(step); }}
+                      onEdit={(step) => requestNavigation(() => { selectStepUrl(String(step.id)); setEditingStep(step); })}
                     />
                   ))
                 )}
@@ -1019,6 +1094,7 @@ function FlowBuilder({
         </div>
       </div>
       {importOpen ? <ImportModal apiUrl={apiUrl} onImported={() => { setImportOpen(false); showStatus(t("importSuccess")); void loadFlows(); }} onClose={() => setImportOpen(false)} /> : null}
+      {unsavedDialog}
     </>
   );
 }

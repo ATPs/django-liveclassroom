@@ -1,6 +1,6 @@
 import * as React from "react";
 import { createRoot } from "react-dom/client";
-import { LanguageSwitcher, LocaleProvider, useLocale } from "../../i18n.js";
+import { LocaleProvider, useLocale } from "../../i18n.js";
 import { ApiError, getJson, postJson } from "../../protocol.js";
 import { MarkdownView } from "../../activities/MarkdownView.js";
 import { routeUrl, updateLocation, useLocationPath, useNavigationHeading, useQuerySelection } from "../../navigation.js";
@@ -418,7 +418,6 @@ function StudentReview({
     const released = selected.released;
     return (
       <div className="lc-assessment-root lc-student-review-root">
-        <LanguageSwitcher />
         <div className="lc-actions lc-student-review-toolbar">
           <button type="button" className="lc-btn lc-btn-outline" onClick={() => updateLocation(routeUrl(historyPageUrl, { item: null }), { focusId: "lc-student-review-heading" })}>{copy.back}</button>
           <a href={assessmentUrl(selected.run_id)}>{copy.resume}</a>
@@ -441,7 +440,6 @@ function StudentReview({
 
   return (
     <div className="lc-assessment-root lc-student-review-root">
-      <LanguageSwitcher />
       <header className="lc-student-assessment-header">
         <p className="lc-kicker">{copy.history}</p>
         <h1 id="lc-student-review-heading" tabIndex={-1}>{copy.history}</h1>

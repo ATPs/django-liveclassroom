@@ -42,6 +42,16 @@ urlpatterns = [
     path("api/v1/browse/navigation/", api_browse.navigation, name="api-v1-browse-navigation"),
     path("api/v1/browse/teaching/", api_browse.teaching_index, name="api-v1-browse-teaching"),
     path(
+        "api/v1/browse/teaching/courses/",
+        api_browse.teaching_courses,
+        name="api-v1-browse-teaching-courses",
+    ),
+    path(
+        "api/v1/browse/teaching/classes/",
+        api_browse.teaching_classes,
+        name="api-v1-browse-teaching-classes",
+    ),
+    path(
         "api/v1/browse/teaching/courses/<int:course_id>/",
         api_browse.teaching_course,
         name="api-v1-browse-teaching-course",
@@ -50,6 +60,16 @@ urlpatterns = [
         "api/v1/browse/teaching/classes/<int:class_id>/", api_browse.teaching_class, name="api-v1-browse-teaching-class"
     ),
     path("api/v1/browse/learning/", api_browse.learning_index, name="api-v1-browse-learning"),
+    path(
+        "api/v1/browse/learning/courses/",
+        api_browse.learning_courses,
+        name="api-v1-browse-learning-courses",
+    ),
+    path(
+        "api/v1/browse/learning/classes/",
+        api_browse.learning_classes,
+        name="api-v1-browse-learning-classes",
+    ),
     path(
         "api/v1/browse/learning/courses/<int:course_id>/",
         api_browse.learning_course,

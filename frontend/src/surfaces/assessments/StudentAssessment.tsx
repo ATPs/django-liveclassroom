@@ -1,6 +1,6 @@
 import * as React from "react";
 import { createRoot } from "react-dom/client";
-import { LanguageSwitcher, LocaleProvider, useLocale, useT } from "../../i18n.js";
+import { LocaleProvider, useLocale, useT } from "../../i18n.js";
 import { ApiError, getJson, postJson } from "../../protocol.js";
 import { MarkdownView, markdownFragmentFor } from "../../activities/MarkdownView.js";
 import { requestApplicationNavigation, updateQuery, useQuerySelection } from "../../navigation.js";
@@ -432,8 +432,9 @@ function StudentAssessment({ runUrl, startUrl, historyUrl, initialAttemptId = ""
     setAnswers(initialAnswers);
     setVersions(initialVersions);
     setStatuses(initialStatuses);
-    // A URL is an untrusted navigation request. Start at the persisted server
-    // cursor; the effect below asks the server before honoring ?item=.
+    // A URL is an untrusted display-selection request. Start at the persisted
+    // server cursor; the effect below may select another item locally, without
+    // moving that cursor or changing assessment progress.
     const selectedKey = normalized.navigation?.current_item_key;
     const selectedIndex = normalizedItems.findIndex((item) => item.key === selectedKey);
     setSelected(selectedIndex >= 0 ? selectedIndex : 0);
@@ -551,44 +552,63 @@ function StudentAssessment({ runUrl, startUrl, historyUrl, initialAttemptId = ""
     if (index >= 0) setSelected(index);
   }, []);
 
-  const navigateTo = React.useCallback(async (itemKey: string, writeHistory: boolean) => {
+  const selectVisibleItem = React.useCallback((itemKey: string): boolean => {
     const current = attemptRef.current;
-    if (!current?.navigation || current.status !== "in_progress") return;
-    setError("");
-    try {
-      const result = await postJson<NonNullable<AssessmentAttempt["navigation"]>>(
-        endpoint(startUrl, current.id, "navigate"),
-        { item_key: itemKey, expected_navigation_version: current.navigation.navigation_version },
-      );
-      applyNavigation(result);
-      if (writeHistory) selectItemUrl(itemKey);
-    } catch (reason) {
-      const apiError = reason as ApiError & { body?: { current?: NonNullable<AssessmentAttempt["navigation"]> } };
-      if (apiError.body?.current) {
-        applyNavigation(apiError.body.current);
-        updateQuery({ item: apiError.body.current.current_item_key }, { replace: true });
-      }
-      setError(reason instanceof Error ? reason.message : t("assessmentLoadFailed"));
-    }
-  }, [applyNavigation, selectItemUrl, startUrl, t]);
+    if (!current) return false;
+    const index = current.items.findIndex((item) => item.key === itemKey);
+    if (index < 0) return false;
+    const item = current.items[index];
+    const navigation = current.navigation;
+    if (
+      navigation?.mode === "forward_only"
+      && item.position > navigation.highest_accessible_item_position
+    ) return false;
+    setSelected(index);
+    return true;
+  }, []);
 
   React.useEffect(() => {
-    if (!attempt || !itemSelection || itemSelection === attempt.navigation?.current_item_key) return;
-    if (attempt.items.some((item) => item.key === itemSelection)) void navigateTo(itemSelection, false);
-    else updateQuery({ item: attempt.navigation?.current_item_key ?? null }, { replace: true });
-  }, [attempt, itemSelection, navigateTo]);
+    const current = attemptRef.current;
+    if (!attempt || !current) return;
+    if (itemSelection && selectVisibleItem(itemSelection)) return;
+    const fallbackKey = current.navigation?.current_item_key;
+    const fallback = current.items.find((item) => item.key === fallbackKey)
+      ?? current.items.find((item) => (
+        current.navigation?.mode !== "forward_only"
+        || item.position <= current.navigation.highest_accessible_item_position
+      ));
+    if (fallback) setSelected(current.items.indexOf(fallback));
+    if (itemSelection) {
+      setError(t("assessmentQuestionUnavailable"));
+      updateQuery({ item: fallback?.key ?? null }, { replace: true });
+    }
+  }, [attempt, itemSelection, selectVisibleItem, t]);
+
+  const selectQuestion = React.useCallback((itemKey: string) => {
+    if (selectVisibleItem(itemKey)) {
+      setError("");
+      selectItemUrl(itemKey);
+      return;
+    }
+    const current = attemptRef.current;
+    const fallback = current?.items.find((item) => item.key === current.navigation?.current_item_key);
+    setError(t("assessmentQuestionUnavailable"));
+    updateQuery({ item: fallback?.key ?? null }, { replace: true });
+  }, [selectItemUrl, selectVisibleItem, t]);
 
   const advance = async () => {
     const current = attemptRef.current;
-    const item = current?.items[selected];
-    if (!current || !item || !current.navigation || submitting) return;
+    if (!current || !current.navigation || submitting) return;
     setSubmitting(true); setError("");
     try {
       const allSaved = await controller.flushAll();
       if (!allSaved) throw new Error(t("assessmentSaveBeforeSubmit"));
       const result = await postJson<NonNullable<AssessmentAttempt["navigation"]>>(
         endpoint(startUrl, current.id, "advance"),
-        { item_key: item.key, expected_navigation_version: current.navigation.navigation_version },
+        {
+          item_key: current.navigation.current_item_key,
+          expected_navigation_version: current.navigation.navigation_version,
+        },
       );
       applyNavigation(result);
       selectItemUrl(result.current_item_key);
@@ -628,10 +648,9 @@ function StudentAssessment({ runUrl, startUrl, historyUrl, initialAttemptId = ""
     } finally { setSubmitting(false); }
   };
 
-  if (loading) return <div className="lc-assessment-root"><LanguageSwitcher /><p role="status">{t("loading")}</p></div>;
+  if (loading) return <div className="lc-assessment-root"><p role="status">{t("loading")}</p></div>;
   return (
     <div className="lc-assessment-root lc-student-assessment-root">
-      <LanguageSwitcher />
       {error ? <p className="lc-form-error" role="alert">{error}</p> : null}
       {notice ? <p className="lc-builder-status lc-builder-status-success" role="status">{notice}</p> : null}
       {run ? <header className="lc-student-assessment-header"><p className="lc-kicker">{t("assessmentKicker")}</p><h1>{run.title}</h1>{run.instructions ? <MarkdownView markdown={run.instructions} /> : null}</header> : null}
@@ -656,13 +675,13 @@ function StudentAssessment({ runUrl, startUrl, historyUrl, initialAttemptId = ""
           <div className="lc-student-assessment-layout">
             <nav className="lc-card lc-student-assessment-nav" aria-label={t("assessmentQuestionNavigation")}>
               <h2>{t("assessmentQuestions")}</h2>
-              <ol>{attempt.items.map((item, index) => <li key={item.key}><button type="button" className={selected === index ? "lc-assessment-nav-current" : ""} onClick={() => void navigateTo(item.key, true)} disabled={submitting || Boolean(attempt.navigation?.mode === "forward_only" && item.position > attempt.navigation.highest_accessible_item_position)}><span>{item.position}</span>{answers[item.key] && Object.keys(answers[item.key]).length ? <small aria-label={t("assessmentAnswered")}>✓</small> : null}</button></li>)}</ol>
+              <ol>{attempt.items.map((item, index) => <li key={item.key}><button type="button" className={selected === index ? "lc-assessment-nav-current" : ""} onClick={() => selectQuestion(item.key)} disabled={submitting || Boolean(attempt.navigation?.mode === "forward_only" && item.position > attempt.navigation.highest_accessible_item_position)}><span>{item.position}</span>{answers[item.key] && Object.keys(answers[item.key]).length ? <small aria-label={t("assessmentAnswered")}>✓</small> : null}</button></li>)}</ol>
             </nav>
             <section className="lc-student-assessment-main">
               {attempt.items[selected] ? <QuestionCard item={attempt.items[selected]} answer={answers[attempt.items[selected].key] ?? {}} status={statuses[attempt.items[selected].key] ?? "idle"} disabled={submitting || Boolean(attempt.navigation?.mode === "forward_only" && attempt.navigation.locked_item_keys.includes(attempt.items[selected].key))} onChange={(next) => changeAnswer(attempt.items[selected], next)} onRetry={() => controller.retry(attempt.items[selected].key)} /> : <p>{t("assessmentNoQuestions")}</p>}
               <div className="lc-student-assessment-actions">
-                <button type="button" className="lc-btn lc-btn-outline" onClick={() => { const prior = attempt.items[selected - 1]; if (prior) void navigateTo(prior.key, true); }} disabled={selected === 0 || submitting}>{t("assessmentPrevious")}</button>
-                {selected < attempt.items.length - 1 ? <button type="button" className="lc-btn lc-btn-outline" onClick={() => void advance()} disabled={submitting}>{t("assessmentNext")}</button> : null}
+                <button type="button" className="lc-btn lc-btn-outline" onClick={() => { const prior = attempt.items[selected - 1]; if (prior) selectQuestion(prior.key); }} disabled={selected === 0 || submitting}>{t("assessmentPrevious")}</button>
+                {attempt.navigation?.can_go_next ? <button type="button" className="lc-btn lc-btn-outline" onClick={() => void advance()} disabled={submitting}>{t("assessmentNext")}</button> : null}
                 <button type="button" className="lc-btn lc-btn-primary" onClick={() => setConfirming(true)} disabled={submitting}>{t("assessmentSubmit")}</button>
               </div>
           {confirming ? <section className="lc-card lc-assessment-submit-confirm" role="dialog" aria-modal="false" aria-labelledby="assessment-submit-heading"><h2 id="assessment-submit-heading">{t("assessmentConfirmSubmit")}</h2><p>{t("assessmentConfirmSubmitDetails")}</p><div className="lc-actions"><button type="button" className="lc-btn lc-btn-primary" onClick={() => void submit()} disabled={submitting}>{submitting ? t("assessmentSubmitting") : t("assessmentSubmitNow")}</button><button type="button" className="lc-btn lc-btn-outline" onClick={() => setConfirming(false)} disabled={submitting}>{t("cancel")}</button></div></section> : null}

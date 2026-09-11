@@ -334,6 +334,8 @@ class TeachingCoursesView(TeacherRequiredMixin, LocaleContextMixin, TemplateView
             context["browse_url"] = reverse("liveclassroom:api-v1-browse-teaching-class", args=[kwargs["class_id"]])
         else:
             context["browse_url"] = reverse("liveclassroom:api-v1-browse-teaching")
+            context["courses_url"] = reverse("liveclassroom:api-v1-browse-teaching-courses")
+            context["classes_url"] = reverse("liveclassroom:api-v1-browse-teaching-classes")
         context["teacher_url"] = reverse("liveclassroom:teacher-dashboard")
         return context
 

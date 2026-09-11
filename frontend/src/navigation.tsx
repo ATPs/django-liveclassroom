@@ -25,6 +25,14 @@ export type NavigationLinkProps = Omit<React.AnchorHTMLAttributes<HTMLAnchorElem
 
 const NAVIGATION_EVENT = "liveclassroom:navigation";
 const NAVIGATION_REQUEST_EVENT = "liveclassroom:request-navigation";
+let skipNextBeforeUnload = false;
+
+function allowControlledDeparture(): void {
+  skipNextBeforeUnload = true;
+  window.setTimeout(() => {
+    skipNextBeforeUnload = false;
+  }, 0);
+}
 
 function currentState(): HistoryEntryState {
   return (window.history.state ?? {}) as HistoryEntryState;
@@ -188,6 +196,10 @@ export function useUnsavedChangesWarning(dirty: boolean): void {
   useEffect(() => {
     if (!dirty) return;
     const warn = (event: BeforeUnloadEvent) => {
+      if (skipNextBeforeUnload) {
+        skipNextBeforeUnload = false;
+        return;
+      }
       event.preventDefault();
       event.returnValue = "";
     };
@@ -217,10 +229,12 @@ export function useNavigationHeading(id: string): void {
 export function useUnsavedNavigationGuard({
   dirty,
   onSave,
+  onBeforeLeave,
   labels = {},
 }: {
   dirty: boolean;
   onSave: () => Promise<boolean>;
+  onBeforeLeave?: () => void;
   labels?: Partial<{ title: string; body: string; save: string; discard: string; stay: string }>;
 }): {
   requestNavigation: (navigate: () => void) => void;
@@ -242,19 +256,21 @@ export function useUnsavedNavigationGuard({
     window.addEventListener(NAVIGATION_REQUEST_EVENT, guard);
     return () => window.removeEventListener(NAVIGATION_REQUEST_EVENT, guard);
   }, [dirty, requestNavigation]);
-  const discard = useCallback(() => {
+  const leave = useCallback(() => {
     const navigate = pending;
     setPending(null);
+    onBeforeLeave?.();
+    allowControlledDeparture();
     navigate?.();
-  }, [pending]);
+  }, [onBeforeLeave, pending]);
   const save = useCallback(async () => {
     setSaving(true);
     try {
-      if (await onSave()) discard();
+      if (await onSave()) leave();
     } finally {
       setSaving(false);
     }
-  }, [discard, onSave]);
+  }, [leave, onSave]);
   const text = {
     title: labels.title ?? "Unsaved changes",
     body: labels.body ?? "Save your changes before leaving this editor?",
@@ -264,6 +280,6 @@ export function useUnsavedNavigationGuard({
   };
   return {
     requestNavigation,
-    dialog: pending ? <div className="lc-modal-overlay" role="presentation"><section className="lc-modal" role="dialog" aria-modal="true" aria-labelledby="lc-unsaved-title"><h2 id="lc-unsaved-title">{text.title}</h2><p>{text.body}</p><div className="lc-actions"><button type="button" className="lc-btn lc-btn-primary" disabled={saving} onClick={() => void save()}>{text.save}</button><button type="button" className="lc-btn lc-btn-danger" disabled={saving} onClick={discard}>{text.discard}</button><button type="button" className="lc-btn lc-btn-outline" disabled={saving} onClick={() => setPending(null)}>{text.stay}</button></div></section></div> : null,
+    dialog: pending ? <div className="lc-modal-overlay" role="presentation"><section className="lc-modal" role="dialog" aria-modal="true" aria-labelledby="lc-unsaved-title"><h2 id="lc-unsaved-title">{text.title}</h2><p>{text.body}</p><div className="lc-actions"><button type="button" className="lc-btn lc-btn-primary" disabled={saving} onClick={() => void save()}>{text.save}</button><button type="button" className="lc-btn lc-btn-danger" disabled={saving} onClick={leave}>{text.discard}</button><button type="button" className="lc-btn lc-btn-outline" disabled={saving} onClick={() => setPending(null)}>{text.stay}</button></div></section></div> : null,
   };
 }

@@ -2,7 +2,7 @@ import * as React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { readBootstrap, type Bootstrap } from "../../bootstrap.js";
-import { LanguageSwitcher, LocaleProvider, useT } from "../../i18n.js";
+import { LocaleProvider, useT } from "../../i18n.js";
 import {
   ApiError,
   apiEndpoint,
@@ -14,8 +14,9 @@ import {
 } from "../../protocol.js";
 import { useSessionState } from "../../hooks/useSessionState.js";
 import { ActivityView } from "../../activities/ActivityView.js";
-import { activityKind, answerText, choicesFor, selectedChoices } from "../../activities/activityData.js";
+import { activityKind, activityTitle, answerText, choicesFor, selectedChoices } from "../../activities/activityData.js";
 import { NativeDeckView } from "../../activities/NativeDeckView.js";
+import { updateQuery, useQuerySelection } from "../../navigation.js";
 
 function JoinPrompt({ onJoined }: { onJoined: (name: string) => Promise<void> }) {
   const t = useT();
@@ -171,21 +172,42 @@ function History({
   stateUrl,
   stateVersion,
   state,
+  selectedActivityId,
+  onSelectActivity,
+  onActivities,
 }: {
   stateUrl: string;
   stateVersion: number;
   state: SessionState | null;
+  selectedActivityId: string;
+  onSelectActivity: (id: string) => void;
+  onActivities: (activities: ReviewActivity[]) => void;
 }) {
   const t = useT();
   const [activities, setActivities] = useState<ReviewActivity[] | null>(null);
   const [error, setError] = useState(false);
 
   useEffect(() => {
+    let active = true;
     setError(false);
+    setActivities(null);
     getJson<{ activities: ReviewActivity[] }>(apiEndpoint(stateUrl, "sessions/history"))
-      .then((data) => setActivities(data.activities))
-      .catch(() => setError(true));
-  }, [stateUrl, stateVersion]);
+      .then((data) => {
+        if (!active) return;
+        const next = Array.isArray(data.activities) ? data.activities : [];
+        setActivities(next);
+        onActivities(next);
+      })
+      .catch(() => {
+        if (active) {
+          setError(true);
+          onActivities([]);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [onActivities, stateUrl, stateVersion]);
 
   if (activities && !activities.length && !error) return null;
   return (
@@ -195,7 +217,26 @@ function History({
       {error ? (
         <p>{t("historyUnavailable")}</p>
       ) : activities ? (
-        <ul>
+        <>
+          {activities.length ? (
+            <nav aria-label={t("history")} data-liveclassroom-review-navigation>
+              <ul>
+                {activities.map((activity) => (
+                  <li key={`${activity.id}:${activity.revision_id}`}>
+                    <button
+                      type="button"
+                      data-liveclassroom-review-activity={activity.id}
+                      aria-pressed={selectedActivityId === String(activity.id)}
+                      onClick={() => onSelectActivity(String(activity.id))}
+                    >
+                      {activityTitle(activity, t("activity"))}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </nav>
+          ) : null}
+          <ul>
           {activities.map((activity) => {
             const readOnlyState = state
               ? {
@@ -217,7 +258,8 @@ function History({
               </li>
             );
           })}
-        </ul>
+          </ul>
+        </>
       ) : null}
       </div>
     </details>
@@ -231,7 +273,26 @@ function StudentSession({ bootstrap }: { bootstrap: Bootstrap }) {
   const [needName, setNeedName] = useState(false);
   const [signInRequired, setSignInRequired] = useState(false);
   const [joinError, setJoinError] = useState("");
+  const [selectedActivityId] = useQuerySelection("activity");
+  const [selectedSlideKey] = useQuerySelection("slide");
+  const [reviewActivities, setReviewActivities] = useState<ReviewActivity[] | null>(null);
+  const [reviewStatus, setReviewStatus] = useState("");
   const joinedRef = useRef(false);
+
+  const selectReviewActivity = useCallback((id: string) => {
+    setReviewStatus("");
+    updateQuery({ activity: id || null, slide: null });
+  }, []);
+
+  const selectReviewSlide = useCallback((key: string) => {
+    if (!key) return;
+    setReviewStatus("");
+    updateQuery({ slide: key, activity: null });
+  }, []);
+
+  const receiveReviewActivities = useCallback((activities: ReviewActivity[]) => {
+    setReviewActivities(activities);
+  }, []);
 
   useEffect(() => {
     const updateStateUrl = (event: Event) => {
@@ -328,6 +389,67 @@ function StudentSession({ bootstrap }: { bootstrap: Bootstrap }) {
   });
   const state = sync.state;
 
+  const selectedActivity = selectedActivityId
+    ? reviewActivities?.find((activity) => String(activity.id) === selectedActivityId) ?? null
+    : null;
+
+  useEffect(() => {
+    if (!selectedActivityId && !selectedSlideKey) {
+      if (reviewStatus && reviewStatus !== t("reviewUnavailable")) setReviewStatus("");
+      return;
+    }
+    if (!selectedActivityId || reviewActivities === null) return;
+    if (!selectedActivity) {
+      setReviewStatus(t("reviewUnavailable"));
+      updateQuery({ activity: null, slide: null }, { replace: true });
+      return;
+    }
+    if (selectedSlideKey) updateQuery({ slide: null }, { replace: true });
+    setReviewStatus(t("reviewingActivity"));
+  }, [reviewActivities, reviewStatus, selectedActivity, selectedActivityId, selectedSlideKey, t]);
+
+  const handleReviewSelection = useCallback((valid: boolean) => {
+    if (!selectedSlideKey) return;
+    if (valid) {
+      setReviewStatus(t("reviewingSlide"));
+      return;
+    }
+    setReviewStatus(t("reviewUnavailable"));
+    updateQuery({ slide: null }, { replace: true });
+  }, [selectedSlideKey, t]);
+
+  useEffect(() => {
+    if (!selectedSlideKey || selectedActivityId || !state) return;
+    const deck = state.current_deck;
+    const navigation = state.channels?.participants?.presentation?.navigation_mode;
+    if (!deck || !deck.allow_review || navigation !== "paged") {
+      setReviewStatus(t("reviewUnavailable"));
+      updateQuery({ slide: null }, { replace: true });
+    }
+  }, [selectedActivityId, selectedSlideKey, state, t]);
+
+  const reviewState = state && selectedActivity
+    ? { ...state, current_activity: selectedActivity, my_submission: null, act_as_active: false }
+    : null;
+  const reviewContent = selectedActivity ? (
+    <section data-liveclassroom-review>
+      <header>
+        <p role="status">{t("reviewingActivity")}</p>
+        <button type="button" onClick={() => selectReviewActivity("")}>{t("returnToCurrent")}</button>
+      </header>
+      <ActivityView activity={selectedActivity} state={reviewState} stateUrl={null} refresh={() => undefined} />
+      {selectedActivity.own_submission ? <OwnAnswer activity={selectedActivity} submission={selectedActivity.own_submission} /> : null}
+    </section>
+  ) : selectedActivityId && reviewActivities === null ? (
+    <p role="status">{t("loading")}</p>
+  ) : null;
+
+  const deckProps = {
+    reviewSlideKey: selectedSlideKey || undefined,
+    onReviewSlide: selectReviewSlide,
+    onReviewSelection: handleReviewSelection,
+  };
+
   const title = state?.session.title ?? "…";
   const stateMessage = state?.session.status === "paused"
     ? t("studentClassPaused")
@@ -337,26 +459,27 @@ function StudentSession({ bootstrap }: { bootstrap: Bootstrap }) {
 
   return (
     <>
-      <LanguageSwitcher />
       <h1 id="student-title">{title}</h1>
       <div id="student-content" data-liveclassroom-content>
         {joined ? (
           state?.participant && state.participant.admission_state !== "admitted" ? (
             <p>{t("waitingAdmission")}</p>
+          ) : reviewContent ? (
+            reviewContent
           ) : state?.session.status === "ended" ? (
             <p role="status">{t("classEnded")}</p>
           ) : state?.session.status === "paused" ? (
             <>
               <p role="status">{t("studentClassPaused")}</p>
-              {state?.current_deck && !state.current_activity ? <NativeDeckView deck={state.current_deck} state={state} audience="student" /> : <ActivityView activity={state?.current_activity ?? null} state={state} stateUrl={stateUrl} refresh={sync.refresh} />}
+              {state?.current_deck && !state.current_activity ? <NativeDeckView deck={state.current_deck} state={state} audience="student" {...deckProps} /> : <ActivityView activity={state?.current_activity ?? null} state={state} stateUrl={stateUrl} refresh={sync.refresh} />}
             </>
           ) : bootstrap.preview ? (
             <>
               <p role="status">{t("participantPreview")}: {t("responsesDisabled")}</p>
-              {state?.current_deck && !state.current_activity ? <NativeDeckView deck={state.current_deck} state={state} audience="student" /> : <ActivityView activity={state?.current_activity ?? null} state={state ? { ...state, act_as_active: false } : null} stateUrl={stateUrl} refresh={sync.refresh} />}
+              {state?.current_deck && !state.current_activity ? <NativeDeckView deck={state.current_deck} state={state} audience="student" {...deckProps} /> : <ActivityView activity={state?.current_activity ?? null} state={state ? { ...state, act_as_active: false } : null} stateUrl={stateUrl} refresh={sync.refresh} />}
             </>
           ) : (
-            state?.current_deck && !state.current_activity ? <NativeDeckView deck={state.current_deck} state={state} audience="student" /> : <ActivityView activity={state?.current_activity ?? null} state={state} stateUrl={stateUrl} refresh={sync.refresh} />
+            state?.current_deck && !state.current_activity ? <NativeDeckView deck={state.current_deck} state={state} audience="student" {...deckProps} /> : <ActivityView activity={state?.current_activity ?? null} state={state} stateUrl={stateUrl} refresh={sync.refresh} />
           )
         ) : needName ? (
           <JoinPrompt onJoined={joinByName} />
@@ -365,12 +488,19 @@ function StudentSession({ bootstrap }: { bootstrap: Bootstrap }) {
         ) : null}
       </div>
       <p data-liveclassroom-status aria-live="polite">
-        {joinError || sync.error || (sync.reconnecting ? t("reconnecting") : "") || stateMessage}
+        {joinError || sync.error || reviewStatus || (sync.reconnecting ? t("reconnecting") : "") || stateMessage}
       </p>
       {joined && state?.participant?.admission_state === "admitted" ? (
         <>
           <Chat stateUrl={stateUrl} stateVersion={state?.state_version ?? 0} />
-          <History stateUrl={stateUrl} stateVersion={state?.state_version ?? 0} state={state} />
+          <History
+            stateUrl={stateUrl}
+            stateVersion={state?.state_version ?? 0}
+            state={state}
+            selectedActivityId={selectedActivityId}
+            onSelectActivity={selectReviewActivity}
+            onActivities={receiveReviewActivities}
+          />
         </>
       ) : null}
     </>

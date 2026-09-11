@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 
 import { MarkdownView } from "../../activities/MarkdownView.js";
-import { LanguageSwitcher, LocaleProvider, useLocale } from "../../i18n.js";
+import { LocaleProvider, useLocale } from "../../i18n.js";
 import { Breadcrumbs, routeUrl, updateLocation, useLocationPath, useNavigationHeading, useQuerySelection, useUnsavedChangesWarning, useUnsavedNavigationGuard } from "../../navigation.js";
 import { deleteJson, getJson, patchJson, postJson, putJson } from "../../protocol.js";
 
@@ -178,7 +178,6 @@ function DeckWorkspace({ apiRoot, assetsUrl, previewTemplate, deckUrlTemplate, l
   };
 
   return <div className="lc-deck-root">
-    <LanguageSwitcher />
     <Breadcrumbs items={[{ href: libraryUrl, label: tr("Library", "资料库") }, { label: tr("Slide decks", "幻灯片") }]} />
     <header className="lc-builder-topbar"><div><h1 id="lc-deck-heading" tabIndex={-1}>{tr("Slide decks", "幻灯片")}</h1><p>{dirty ? tr("Unsaved changes", "有未保存的更改") : tr("Reusable private drafts", "可复用的私有草稿")}</p></div><button className="lc-btn" onClick={() => requestNavigation(create)}>{tr("New deck", "新建幻灯片")}</button></header>
     {status && <p className="lc-builder-status-error" role="status">{status}</p>}
