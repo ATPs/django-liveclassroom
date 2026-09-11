@@ -162,7 +162,23 @@ def _resolve_run_filter(run_id: Any) -> Q:
     return Q(run__public_id=value)
 
 
-def _run_metadata_filter(actor, run_id: Any) -> Q:
+def _scope_filter(*, class_id: Any = None, course_id: Any = None, prefix: str = "") -> Q:
+    """Restrict a queue to a cohort or its optional teaching-course group."""
+    scope = Q()
+    if class_id not in (None, ""):
+        try:
+            scope &= Q(**{f"{prefix}course_id": int(class_id)})
+        except (TypeError, ValueError) as exc:
+            raise ManualGradingError("class_id must be an integer.") from exc
+    if course_id not in (None, ""):
+        try:
+            scope &= Q(**{f"{prefix}course__teaching_course_id": int(course_id)})
+        except (TypeError, ValueError) as exc:
+            raise ManualGradingError("course_id must be an integer.") from exc
+    return scope
+
+
+def _run_metadata_filter(actor, run_id: Any, *, class_id: Any = None, course_id: Any = None) -> Q:
     """The queue's preflight runs against AssessmentRun, not attempts."""
     if getattr(actor, "is_superuser", False):
         scope = Q()
@@ -172,6 +188,7 @@ def _run_metadata_filter(actor, run_id: Any) -> Q:
             | Q(course__created_by_id=actor.pk)
             | Q(course__memberships__user_id=actor.pk, course__memberships__role__in=_STAFF_ROLES)
         )
+    scope &= _scope_filter(class_id=class_id, course_id=course_id)
     if run_id in (None, ""):
         return scope
     if isinstance(run_id, AssessmentRun):
@@ -273,7 +290,7 @@ def _materialize_grade(attempt: AssessmentAttempt, item: AssessmentAttemptItem) 
     return grade
 
 
-def list_manual_grading_items(actor, run_id=None, class_id=None) -> list[dict[str, Any]]:
+def list_manual_grading_items(actor, run_id=None, class_id=None, course_id=None) -> list[dict[str, Any]]:
     """List pending manual items visible to authorized teaching staff."""
     if not getattr(actor, "is_authenticated", False):
         raise ManualGradingError("Authentication required.")
@@ -281,18 +298,19 @@ def list_manual_grading_items(actor, run_id=None, class_id=None) -> list[dict[st
         raise ManualGradingError("Teacher grading access is required.")
     if not _has_grading_scope(actor):
         raise ManualGradingError("Teacher grading access is required.")
-    filters = _run_scope(actor) & _resolve_run_filter(run_id)
-    if class_id not in (None, ""):
-        try:
-            filters &= Q(run__course_id=int(class_id))
-        except (TypeError, ValueError) as exc:
-            raise ManualGradingError("class_id must be an integer.") from exc
+    filters = _run_scope(actor) & _resolve_run_filter(run_id) & _scope_filter(
+        class_id=class_id,
+        course_id=course_id,
+        prefix="run__",
+    )
     # Discover only run metadata first.  A configured host's result-management
     # denial must not fetch named attempt/answer rows merely to render an
     # empty grading queue.
     permitted_run_ids = [
         run.pk
-        for run in AssessmentRun.objects.filter(_run_metadata_filter(actor, run_id))
+        for run in AssessmentRun.objects.filter(
+            _run_metadata_filter(actor, run_id, class_id=class_id, course_id=course_id)
+        )
         .select_related("course")
         .distinct()
         if _can_manage_run(actor, run)

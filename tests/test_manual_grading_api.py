@@ -7,7 +7,7 @@ import pytest
 from django.test import Client
 from django.urls import reverse
 
-from liveclassroom.models import AssessmentGradeDecision
+from liveclassroom.models import AssessmentGradeDecision, AssessmentRun, Course, TeachingCourse
 from tests.test_manual_grading import _essay_attempt
 
 
@@ -80,3 +80,40 @@ def test_manual_grade_api_rejects_bad_scores_reasons_and_wrong_attempt_item():
     )
     assert wrong.status_code == 404
     assert set(wrong.json()) == {"code", "detail"}
+
+
+@pytest.mark.django_db
+def test_queue_applies_class_and_course_scope_before_serializing_pending_items():
+    owner, _learner, run_one, attempt_one, _item_one = _essay_attempt()
+    other_owner, _other_learner, run_two, attempt_two, _item_two = _essay_attempt()
+    program = TeachingCourse.objects.create(title="Scoped grading", created_by=owner)
+    first = Course.objects.create(
+        title="First scope", slug="manual-scope-first", created_by=owner, teaching_course=program
+    )
+    second = Course.objects.create(
+        title="Second scope", slug="manual-scope-second", created_by=owner, teaching_course=program
+    )
+    run_one.course = first
+    run_one.audience = AssessmentRun.Audience.CLASS
+    run_one.save(update_fields=["course", "audience"])
+    # The fixture's second run is deliberately reassigned to the same manager
+    # so the scope filter, rather than owner isolation, determines visibility.
+    run_two.owner = owner
+    run_two.course = second
+    run_two.audience = AssessmentRun.Audience.CLASS
+    run_two.save(update_fields=["owner", "course", "audience"])
+
+    client = Client()
+    client.force_login(owner)
+    queue_url = reverse("liveclassroom:api-v1-grading-queue")
+    scoped = client.get(queue_url, {"class_id": first.id})
+    assert scoped.status_code == 200
+    assert [row["attempt_id"] for row in scoped.json()["items"]] == [str(attempt_one.public_id)]
+    program_scope = client.get(queue_url, {"course_id": program.id})
+    assert program_scope.status_code == 200
+    assert {row["attempt_id"] for row in program_scope.json()["items"]} == {
+        str(attempt_one.public_id), str(attempt_two.public_id),
+    }
+    mismatched = client.get(queue_url, {"run_id": run_one.public_id, "class_id": second.id})
+    assert mismatched.status_code == 200
+    assert mismatched.json() == {"items": [], "count": 0}

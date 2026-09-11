@@ -10,6 +10,7 @@
       </div>
       <a class="lc-btn lc-btn-primary" href="{% url 'liveclassroom:teacher-dashboard' %}?lang={{ active_lang|urlencode }}">{% translate "Start a live classroom" %}</a>
     </header>
+    {% include "liveclassroom/_session_filters.html" %}
     {% if sessions %}
       <div class="lc-data-list">
         {% for session in sessions %}
@@ -22,5 +23,6 @@
     {% else %}
       <section class="lc-empty-state"><h2>{% translate "No sessions yet" %}</h2><p>{% translate "Start a classroom when you are ready to teach live." %}</p></section>
     {% endif %}
+    {% include "liveclassroom/_session_pagination.html" %}
   </section>
 {% endblock %}

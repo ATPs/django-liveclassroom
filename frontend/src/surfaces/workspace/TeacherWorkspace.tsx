@@ -6,6 +6,7 @@ import { getLocale, type Locale } from "../../locales.js";
 import { LocaleProvider, useLocale } from "../../i18n.js";
 import { useQuerySelection } from "../../navigation.js";
 import { QuestionBankWorkspace } from "../questions/QuestionBankWorkspace.js";
+import { WorkspaceDrafts, WorkspaceCreateForm, useWorkspaceDraft } from "./WorkspaceDrafts.js";
 
 type CourseDefaults = {
   access_mode?: string;
@@ -784,6 +785,10 @@ function CourseCard({
   const [memberUsername, setMemberUsername] = useState("");
   const [memberRole, setMemberRole] = useState("student");
   const canManage = detail?.can_manage ?? course.can_manage === true;
+  const initialFields = React.useRef(JSON.stringify([course.title, course.description ?? "", course.defaults?.access_mode ?? "guest", course.defaults?.admission_mode ?? "open", course.defaults?.chat_enabled === true]));
+  const fields = JSON.stringify([title, description, accessMode, admissionMode, chatEnabled]);
+  const fieldsRef = React.useRef(fields);
+  fieldsRef.current = fields;
 
   const loadDetail = useCallback(async () => {
     setDetailBusy(true);
@@ -791,11 +796,14 @@ function CourseCard({
     try {
       const loaded = await getJson<CourseDetail>(endpoint(apiRoot, `courses/${course.id}/`));
       setDetail(loaded);
-      setTitle(loaded.title);
-      setDescription(loaded.description ?? "");
-      setAccessMode(loaded.defaults?.access_mode ?? "guest");
-      setAdmissionMode(loaded.defaults?.admission_mode ?? "open");
-      setChatEnabled(loaded.defaults?.chat_enabled === true);
+      if (fieldsRef.current === initialFields.current) {
+        setTitle(loaded.title);
+        setDescription(loaded.description ?? "");
+        setAccessMode(loaded.defaults?.access_mode ?? "guest");
+        setAdmissionMode(loaded.defaults?.admission_mode ?? "open");
+        setChatEnabled(loaded.defaults?.chat_enabled === true);
+        initialFields.current = JSON.stringify([loaded.title, loaded.description ?? "", loaded.defaults?.access_mode ?? "guest", loaded.defaults?.admission_mode ?? "open", loaded.defaults?.chat_enabled === true]);
+      }
     } catch (error) {
       setDetailError(errorText(error, t("unknownError")));
     } finally {
@@ -814,6 +822,7 @@ function CourseCard({
         description,
         defaults: { access_mode: accessMode, admission_mode: admissionMode, chat_enabled: chatEnabled },
       }, key);
+      initialFields.current = fields;
       await loadDetail();
     });
   };
@@ -833,6 +842,29 @@ function CourseCard({
       await loadDetail();
     });
   };
+
+  useWorkspaceDraft(`class-${course.id}`, {
+    dirty: canManage && (fields !== initialFields.current || Boolean(memberUsername)),
+    save: async () => {
+      try {
+        if (!title.trim()) return false;
+        if (fields !== initialFields.current) {
+          await postJson(endpoint(apiRoot, `courses/${course.id}/`), { title: title.trim(), description, defaults: { access_mode: accessMode, admission_mode: admissionMode, chat_enabled: chatEnabled } }, operationKey(`class-${course.id}`));
+          initialFields.current = fields;
+        }
+        if (memberUsername.trim()) {
+          await postJson(endpoint(apiRoot, `courses/${course.id}/members/`), { username: memberUsername.trim(), role: memberRole, remove: false }, operationKey(`member-${course.id}`));
+          setMemberUsername("");
+        }
+        await loadDetail();
+        return true;
+      } catch (cause) { setDetailError(errorText(cause, t("unknownError"))); return false; }
+    },
+    discard: () => {
+      const saved = JSON.parse(initialFields.current) as [string, string, string, string, boolean];
+      setTitle(saved[0]); setDescription(saved[1]); setAccessMode(saved[2]); setAdmissionMode(saved[3]); setChatEnabled(saved[4]); setMemberUsername("");
+    },
+  });
 
   return (
     <article className="lc-card lc-workspace-course">
@@ -937,10 +969,16 @@ function TeachingCourseCard({
   const [title, setTitle] = useState(teachingCourse.title);
   const [description, setDescription] = useState(teachingCourse.description);
   const [classId, setClassId] = useState("");
+  const [draftError, setDraftError] = useState("");
+  const baseline = React.useRef(JSON.stringify([teachingCourse.title, teachingCourse.description]));
+  const fields = JSON.stringify([title, description]);
 
   useEffect(() => {
-    setTitle(teachingCourse.title);
-    setDescription(teachingCourse.description);
+    if (fields === baseline.current) {
+      setTitle(teachingCourse.title);
+      setDescription(teachingCourse.description);
+      baseline.current = JSON.stringify([teachingCourse.title, teachingCourse.description]);
+    }
   }, [teachingCourse.description, teachingCourse.title]);
 
   const save = (event: React.FormEvent<HTMLFormElement>) => {
@@ -951,6 +989,7 @@ function TeachingCourseCard({
         title: title.trim(),
         description,
       }, key);
+      baseline.current = fields;
       await refresh();
     });
   };
@@ -982,8 +1021,28 @@ function TeachingCourseCard({
     });
   };
 
+  useWorkspaceDraft(`teaching-course-${teachingCourse.id}`, {
+    dirty: fields !== baseline.current || Boolean(classId),
+    save: async () => {
+      try {
+        if (!title.trim()) return false;
+        if (fields !== baseline.current) {
+          await patchJson(endpoint(apiRoot, `teaching-courses/${teachingCourse.id}/`), { title: title.trim(), description }, operationKey(`teaching-course-${teachingCourse.id}`));
+          baseline.current = fields;
+        }
+        if (classId) {
+          await postJson(endpoint(apiRoot, `teaching-courses/${teachingCourse.id}/classes/`), { class_id: Number(classId) }, operationKey(`attach-${teachingCourse.id}`));
+          setClassId("");
+        }
+        await refresh(); return true;
+      } catch (cause) { setDraftError(errorText(cause, t("unknownError"))); return false; }
+    },
+    discard: () => { const saved = JSON.parse(baseline.current) as [string, string]; setTitle(saved[0]); setDescription(saved[1]); setClassId(""); },
+  });
+
   return (
     <article className="lc-teaching-course">
+      {draftError ? <p className="lc-form-error" role="alert">{draftError}</p> : null}
       <h3>{teachingCourse.title}</h3>
       <form className="lc-form" onSubmit={save}>
         <div className="lc-form-row">
@@ -1051,7 +1110,7 @@ function TeachingCoursesSection({
   return (
     <section className="lc-teaching-courses" aria-labelledby="teaching-courses-heading">
       <h2 id="teaching-courses-heading">{t("courses")}</h2>
-      <form className="lc-form" onSubmit={(event) => {
+      <WorkspaceCreateForm className="lc-form" onSubmit={(event) => {
         event.preventDefault();
         const formElement = event.currentTarget;
         const form = new FormData(formElement);
@@ -1077,7 +1136,7 @@ function TeachingCoursesSection({
           </div>
         </div>
         <button type="submit" className="lc-btn-sm lc-btn-primary" disabled={Boolean(busy)}>{t("createCourse")}</button>
-      </form>
+      </WorkspaceCreateForm>
       {teachingCourses.length ? (
         <div className="lc-teaching-course-list">
           {teachingCourses.map((item) => (
@@ -1113,7 +1172,7 @@ function TeacherWorkspace({ apiRoot, builderUrl, assessmentUrl, initialTab = "le
     const [workspace, flowData, teachingCourseData] = await Promise.all([
       getJson<WorkspacePayload>(endpoint(apiRoot, "workspace/")),
       getJson<{ flows: FlowSummary[] }>(endpoint(apiRoot, "flows/")),
-      getJson<TeachingCoursesPayload>(endpoint(apiRoot, "teaching-courses/")),
+      tab === "classes" ? getJson<TeachingCoursesPayload>(endpoint(apiRoot, "teaching-courses/")) : Promise.resolve({ teaching_courses: [] } as TeachingCoursesPayload),
     ]);
     const teachingCourseDetails = await Promise.all(
       (teachingCourseData.teaching_courses ?? []).map((item) => (
@@ -1124,7 +1183,7 @@ function TeacherWorkspace({ apiRoot, builderUrl, assessmentUrl, initialTab = "le
     setTeachingCourses(teachingCourseDetails);
     setSessions(workspace.sessions ?? []);
     setFlows(flowData.flows ?? []);
-  }, [apiRoot]);
+  }, [apiRoot, tab]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1232,7 +1291,7 @@ function TeacherWorkspace({ apiRoot, builderUrl, assessmentUrl, initialTab = "le
           <TeachingCoursesSection teachingCourses={teachingCourses} classes={courses} apiRoot={apiRoot} run={run} busy={busy} refresh={refresh} />
           <section className="lc-workspace-create-class">
             <h2>{t("createClass")}</h2>
-            <form className="lc-form" onSubmit={(event) => {
+            <WorkspaceCreateForm className="lc-form" onSubmit={(event) => {
               event.preventDefault();
               const formElement = event.currentTarget;
               const form = new FormData(formElement);
@@ -1255,7 +1314,7 @@ function TeacherWorkspace({ apiRoot, builderUrl, assessmentUrl, initialTab = "le
                 </div>
               </div>
               <button type="submit" className="lc-btn-sm lc-btn-primary" disabled={Boolean(busy)}>{t("createClass")}</button>
-            </form>
+            </WorkspaceCreateForm>
           </section>
           {courses.length ? <div className="lc-grid">{courses.map((course) => <CourseCard key={course.id} course={course} flows={flows} apiRoot={apiRoot} run={run} busy={busy} />)}</div> : <p className="lc-empty-notice">{emptyText}</p>}
         </>
@@ -1285,7 +1344,8 @@ function TeacherWorkspace({ apiRoot, builderUrl, assessmentUrl, initialTab = "le
 }
 
 export function mountTeacherWorkspace(el: HTMLElement): void {
-  const apiRoot = normalizeApiRoot(el.dataset.apiRoot ?? "/api/v1/");
+  if (!el.dataset.apiRoot) return;
+  const apiRoot = normalizeApiRoot(el.dataset.apiRoot);
   const builderUrl = el.dataset.builderUrl;
   if (!builderUrl) return;
   const assessmentUrl = el.dataset.assessmentUrl;
@@ -1293,7 +1353,7 @@ export function mountTeacherWorkspace(el: HTMLElement): void {
   const root = createRoot(el);
   root.render(
     <LocaleProvider initial={locale} root={el}>
-      <TeacherWorkspace apiRoot={apiRoot} builderUrl={builderUrl} assessmentUrl={assessmentUrl} initialTab={el.dataset.initialTab || "lessons"} />
+      <WorkspaceDrafts><TeacherWorkspace apiRoot={apiRoot} builderUrl={builderUrl} assessmentUrl={assessmentUrl} initialTab={el.dataset.initialTab || "lessons"} /></WorkspaceDrafts>
     </LocaleProvider>,
   );
   el.addEventListener("liveclassroom:unmount", () => root.unmount(), { once: true });

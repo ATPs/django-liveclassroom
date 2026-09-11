@@ -2,10 +2,10 @@ import * as React from "react";
 import { createRoot } from "react-dom/client";
 
 import { getJson } from "../../protocol.js";
-import { preserveLocale } from "../../navigation.js";
+import { notifyContentReady, preserveLocale } from "../../navigation.js";
 
 type Item = { id?: string | number; key?: string; title: string; status?: string; url: string };
-type Section = { key: string; title: string; items: Item[]; view_all_url?: string };
+type Section = { key: string; title: string; items: Item[]; count?: number; view_all_url?: string };
 type HomePayload = { mode: "guest" | "teaching" | "learning"; sections: Section[]; quick_actions: Item[] };
 
 function text(english: string, chinese: string): string {
@@ -20,6 +20,7 @@ function sectionTitle(key: string, fallback: string, mode: HomePayload["mode"] |
     resume: ["Continue learning", "继续学习"],
     assessments: ["Available assessments", "可参加的测验"],
     submitted: ["Recent submitted attempts", "最近提交的作答"],
+    grading: ["Grading requiring attention", "需要处理的评分"],
   };
   if (key === "classes" && mode === "learning") return text("My courses", "我的课程");
   const value = labels[key];
@@ -37,6 +38,7 @@ function HomeWorkspace({ homeUrl, mode, authenticated, joinUrl, helpUrl, loginUr
   const [payload, setPayload] = React.useState<HomePayload | null>(null);
   const [error, setError] = React.useState("");
   const [requestVersion, setRequestVersion] = React.useState(0);
+  React.useEffect(() => { if (payload || error) notifyContentReady(); }, [payload, error]);
   React.useEffect(() => {
     if (!authenticated) return;
     const controller = new AbortController();
@@ -61,7 +63,7 @@ function HomeWorkspace({ homeUrl, mode, authenticated, joinUrl, helpUrl, loginUr
   return <section className="lc-home-page">
     <header className="lc-page-heading"><div><p className="lc-kicker">{payload?.mode === "teaching" ? text("Teaching", "教学") : text("Learning", "学习")}</p><h1>{payload?.mode === "teaching" ? text("Work to resume", "继续进行的工作") : text("Continue learning", "继续学习")}</h1></div></header>
     {payload?.quick_actions.length ? <section className="lc-home-actions" aria-label={text("Quick actions", "快捷操作")}>{payload.quick_actions.map((item) => <a className="lc-btn lc-btn-primary" key={item.key || item.url} href={preserveLocale(item.url)}>{item.title}</a>)}</section> : null}
-    <div className="lc-home-grid">{payload?.sections.map((section, index) => <section className={index === 0 ? "lc-home-section lc-home-section-primary" : "lc-home-section"} key={section.key}><header className="lc-home-section-heading"><h2>{sectionTitle(section.key, section.title, payload?.mode)}</h2>{section.view_all_url ? <a href={preserveLocale(section.view_all_url)}>{text("View all", "查看全部")}</a> : null}</header>{section.items.length ? <div className="lc-data-list">{section.items.map((item) => <a className="lc-data-list-row" href={preserveLocale(item.url)} key={String(item.id ?? item.url)}><span><strong>{item.title}</strong></span>{item.status ? <span className="lc-status-chip">{item.status.replaceAll("_", " ")}</span> : <span aria-hidden="true">{text("Open", "打开")}</span>}</a>)}</div> : <p className="lc-empty-copy">{text("Nothing to resume here yet.", "这里还没有可继续进行的内容。")}</p>}</section>)}</div>
+    <div className="lc-home-grid">{payload?.sections.map((section, index) => <section className={index === 0 ? "lc-home-section lc-home-section-primary" : "lc-home-section"} key={section.key}><header className="lc-home-section-heading"><div><h2>{sectionTitle(section.key, section.title, payload?.mode)}</h2>{typeof section.count === "number" ? <span className="lc-workspace-meta">{section.count}</span> : null}</div>{section.view_all_url ? <a href={preserveLocale(section.view_all_url)}>{text("View all", "查看全部")}</a> : null}</header>{section.items.length ? <div className="lc-data-list">{section.items.map((item) => <a className="lc-data-list-row" href={preserveLocale(item.url)} key={String(item.id ?? item.url)}><span><strong>{item.title}</strong></span>{section.key === "resume" ? <span>{text("Resume", "继续作答")}</span> : item.status ? <span className="lc-status-chip">{item.status === "pending_manual" ? text("Needs grading", "待评分") : item.status.replaceAll("_", " ")}</span> : <span aria-hidden="true">{text("Open", "打开")}</span>}</a>)}</div> : <p className="lc-empty-copy">{section.key === "grading" ? text("No grading needs your attention.", "目前没有需要处理的评分。") : text("Nothing to resume here yet.", "这里还没有可继续进行的内容。")}</p>}</section>)}</div>
   </section>;
 }
 

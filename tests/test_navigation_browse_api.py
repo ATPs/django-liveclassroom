@@ -76,7 +76,7 @@ def test_home_and_navigation_browse_are_bounded_and_role_scoped():
         }
         teaching_sections = {section["key"]: section for section in teaching.json()["sections"]}
         assert teaching_sections["sessions"]["view_all_url"] == reverse("liveclassroom:teacher-sessions")
-        assert teaching_sections["classes"]["view_all_url"] == reverse("liveclassroom:teacher-courses")
+        assert teaching_sections["classes"]["view_all_url"] == reverse("liveclassroom:teacher-classes")
         learning_sections = {section["key"]: section for section in home.json()["sections"]}
         assert learning_sections["submitted"]["items"] == []
         assert learning_sections["submitted"]["view_all_url"] == reverse("liveclassroom:assessment-history")

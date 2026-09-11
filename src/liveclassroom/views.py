@@ -3,9 +3,8 @@ import json
 import qrcode
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied
-from django.db.models import Q
 from django.http import Http404, HttpResponse, JsonResponse
-from django.shortcuts import get_object_or_404, redirect
+from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import translation
 from django.utils.translation import gettext_lazy as _
@@ -57,7 +56,13 @@ class LocaleContextMixin:
         # TemplateResponse renders lazily, so render inside the override to make
         # {% translate %} and lazy form labels resolve in the active locale.
         with translation.override(self.resolve_locale()):
-            response = super().dispatch(request, *args, **kwargs)
+            try:
+                response = super().dispatch(request, *args, **kwargs)
+            except Http404:
+                return render(request, "liveclassroom/unavailable.html", {
+                    "liveclassroom_base_template": base_template(),
+                    "active_lang": self.resolve_locale(),
+                }, status=404)
             if hasattr(response, "render"):
                 response.render()
             return response
@@ -79,14 +84,15 @@ class LocaleContextMixin:
         view_name = resolver.view_name if resolver else ""
         path = self.request.path
         requested_mode = self.request.GET.get("mode")
-        inferred_mode = (
-            "learning"
-            if view_name.startswith("liveclassroom:learn") or "assessment" in view_name
-            else "teaching"
-        )
+        inferred_mode = "learning" if view_name in {
+            "liveclassroom:learning-home", "liveclassroom:learn-course-detail",
+            "liveclassroom:learn-class-detail", "liveclassroom:learn-attempt-detail",
+            "liveclassroom:learn-attempt-review", "liveclassroom:assessment-history",
+            "liveclassroom:student-session", "liveclassroom:assessment-attempt",
+        } else "teaching"
         if view_name in {"liveclassroom:student-preview", "liveclassroom:student-view"}:
             inferred_mode = "student_preview"
-        if requested_mode in {"teaching", "learning"}:
+        if view_name == "liveclassroom:home" and requested_mode in {"teaching", "learning"}:
             inferred_mode = requested_mode
         if not authenticated:
             inferred_mode = "guest"
@@ -204,6 +210,13 @@ class LocaleContextMixin:
             ),
             "learning_url": (
                 reverse("liveclassroom:learn-course-detail", args=[teaching_course.id]) if can_learn else ""
+            ),
+            "results_url": (
+                reverse("liveclassroom:teacher-course-results", args=[teaching_course.id])
+                if can_manage and (actor.is_superuser or teaching_course.created_by_id == actor.pk)
+                and any(host_can_view_grade_summary(actor=actor, course_id=cohort.id,
+                    package_allowed=can_author_course(actor, cohort)) for cohort in cohorts)
+                else ""
             ),
         }
 
@@ -327,10 +340,17 @@ class TeachingCoursesView(TeacherRequiredMixin, LocaleContextMixin, TemplateView
     template_name = "liveclassroom/teaching_courses.html"
 
     def get_context_data(self, **kwargs):
+        from .api_browse import _teaching_courses
+
         context = super().get_context_data(**kwargs)
         if kwargs.get("course_id") is not None:
+            if not _teaching_courses(self.request.user).filter(pk=kwargs["course_id"]).exists():
+                raise Http404
             context["browse_url"] = reverse("liveclassroom:api-v1-browse-teaching-course", args=[kwargs["course_id"]])
         elif kwargs.get("class_id") is not None:
+            cohort = get_object_or_404(Course, pk=kwargs["class_id"])
+            if not can_author_course(self.request.user, cohort):
+                raise Http404
             context["browse_url"] = reverse("liveclassroom:api-v1-browse-teaching-class", args=[kwargs["class_id"]])
         else:
             context["browse_url"] = reverse("liveclassroom:api-v1-browse-teaching")
@@ -346,21 +366,10 @@ class TeacherSessionListView(TeacherRequiredMixin, LocaleContextMixin, TemplateV
     template_name = "liveclassroom/teacher_sessions.html"
 
     def get_context_data(self, **kwargs):
+        from .navigation_lists import session_list_context
+
         context = super().get_context_data(**kwargs)
-        actor = self.request.user
-        staff_courses = Course.objects.filter(
-            Q(created_by=actor)
-            | Q(
-                memberships__user=actor,
-                memberships__role__in=[CourseMembership.Role.TEACHER, CourseMembership.Role.ASSISTANT],
-            )
-        ).distinct()
-        context["sessions"] = (
-            LiveSession.objects.filter(Q(teacher=actor) | Q(course__in=staff_courses))
-            .select_related("course")
-            .distinct()
-            .order_by("-updated_at", "-id")[:100]
-        )
+        context.update(session_list_context(self.request))
         return context
 
 
@@ -370,22 +379,10 @@ class StudentPreviewChooserView(TeacherRequiredMixin, LocaleContextMixin, Templa
     template_name = "liveclassroom/student_preview_chooser.html"
 
     def get_context_data(self, **kwargs):
+        from .navigation_lists import session_list_context
+
         context = super().get_context_data(**kwargs)
-        actor = self.request.user
-        staff_courses = Course.objects.filter(
-            Q(created_by=actor)
-            | Q(
-                memberships__user=actor,
-                memberships__role__in=[CourseMembership.Role.TEACHER, CourseMembership.Role.ASSISTANT],
-            )
-        ).distinct()
-        context["sessions"] = (
-            LiveSession.objects.filter(Q(teacher=actor) | Q(course__in=staff_courses))
-            .exclude(status=LiveSession.Status.ENDED)
-            .select_related("course")
-            .distinct()
-            .order_by("-updated_at", "-id")[:100]
-        )
+        context.update(session_list_context(self.request, preview=True))
         return context
 
 
@@ -403,6 +400,7 @@ class ResultsWorkspaceView(TeacherRequiredMixin, LocaleContextMixin, TemplateVie
         context = super().get_context_data(**kwargs)
         context["api_root"] = reverse("liveclassroom:api-v1-workspace")
         context["navigation_url"] = reverse("liveclassroom:api-v1-browse-navigation")
+        context["runs_url"] = reverse("liveclassroom:api-v1-browse-results")
         return context
 
 
@@ -438,6 +436,27 @@ class ClassResultsView(TeacherRequiredMixin, LocaleContextMixin, TemplateView):
             raise Http404
         context["summary_url"] = reverse("liveclassroom:api-v1-class-grade-summary", args=[class_id])
         context["parent_url"] = reverse("liveclassroom:teacher-class-detail", args=[class_id])
+        context["api_root"] = reverse("liveclassroom:api-v1-workspace")
+        context["runs_url"] = reverse("liveclassroom:api-v1-browse-results") + f"?class_id={class_id}"
+        return context
+
+
+class CourseResultsView(TeacherRequiredMixin, LocaleContextMixin, TemplateView):
+    """Stable results destination for an optional teaching-course grouping."""
+
+    template_name = "liveclassroom/class_results.html"
+
+    def get_context_data(self, **kwargs):
+        from .services.organization import list_teaching_courses
+
+        context = super().get_context_data(**kwargs)
+        course_id = kwargs["course_id"]
+        if not list_teaching_courses(actor=self.request.user).filter(pk=course_id).exists():
+            raise Http404
+        context["summary_url"] = reverse("liveclassroom:api-v1-teaching-course-grade-summary", args=[course_id])
+        context["parent_url"] = reverse("liveclassroom:teacher-course-detail", args=[course_id])
+        context["api_root"] = reverse("liveclassroom:api-v1-workspace")
+        context["runs_url"] = reverse("liveclassroom:api-v1-browse-results") + f"?course_id={course_id}"
         return context
 
 
@@ -636,14 +655,36 @@ class LearningWorkspaceView(LoginRequiredMixin, LocaleContextMixin, TemplateView
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         if kwargs.get("course_id") is not None:
+            if not CourseMembership.objects.filter(
+                user=self.request.user,
+                role=CourseMembership.Role.STUDENT,
+                course__teaching_course_id=kwargs["course_id"],
+            ).exists():
+                raise Http404
             context["browse_url"] = reverse("liveclassroom:api-v1-browse-learning-course", args=[kwargs["course_id"]])
         elif kwargs.get("class_id") is not None:
+            if not CourseMembership.objects.filter(
+                user=self.request.user,
+                role=CourseMembership.Role.STUDENT,
+                course_id=kwargs["class_id"],
+            ).exists():
+                raise Http404
             context["browse_url"] = reverse("liveclassroom:api-v1-browse-learning-class", args=[kwargs["class_id"]])
         else:
             context["browse_url"] = reverse("liveclassroom:api-v1-browse-learning")
             context["courses_url"] = reverse("liveclassroom:api-v1-browse-learning-courses")
             context["classes_url"] = reverse("liveclassroom:api-v1-browse-learning-classes")
         context["join_url"] = reverse("liveclassroom:join")
+        scope = ""
+        if kwargs.get("class_id"):
+            scope = f"?class_id={kwargs['class_id']}"
+        elif kwargs.get("course_id"):
+            scope = f"?course_id={kwargs['course_id']}"
+        context["sessions_url"] = reverse("liveclassroom:api-v1-browse-learning-items", args=["sessions"]) + scope
+        if kwargs.get("course_id"):
+            context["classes_url"] = reverse("liveclassroom:api-v1-browse-learning-classes") + scope
+        context["assessments_url"] = reverse("liveclassroom:api-v1-browse-learning-items", args=["assessments"]) + scope
+        context["history_url"] = reverse("liveclassroom:assessment-history")
         context["teacher_url"] = reverse("liveclassroom:teacher-dashboard") if can_teach(self.request.user) else ""
         return context
 

@@ -1,0 +1,9 @@
+{% extends liveclassroom_base_template %}
+{% block title %}{% if active_lang == 'zh-Hans' %}内容不可用{% else %}Unavailable{% endif %} · LiveClassroom{% endblock %}
+{% block content %}
+<section class="lc-card lc-wide">
+  <h1>{% if active_lang == 'zh-Hans' %}内容不可用{% else %}Unavailable{% endif %}</h1>
+  <p>{% if active_lang == 'zh-Hans' %}无法打开所选内容。{% else %}The selected content cannot be opened.{% endif %}</p>
+  <a class="lc-btn lc-btn-primary" href="{% url 'liveclassroom:home' %}?lang={{ active_lang|urlencode }}">{% if active_lang == 'zh-Hans' %}返回首页{% else %}Return home{% endif %}</a>
+</section>
+{% endblock %}

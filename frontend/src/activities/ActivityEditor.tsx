@@ -5,10 +5,11 @@ import { useLocale } from "../i18n.js";
 export type EditableSnapshot = { title?: string; type_key?: string; content?: Record<string, unknown>; [key: string]: unknown };
 
 /** Ordinary teacher fields; full saved payloads survive edits to unrelated fields. */
-export function ActivityEditor({ initial, onSave, onCancel }: {
+export function ActivityEditor({ initial, onSave, onCancel, onSaveResult }: {
   initial?: EditableSnapshot;
-  onSave: (snapshot: EditableSnapshot) => Promise<void>;
+  onSave: (snapshot: EditableSnapshot) => Promise<void | boolean>;
   onCancel: () => void;
+  onSaveResult?: (saved: boolean) => void;
 }) {
   const locale = useLocale();
   const tr = (en: string, zh: string) => locale.startsWith("zh") ? zh : en;
@@ -68,7 +69,13 @@ export function ActivityEditor({ initial, onSave, onCancel }: {
   ];
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (busy) return;
+    if (busy) {
+      // A guarded parent may request a save while an earlier submission is in
+      // flight. Resolve that request instead of leaving its departure promise
+      // pending forever.
+      onSaveResult?.(false);
+      return;
+    }
     setBusy(true); setError("");
     try {
       const next: Record<string, unknown> = { ...content };
@@ -145,8 +152,12 @@ export function ActivityEditor({ initial, onSave, onCancel }: {
         if (minimum !== "") next.minimum = Number(minimum); else delete next.minimum;
         if (maximum !== "") next.maximum = Number(maximum); else delete next.maximum;
       }
-      await onSave({ ...initial, type_key: kind, kind: kind.split(".").pop(), schema_version: 1, title: title.trim() || prompt.trim() || tr("Activity", "活动"), content: next });
-    } catch (reason) { setError(reason instanceof Error ? reason.message : tr("Could not save", "保存失败")); }
+      const result = await onSave({ ...initial, type_key: kind, kind: kind.split(".").pop(), schema_version: 1, title: title.trim() || prompt.trim() || tr("Activity", "活动"), content: next });
+      onSaveResult?.(result !== false);
+    } catch (reason) {
+      onSaveResult?.(false);
+      setError(reason instanceof Error ? reason.message : tr("Could not save", "保存失败"));
+    }
     finally { setBusy(false); }
   };
   return <form className="lc-form" onSubmit={event => void submit(event)}>

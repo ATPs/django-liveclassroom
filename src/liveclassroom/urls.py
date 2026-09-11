@@ -16,6 +16,7 @@ from . import (
     api_grade_corrections,
     api_grade_summaries,
     api_grading,
+    api_learning_navigation,
     api_markdown_import,
     api_organization,
     api_plans,
@@ -25,6 +26,7 @@ from . import (
     api_question_analytics,
     api_question_banks,
     api_release,
+    api_results_workspace,
     api_review,
     api_sharing,
     deck_delivery,
@@ -38,6 +40,23 @@ from . import (
 app_name = "liveclassroom"
 
 urlpatterns = [
+    path(
+        "api/v1/browse/learning/items/<str:kind>/",
+        api_learning_navigation.items,
+        name="api-v1-browse-learning-items",
+    ),
+    path("api/v1/browse/results/", api_results_workspace.runs, name="api-v1-browse-results"),
+    path(
+        "api/v1/browse/results/<uuid:public_id>/attempts/",
+        api_results_workspace.attempts,
+        name="api-v1-result-attempts",
+    ),
+    path(
+        "api/v1/browse/result-attempts/<uuid:public_id>/",
+        api_results_workspace.attempt_detail,
+        name="api-v1-result-attempt",
+    ),
+    path("teacher/courses/<int:course_id>/results/", views.CourseResultsView.as_view(), name="teacher-course-results"),
     path("api/v1/browse/home/", api_browse.home, name="api-v1-browse-home"),
     path("api/v1/browse/navigation/", api_browse.navigation, name="api-v1-browse-navigation"),
     path("api/v1/browse/teaching/", api_browse.teaching_index, name="api-v1-browse-teaching"),
