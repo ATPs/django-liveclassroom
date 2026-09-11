@@ -38,6 +38,8 @@ from . import (
 app_name = "liveclassroom"
 
 urlpatterns = [
+    path("api/v1/browse/home/", api_browse.home, name="api-v1-browse-home"),
+    path("api/v1/browse/navigation/", api_browse.navigation, name="api-v1-browse-navigation"),
     path("api/v1/browse/teaching/", api_browse.teaching_index, name="api-v1-browse-teaching"),
     path(
         "api/v1/browse/teaching/courses/<int:course_id>/",
@@ -390,6 +392,14 @@ urlpatterns = [
     path("help/", views.HelpView.as_view(), name="help"),
     path("teacher/", views.TeacherDashboardView.as_view(), name="teacher-dashboard"),
     path("teacher/courses/", views.TeachingCoursesView.as_view(), name="teacher-courses"),
+    path("teacher/classes/", views.TeachingCoursesView.as_view(), name="teacher-classes"),
+    path("teacher/sessions/", views.TeacherSessionListView.as_view(), name="teacher-sessions"),
+    path(
+        "teacher/results/",
+        views.ResultsWorkspaceView.as_view(),
+        name="teacher-results",
+    ),
+    path("teacher/student-preview/", views.StudentPreviewChooserView.as_view(), name="student-preview"),
     path("teacher/courses/<int:course_id>/", views.TeachingCoursesView.as_view(), name="teacher-course-detail"),
     path("teacher/classes/<int:class_id>/", views.TeachingCoursesView.as_view(), name="teacher-class-detail"),
     path("teacher/classes/<int:class_id>/results/", views.ClassResultsView.as_view(), name="teacher-class-results"),

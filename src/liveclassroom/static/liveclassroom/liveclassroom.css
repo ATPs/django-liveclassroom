@@ -91,14 +91,308 @@
 #liveclassroom-root {
   min-height: 100vh;
   box-sizing: border-box;
-  display: grid;
-  place-items: center;
-  padding: 2rem;
+  width: 100%;
+  padding: 0;
   background: var(--lc-bg);
   color: var(--lc-text);
   font-family: var(--lc-font-sans);
   font-size: 1rem;
   line-height: 1.5;
+}
+
+/* Shared application frame.  The shell owns available viewport width; focused
+ * reading panels retain their own width limits further down the stylesheet. */
+#liveclassroom-root .lc-shell {
+  min-height: 100vh;
+  width: 100%;
+  display: grid;
+  grid-template-rows: minmax(3.5rem, auto) minmax(0, 1fr);
+}
+
+#liveclassroom-root .lc-shell-header {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  min-height: 3.5rem;
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: .75rem;
+  padding: .5rem 1rem;
+  border-bottom: 1px solid var(--lc-border);
+  background: var(--lc-surface);
+  box-shadow: var(--lc-shadow-sm);
+}
+
+#liveclassroom-root .lc-shell-brand a {
+  color: var(--lc-text);
+  font-size: 1.05rem;
+  font-weight: 750;
+  text-decoration: none;
+}
+
+#liveclassroom-root .lc-shell-toggle,
+#liveclassroom-root .lc-shell-icon-button {
+  width: 2.25rem;
+  min-height: 2.25rem;
+  padding: 0;
+  border: 1px solid var(--lc-border-strong);
+  border-radius: var(--lc-radius-sm);
+  background: var(--lc-surface);
+  color: var(--lc-text);
+  font: inherit;
+  font-size: .76rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+#liveclassroom-root .lc-shell-header-context {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--lc-text-2);
+  font-size: .9rem;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#liveclassroom-root .lc-shell-header-actions {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+}
+
+#liveclassroom-root .lc-shell-role {
+  display: flex;
+  align-items: center;
+  gap: .35rem;
+  color: var(--lc-text-2);
+  font-size: .82rem;
+}
+
+#liveclassroom-root .lc-shell-role select {
+  min-height: 2.25rem;
+  border: 1px solid var(--lc-border);
+  border-radius: var(--lc-radius-sm);
+  background: var(--lc-surface);
+  color: var(--lc-text);
+  font: inherit;
+}
+
+#liveclassroom-root .lc-shell-user {
+  max-width: 12rem;
+  overflow: hidden;
+  color: var(--lc-text);
+  font-size: .86rem;
+  font-weight: 650;
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#liveclassroom-root .lc-shell-logout { margin: 0; }
+
+#liveclassroom-root .lc-shell-body {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 15.5rem minmax(0, 1fr);
+  transition: grid-template-columns var(--lc-transition);
+}
+
+#liveclassroom-root .lc-shell[data-sidebar="collapsed"] .lc-shell-body {
+  grid-template-columns: 3.5rem minmax(0, 1fr);
+}
+
+#liveclassroom-root .lc-shell-sidebar {
+  position: sticky;
+  top: 3.5rem;
+  height: calc(100vh - 3.5rem);
+  overflow-y: auto;
+  border-right: 1px solid var(--lc-border);
+  background: var(--lc-surface);
+}
+
+#liveclassroom-root .lc-shell-navigation {
+  display: grid;
+  gap: .45rem;
+  padding: .65rem;
+}
+
+#liveclassroom-root .lc-shell-filter {
+  display: grid;
+  gap: .25rem;
+  color: var(--lc-text-2);
+  font-size: .75rem;
+  font-weight: 650;
+}
+
+#liveclassroom-root .lc-shell-filter input {
+  width: 100%;
+  min-height: 2.25rem;
+  border: 1px solid var(--lc-border);
+  border-radius: var(--lc-radius-sm);
+  background: var(--lc-surface);
+  color: var(--lc-text);
+  font: inherit;
+}
+
+#liveclassroom-root .lc-shell-group {
+  border-top: 1px solid var(--lc-border);
+  padding-top: .35rem;
+}
+
+#liveclassroom-root .lc-shell-group-toggle {
+  width: 100%;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  min-height: 2rem;
+  display: flex;
+  align-items: center;
+  text-align: left;
+  color: var(--lc-text-2);
+  cursor: pointer;
+  font-size: .76rem;
+  font-weight: 750;
+}
+
+#liveclassroom-root .lc-shell-group-menu { display: grid; gap: .1rem; }
+
+#liveclassroom-root .lc-shell-link,
+#liveclassroom-root .lc-shell-saved-link > a {
+  min-height: 2.25rem;
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  padding: .35rem .45rem;
+  border-radius: var(--lc-radius-sm);
+  color: var(--lc-text-2);
+  font-size: .86rem;
+  text-decoration: none;
+}
+
+#liveclassroom-root .lc-shell-link:hover,
+#liveclassroom-root .lc-shell-link[data-current="true"],
+#liveclassroom-root .lc-shell-saved-link > a:hover {
+  background: var(--lc-accent-soft);
+  color: var(--lc-accent-active);
+}
+
+#liveclassroom-root .lc-shell-link-icon {
+  width: 1.45rem;
+  flex: 0 0 1.45rem;
+  display: inline-grid;
+  place-items: center;
+  color: currentColor;
+  font-size: .72rem;
+  font-weight: 750;
+}
+
+#liveclassroom-root .lc-shell-saved-link {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+#liveclassroom-root .lc-shell-saved-link button {
+  min-width: 1.75rem;
+  min-height: 1.75rem;
+  border: 0;
+  background: transparent;
+  color: var(--lc-text-2);
+  cursor: pointer;
+}
+
+#liveclassroom-root .lc-shell-utility-links {
+  display: grid;
+  gap: .1rem;
+  padding-top: .45rem;
+  border-top: 1px solid var(--lc-border);
+}
+
+#liveclassroom-root .lc-shell-content {
+  min-width: 0;
+  padding: 1rem;
+}
+
+#liveclassroom-root .lc-shell-content > .lc-page-stack,
+#liveclassroom-root .lc-shell-content > .lc-app-shell,
+#liveclassroom-root .lc-shell-content > .lc-workspace-page {
+  width: 100%;
+  max-width: none;
+}
+
+#liveclassroom-root .lc-shell[data-sidebar="collapsed"] .lc-shell-filter,
+#liveclassroom-root .lc-shell[data-sidebar="collapsed"] .lc-shell-link-label,
+#liveclassroom-root .lc-shell[data-sidebar="collapsed"] .lc-shell-saved-link > a span:last-child,
+#liveclassroom-root .lc-shell[data-sidebar="collapsed"] .lc-shell-saved-link button {
+  display: none;
+}
+
+#liveclassroom-root .lc-shell[data-sidebar="collapsed"] .lc-shell-navigation { padding-inline: .6rem; }
+#liveclassroom-root .lc-shell[data-sidebar="collapsed"] .lc-shell-group { position: relative; border-top: 0; padding-top: 0; }
+#liveclassroom-root .lc-shell[data-sidebar="collapsed"] .lc-shell-group-toggle { justify-content: center; font-size: 0; }
+#liveclassroom-root .lc-shell[data-sidebar="collapsed"] .lc-shell-group-toggle::after { content: attr(data-initial); width: 1.45rem; display: inline-grid; place-items: center; color: var(--lc-text-2); font-size: .72rem; font-weight: 750; }
+#liveclassroom-root .lc-shell[data-sidebar="collapsed"] .lc-shell-group-menu { position: absolute; top: 0; left: calc(100% + .5rem); z-index: 50; width: 15rem; padding: .5rem; border: 1px solid var(--lc-border); border-radius: var(--lc-radius); background: var(--lc-surface); box-shadow: var(--lc-shadow-md); }
+#liveclassroom-root .lc-shell[data-sidebar="collapsed"] .lc-shell-link,
+#liveclassroom-root .lc-shell[data-sidebar="collapsed"] .lc-shell-saved-link > a { justify-content: center; padding-inline: .2rem; }
+
+#liveclassroom-root .lc-workspace-page,
+#liveclassroom-root .lc-home-page {
+  width: 100%;
+  min-width: 0;
+}
+
+#liveclassroom-root .lc-page-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+#liveclassroom-root .lc-page-heading h1 { margin: 0; }
+#liveclassroom-root .lc-page-heading p { max-width: 72ch; margin: .3rem 0 0; color: var(--lc-text-2); }
+
+#liveclassroom-root .lc-home-actions { display: flex; flex-wrap: wrap; gap: .6rem; margin-bottom: 1rem; }
+#liveclassroom-root .lc-home-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+#liveclassroom-root .lc-home-section { min-width: 0; padding: 1rem; border: 1px solid var(--lc-border); border-radius: var(--lc-radius); background: var(--lc-surface); }
+#liveclassroom-root .lc-home-section-primary { grid-column: span 2; }
+#liveclassroom-root .lc-home-section h2 { margin-top: 0; font-size: 1rem; }
+#liveclassroom-root .lc-data-list { display: grid; gap: .35rem; }
+#liveclassroom-root .lc-data-list-row { min-height: 2.75rem; display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: .45rem .55rem; border: 1px solid var(--lc-border); border-radius: var(--lc-radius-sm); color: var(--lc-text); text-decoration: none; }
+#liveclassroom-root .lc-data-list-row:hover { border-color: var(--lc-accent-border); background: var(--lc-accent-soft); color: var(--lc-text); }
+#liveclassroom-root .lc-data-list-row small { display: block; margin-top: .1rem; color: var(--lc-text-2); }
+#liveclassroom-root .lc-status-chip { padding: .12rem .4rem; border-radius: 999px; background: var(--lc-surface-2); color: var(--lc-text-2); font-size: .76rem; text-transform: capitalize; white-space: nowrap; }
+#liveclassroom-root .lc-empty-state { max-width: 42rem; padding: 1.25rem; border: 1px dashed var(--lc-border-strong); border-radius: var(--lc-radius); background: var(--lc-surface); }
+#liveclassroom-root .lc-empty-state h2 { margin-top: 0; font-size: 1rem; }
+#liveclassroom-root .lc-empty-copy { color: var(--lc-text-2); }
+
+#liveclassroom-root .lc-skip-link { position: fixed; top: .5rem; left: .5rem; z-index: 100; transform: translateY(-150%); padding: .5rem .75rem; border-radius: var(--lc-radius-sm); background: var(--lc-text); color: var(--lc-surface); }
+#liveclassroom-root .lc-skip-link:focus { transform: translateY(0); }
+
+@media (min-width: 100rem) {
+  #liveclassroom-root .lc-home-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  #liveclassroom-root .lc-home-section-primary { grid-column: span 2; }
+}
+
+@media (max-width: 74.99rem) {
+  #liveclassroom-root .lc-shell-header-context { display: none; }
+}
+
+@media (max-width: 47.99rem) {
+  #liveclassroom-root .lc-shell-header { grid-template-columns: auto auto minmax(0, 1fr); padding-inline: .75rem; }
+  #liveclassroom-root .lc-shell-header-actions { justify-content: end; }
+  #liveclassroom-root .lc-shell-role span,
+  #liveclassroom-root .lc-shell-user { display: none; }
+  #liveclassroom-root .lc-shell-body,
+  #liveclassroom-root .lc-shell[data-sidebar="collapsed"] .lc-shell-body { display: block; }
+  #liveclassroom-root .lc-shell-sidebar { position: fixed; z-index: 40; top: 3.5rem; left: 0; width: min(18rem, calc(100vw - 2.5rem)); transform: translateX(-105%); transition: transform var(--lc-transition); box-shadow: var(--lc-shadow-md); }
+  #liveclassroom-root .lc-shell[data-sidebar="expanded"] .lc-shell-sidebar { transform: translateX(0); }
+  #liveclassroom-root .lc-shell-content { padding: .75rem; }
+  #liveclassroom-root .lc-home-grid { grid-template-columns: 1fr; }
+  #liveclassroom-root .lc-home-section-primary { grid-column: auto; }
 }
 
 #liveclassroom-root *,

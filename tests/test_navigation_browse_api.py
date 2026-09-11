@@ -40,6 +40,74 @@ def test_learning_browse_only_exposes_student_membership():
 
 
 @pytest.mark.django_db
+def test_home_and_navigation_browse_are_bounded_and_role_scoped():
+    users = get_user_model()
+    teacher = users.objects.create_user(username="navigation-home-teacher")
+    learner = users.objects.create_user(username="navigation-home-learner")
+    visible = Course.objects.create(title="Home visible", slug="navigation-home-visible", created_by=teacher)
+    Course.objects.create(title="Home hidden", slug="navigation-home-hidden", created_by=teacher)
+    CourseMembership.objects.create(course=visible, user=learner, role=CourseMembership.Role.STUDENT)
+
+    with override_settings(LIVECLASSROOM={"TEACHER_AUTHORIZER": lambda actor: actor.pk == teacher.pk}):
+        learner_client = Client()
+        learner_client.force_login(learner)
+        home = learner_client.get(reverse("liveclassroom:api-v1-browse-home"), {"mode": "learning"})
+        assert home.status_code == 200
+        assert home.json()["mode"] == "learning"
+        classes = next(section for section in home.json()["sections"] if section["key"] == "classes")
+        assert [item["title"] for item in classes["items"]] == ["Home visible"]
+        navigation = learner_client.get(reverse("liveclassroom:api-v1-browse-navigation"))
+        assert navigation.status_code == 200
+        assert navigation.json()["modes"] == ["learning"]
+        assert [item["title"] for item in navigation.json()["contexts"]] == ["Home visible"]
+
+        teacher_client = Client()
+        teacher_client.force_login(teacher)
+        denied = teacher_client.get(reverse("liveclassroom:api-v1-browse-home"), {"mode": "other"})
+        assert denied.status_code == 400
+        teaching = teacher_client.get(reverse("liveclassroom:api-v1-browse-home"), {"mode": "teaching"})
+        assert teaching.status_code == 200
+        assert teaching.json()["mode"] == "teaching"
+        assert {item["key"] for item in teaching.json()["quick_actions"]} == {
+            "lesson",
+            "deck",
+            "assessment",
+            "session",
+        }
+
+
+@pytest.mark.django_db
+def test_navigation_reference_resolution_rechecks_access_and_hides_stale_items():
+    users = get_user_model()
+    teacher = users.objects.create_user(username="navigation-reference-teacher")
+    learner = users.objects.create_user(username="navigation-reference-learner")
+    visible = Course.objects.create(title="Resolved visible", slug="resolved-visible", created_by=teacher)
+    hidden = Course.objects.create(title="Resolved hidden", slug="resolved-hidden", created_by=teacher)
+    CourseMembership.objects.create(course=visible, user=learner, role=CourseMembership.Role.STUDENT)
+    client = Client()
+    client.force_login(learner)
+
+    response = client.get(
+        reverse("liveclassroom:api-v1-browse-navigation"),
+        [("ref", f"class:{visible.id}:learning"), ("ref", f"class:{hidden.id}:learning"), ("ref", "deck:999999")],
+    )
+    assert response.status_code == 200
+    assert response.json()["resolved"] == [
+        {
+            "ref": f"class:{visible.id}:learning",
+            "label": "Resolved visible",
+            "url": reverse("liveclassroom:learn-class-detail", args=[visible.id]),
+            "kind": "class",
+        }
+    ]
+    too_many = client.get(
+        reverse("liveclassroom:api-v1-browse-navigation"),
+        [("ref", "page:home")] * 23,
+    )
+    assert too_many.status_code == 400
+
+
+@pytest.mark.django_db
 def test_teaching_browse_keeps_other_teachers_courses_private():
     users = get_user_model()
     teacher = users.objects.create_user(username="browse-teaching-owner")

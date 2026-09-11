@@ -2,12 +2,12 @@
 {% load i18n %}
 {% block title %}LiveClassroom{% endblock %}
 {% block content %}
-  <div class="lc-page-stack">
-    <section class="lc-card">
-      <p class="lc-kicker">{% translate "Reusable Django app" %}</p>
-      <h1>LiveClassroom</h1>
-      <p>{% translate "Live classroom foundations are installed and ready for authoring." %}</p>
-      <p><a href="{% url 'liveclassroom:teacher-dashboard' %}?lang={{ active_lang|urlencode }}">{% translate "Teacher console" %}</a> · <a href="{% url 'liveclassroom:learning-home' %}?lang={{ active_lang|urlencode }}">{% translate "My courses" %}</a> · <a href="{% url 'liveclassroom:join' %}?lang={{ active_lang|urlencode }}">{% translate "Join a session" %}</a> · {% include "liveclassroom/_help_link.html" %}</p>
-    </section>
-  </div>
+  <section class="lc-workspace-page" data-home-workspace
+    data-home-url="{% url 'liveclassroom:api-v1-browse-home' %}"
+    data-mode="{{ navigation_bootstrap.mode }}"
+    data-authenticated="{{ request.user.is_authenticated|yesno:'true,false' }}"
+    data-join-url="{% url 'liveclassroom:join' %}"
+    data-help-url="{% url 'liveclassroom:help' %}">
+    <h1>LiveClassroom</h1>
+  </section>
 {% endblock %}

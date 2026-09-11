@@ -8,6 +8,9 @@ DEFAULTS = {
     "ALLOW_GUESTS": True,
     "JOIN_CODE_LENGTH": 6,
     "BASE_TEMPLATE": None,
+    # Optional host-owned links rendered by the package navigation shell.  The
+    # package never guesses a portal URL, login route, or account page.
+    "SHELL_LINKS": {},
     "ALLOW_IFRAME": False,
     "WEBSOCKET_PATH": "/ws/liveclassroom/sessions/{session_id}/",
     "RETENTION_DAYS": None,
@@ -54,6 +57,25 @@ def base_template() -> str:
     if not isinstance(template, str) or not template.strip():
         raise ValueError("LIVECLASSROOM['BASE_TEMPLATE'] must be a non-empty template path or None.")
     return template.strip()
+
+
+def shell_links() -> dict[str, str]:
+    """Return validated optional host navigation URLs.
+
+    Hosts may provide ``home_url``, ``account_url``, ``login_url``, and
+    ``logout_url``.  Values are intentionally opaque local paths so the
+    reusable package does not take ownership of a host's account routes.
+    """
+    value = setting("SHELL_LINKS")
+    if not isinstance(value, dict):
+        raise ValueError("LIVECLASSROOM['SHELL_LINKS'] must be a mapping.")
+    allowed = {"home_url", "account_url", "login_url", "logout_url"}
+    if set(value) - allowed or any(not isinstance(url, str) for url in value.values()):
+        raise ValueError("LIVECLASSROOM['SHELL_LINKS'] contains an invalid link.")
+    links = {name: url.strip() for name, url in value.items() if url.strip()}
+    if any(not url.startswith("/") or url.startswith("//") for url in links.values()):
+        raise ValueError("LIVECLASSROOM['SHELL_LINKS'] values must be local absolute paths.")
+    return links
 
 
 def guests_allowed() -> bool:

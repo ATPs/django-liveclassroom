@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { LanguageSwitcher, LocaleProvider, useLocale, useT } from "../../i18n.js";
 import { ApiError, getJson, postJson } from "../../protocol.js";
 import { MarkdownView, markdownFragmentFor } from "../../activities/MarkdownView.js";
-import { updateQuery, useQuerySelection } from "../../navigation.js";
+import { requestApplicationNavigation, updateQuery, useQuerySelection } from "../../navigation.js";
 
 export type AssessmentAnswer = Record<string, unknown>;
 
@@ -407,6 +407,8 @@ function StudentAssessment({ runUrl, startUrl, historyUrl, initialAttemptId = ""
   const [confirming, setConfirming] = React.useState(false);
   const [error, setError] = React.useState("");
   const [notice, setNotice] = React.useState("");
+  const [leavePending, setLeavePending] = React.useState<(() => void) | null>(null);
+  const [leaving, setLeaving] = React.useState(false);
   const [itemSelection, selectItemUrl] = useQuerySelection("item");
   const attemptRef = React.useRef<AssessmentAttempt | null>(null);
   const versionsRef = React.useRef<Record<string, number>>({});
@@ -492,6 +494,30 @@ function StudentAssessment({ runUrl, startUrl, historyUrl, initialAttemptId = ""
     window.addEventListener("beforeunload", beforeUnload);
     return () => window.removeEventListener("beforeunload", beforeUnload);
   }, [controller]);
+
+  const flushBeforeLeaving = React.useCallback((navigate: () => void) => {
+    if (!controller.hasUnsaved()) {
+      navigate();
+      return;
+    }
+    setLeaving(true);
+    void controller.flushAll().then((saved) => {
+      if (saved) navigate();
+      else setLeavePending(() => navigate);
+    }).finally(() => setLeaving(false));
+  }, [controller]);
+
+  React.useEffect(() => {
+    const guard = (event: Event) => {
+      if (event.defaultPrevented) return;
+      const current = attemptRef.current;
+      if (!current || current.status !== "in_progress" || !controller.hasUnsaved()) return;
+      event.preventDefault();
+      flushBeforeLeaving((event as CustomEvent<{ navigate: () => void }>).detail.navigate);
+    };
+    window.addEventListener("liveclassroom:request-navigation", guard);
+    return () => window.removeEventListener("liveclassroom:request-navigation", guard);
+  }, [controller, flushBeforeLeaving]);
 
   const start = async () => {
     if (starting) return;
@@ -619,7 +645,11 @@ function StudentAssessment({ runUrl, startUrl, historyUrl, initialAttemptId = ""
           <h2>{t("assessmentSubmittedHeading")}</h2>
           <p>{t("assessmentSubmittedDetails")}</p>
           <p className="lc-workspace-meta">{t("assessmentScoresHidden")}</p>
-          {historyUrl ? <a className="lc-btn lc-btn-outline" href={historyUrl}>{locale.startsWith("zh") ? "查看作答" : "Review attempt"}</a> : null}
+          {historyUrl ? <a className="lc-btn lc-btn-outline" href={historyUrl} onClick={(event) => {
+            if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+            event.preventDefault();
+            requestApplicationNavigation(() => window.location.assign(historyUrl));
+          }}>{locale.startsWith("zh") ? "查看作答" : "Review attempt"}</a> : null}
         </section>
       ) : (
         <>
@@ -628,15 +658,16 @@ function StudentAssessment({ runUrl, startUrl, historyUrl, initialAttemptId = ""
               <h2>{t("assessmentQuestions")}</h2>
               <ol>{attempt.items.map((item, index) => <li key={item.key}><button type="button" className={selected === index ? "lc-assessment-nav-current" : ""} onClick={() => void navigateTo(item.key, true)} disabled={submitting || Boolean(attempt.navigation?.mode === "forward_only" && item.position > attempt.navigation.highest_accessible_item_position)}><span>{item.position}</span>{answers[item.key] && Object.keys(answers[item.key]).length ? <small aria-label={t("assessmentAnswered")}>✓</small> : null}</button></li>)}</ol>
             </nav>
-            <main className="lc-student-assessment-main">
+            <section className="lc-student-assessment-main">
               {attempt.items[selected] ? <QuestionCard item={attempt.items[selected]} answer={answers[attempt.items[selected].key] ?? {}} status={statuses[attempt.items[selected].key] ?? "idle"} disabled={submitting || Boolean(attempt.navigation?.mode === "forward_only" && attempt.navigation.locked_item_keys.includes(attempt.items[selected].key))} onChange={(next) => changeAnswer(attempt.items[selected], next)} onRetry={() => controller.retry(attempt.items[selected].key)} /> : <p>{t("assessmentNoQuestions")}</p>}
               <div className="lc-student-assessment-actions">
                 <button type="button" className="lc-btn lc-btn-outline" onClick={() => { const prior = attempt.items[selected - 1]; if (prior) void navigateTo(prior.key, true); }} disabled={selected === 0 || submitting}>{t("assessmentPrevious")}</button>
                 {selected < attempt.items.length - 1 ? <button type="button" className="lc-btn lc-btn-outline" onClick={() => void advance()} disabled={submitting}>{t("assessmentNext")}</button> : null}
                 <button type="button" className="lc-btn lc-btn-primary" onClick={() => setConfirming(true)} disabled={submitting}>{t("assessmentSubmit")}</button>
               </div>
-              {confirming ? <section className="lc-card lc-assessment-submit-confirm" role="dialog" aria-modal="false" aria-labelledby="assessment-submit-heading"><h2 id="assessment-submit-heading">{t("assessmentConfirmSubmit")}</h2><p>{t("assessmentConfirmSubmitDetails")}</p><div className="lc-actions"><button type="button" className="lc-btn lc-btn-primary" onClick={() => void submit()} disabled={submitting}>{submitting ? t("assessmentSubmitting") : t("assessmentSubmitNow")}</button><button type="button" className="lc-btn lc-btn-outline" onClick={() => setConfirming(false)} disabled={submitting}>{t("cancel")}</button></div></section> : null}
-            </main>
+          {confirming ? <section className="lc-card lc-assessment-submit-confirm" role="dialog" aria-modal="false" aria-labelledby="assessment-submit-heading"><h2 id="assessment-submit-heading">{t("assessmentConfirmSubmit")}</h2><p>{t("assessmentConfirmSubmitDetails")}</p><div className="lc-actions"><button type="button" className="lc-btn lc-btn-primary" onClick={() => void submit()} disabled={submitting}>{submitting ? t("assessmentSubmitting") : t("assessmentSubmitNow")}</button><button type="button" className="lc-btn lc-btn-outline" onClick={() => setConfirming(false)} disabled={submitting}>{t("cancel")}</button></div></section> : null}
+          {leavePending ? <section className="lc-card lc-assessment-submit-confirm" role="dialog" aria-modal="true" aria-labelledby="assessment-leave-heading"><h2 id="assessment-leave-heading">{locale.startsWith("zh") ? "答案尚未保存" : "Answers have not been saved"}</h2><p>{locale.startsWith("zh") ? "无法保存最新答案。您可以重试、离开并放弃未保存答案，或留在此页面。" : "The latest answers could not be saved. Retry, leave with unsaved answers, or stay on this page."}</p><div className="lc-actions"><button type="button" className="lc-btn lc-btn-primary" disabled={leaving} onClick={() => flushBeforeLeaving(leavePending)}>{leaving ? (locale.startsWith("zh") ? "正在保存…" : "Saving…") : (locale.startsWith("zh") ? "重试保存" : "Retry save")}</button><button type="button" className="lc-btn lc-btn-danger" disabled={leaving} onClick={() => { const navigate = leavePending; setLeavePending(null); navigate(); }}>{locale.startsWith("zh") ? "离开并放弃未保存答案" : "Leave with unsaved answers"}</button><button type="button" className="lc-btn lc-btn-outline" disabled={leaving} onClick={() => setLeavePending(null)}>{locale.startsWith("zh") ? "留在此页面" : "Stay"}</button></div></section> : null}
+            </section>
           </div>
         </>
       )}

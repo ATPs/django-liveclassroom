@@ -1,0 +1,12 @@
+{% extends liveclassroom_base_template %}
+{% load i18n %}
+{% block title %}{% translate "Results and grading" %} · LiveClassroom{% endblock %}
+{% block content %}
+  <section class="lc-card lc-wide" data-results-workspace
+    data-mode="global"
+    data-api-root="{{ api_root }}"
+    data-navigation-url="{{ navigation_url }}"
+    data-locale="{{ active_lang|default:'en' }}">
+    <h1>{% translate "Results and grading" %}</h1>
+  </section>
+{% endblock %}

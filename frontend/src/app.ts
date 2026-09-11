@@ -14,10 +14,14 @@ import { mountLearningWorkspace } from "./surfaces/student/LearningWorkspace.js"
 import { mountTeachingCourses } from "./surfaces/workspace/TeachingCourses.js";
 import { mountQuestionBankWorkspace } from "./surfaces/questions/QuestionBankWorkspace.js";
 import { mountResultsWorkspace } from "./surfaces/assessments/ResultsWorkspace.js";
+import { mountAppShell } from "./surfaces/navigation/AppShell.js";
+import { mountHomeWorkspace } from "./surfaces/workspace/HomeWorkspace.js";
 import { installHistoryRestoration } from "./navigation.js";
 
 if (typeof document !== "undefined") {
   installHistoryRestoration();
+  mountAppShell();
+  for (const el of document.querySelectorAll<HTMLElement>("[data-home-workspace]")) mountHomeWorkspace(el);
   for (const el of document.querySelectorAll<HTMLElement>("[data-teacher-workspace]")) mountTeacherWorkspace(el);
   for (const el of document.querySelectorAll<HTMLElement>("[data-deck-workspace]")) mountDeckWorkspace(el);
   for (const el of document.querySelectorAll<HTMLElement>("[data-assessment-builder]")) mountAssessmentBuilder(el);
@@ -54,4 +58,6 @@ export {
   mountTeachingCourses,
   mountQuestionBankWorkspace,
   mountResultsWorkspace,
+  mountAppShell,
+  mountHomeWorkspace,
 };
