@@ -45,6 +45,9 @@ class HostCapabilities:
     view_roster: bool = False
     view_named_responses: bool = False
     grade: bool = False
+    view_assessment_results: bool = False
+    manage_assessment_results: bool = False
+    view_grade_summary: bool = False
 
 
 @runtime_checkable
@@ -60,6 +63,12 @@ class HostAdapter(Protocol):
     def can_view_named_responses(self, *, actor: HostActor, session_id) -> bool: ...
 
     def can_grade(self, *, actor: HostActor, attempt_id) -> bool: ...
+
+    def can_view_assessment_results(self, *, actor: HostActor, run_id) -> bool: ...
+
+    def can_manage_assessment_results(self, *, actor: HostActor, run_id) -> bool: ...
+
+    def can_view_grade_summary(self, *, actor: HostActor, course_id) -> bool: ...
 
     def course_summary(self, *, actor: HostActor, course_id) -> dict | None: ...
 
@@ -124,6 +133,15 @@ class DefaultHostAdapter:
         return False
 
     def can_grade(self, *, actor: HostActor, attempt_id) -> bool:
+        return False
+
+    def can_view_assessment_results(self, *, actor: HostActor, run_id) -> bool:
+        return False
+
+    def can_manage_assessment_results(self, *, actor: HostActor, run_id) -> bool:
+        return False
+
+    def can_view_grade_summary(self, *, actor: HostActor, course_id) -> bool:
         return False
 
     def course_summary(self, *, actor: HostActor, course_id) -> dict | None:
@@ -226,6 +244,37 @@ def host_can_grade(*, actor, attempt_id, request=None, package_allowed=False) ->
         return False
 
 
+def _assessment_decision(method: str, *, actor, identifier, field: str, request=None, package_allowed=False) -> bool:
+    """Apply an optional assessment hook, failing closed for configured hosts."""
+    try:
+        adapter = host_adapter()
+        result = _decision(adapter, method, actor=actor, request=request, **{field: identifier})
+        return bool(result or (isinstance(adapter, DefaultHostAdapter) and package_allowed))
+    except (HostAdapterError, ValueError, TypeError):
+        return False
+
+
+def host_can_view_assessment_results(*, actor, run_id, request=None, package_allowed=False) -> bool:
+    return _assessment_decision(
+        "can_view_assessment_results", actor=actor, identifier=run_id, field="run_id",
+        request=request, package_allowed=package_allowed,
+    )
+
+
+def host_can_manage_assessment_results(*, actor, run_id, request=None, package_allowed=False) -> bool:
+    return _assessment_decision(
+        "can_manage_assessment_results", actor=actor, identifier=run_id, field="run_id",
+        request=request, package_allowed=package_allowed,
+    )
+
+
+def host_can_view_grade_summary(*, actor, course_id, request=None, package_allowed=False) -> bool:
+    return _assessment_decision(
+        "can_view_grade_summary", actor=actor, identifier=course_id, field="course_id",
+        request=request, package_allowed=package_allowed,
+    )
+
+
 def host_course_summary(*, actor, course_id, request=None) -> dict | None:
     try:
         adapter = host_adapter()
@@ -279,6 +328,9 @@ __all__ = [
     "host_can_author",
     "host_can_deliver",
     "host_can_grade",
+    "host_can_manage_assessment_results",
+    "host_can_view_assessment_results",
+    "host_can_view_grade_summary",
     "host_can_view_named_responses",
     "host_can_view_roster",
     "host_course_summary",

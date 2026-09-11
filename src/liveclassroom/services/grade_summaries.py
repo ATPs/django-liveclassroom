@@ -16,6 +16,7 @@ from typing import Any
 
 from django.contrib.auth import get_user_model
 
+from liveclassroom.integrations.host import host_can_view_grade_summary
 from liveclassroom.models import (
     AssessmentAttempt,
     AssessmentAttemptGrade,
@@ -77,11 +78,16 @@ def _authenticated_teacher(actor) -> None:
 
 
 def _can_read_class(actor, course: Course) -> bool:
-    if getattr(actor, "is_superuser", False) or course.created_by_id == actor.pk:
-        return True
-    return CourseMembership.objects.filter(
-        course=course, user=actor, role__in=STAFF_ROLES
-    ).exists()
+    package_allowed = bool(
+        getattr(actor, "is_superuser", False)
+        or course.created_by_id == actor.pk
+        or CourseMembership.objects.filter(
+            course=course, user=actor, role__in=STAFF_ROLES
+        ).exists()
+    )
+    return host_can_view_grade_summary(
+        actor=actor, course_id=course.pk, package_allowed=package_allowed
+    )
 
 
 def _class(value: Course | int) -> Course:

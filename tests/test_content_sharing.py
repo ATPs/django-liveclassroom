@@ -4,7 +4,14 @@ import pytest
 from django.contrib.auth import get_user_model
 
 from liveclassroom.services.classroom import create_activity_definition
-from liveclassroom.services.sharing import ContentShareError, create_share, list_shares, revoke_share, shared_resource
+from liveclassroom.services.sharing import (
+    ContentShareError,
+    create_share,
+    list_received_shares,
+    list_shares,
+    revoke_share,
+    shared_resource,
+)
 
 
 @pytest.mark.django_db
@@ -141,3 +148,64 @@ def test_content_share_api_hides_source_text_and_enforces_owner_recipient(client
         ).status_code
         == 403
     )
+
+
+@pytest.mark.django_db
+def test_received_share_listing_has_safe_readable_metadata_and_hides_revoked_source(client):
+    import json
+
+    from django.urls import reverse
+
+    users = get_user_model()
+    owner = users.objects.create_user(username=f"share-readable-owner-{uuid4()}", first_name="Source Teacher")
+    recipient = users.objects.create_user(username=f"share-readable-recipient-{uuid4()}", first_name="Copy Teacher")
+    source = create_activity_definition(
+        owner=owner,
+        title="Readable question title",
+        type_key="short_text",
+        definition={"prompt": "private prompt that must not enter a share summary"},
+    )
+    collection = reverse("liveclassroom:api-v1-content-shares")
+    client.force_login(owner)
+    created = client.post(
+        collection,
+        data=json.dumps({"kind": "question", "object_id": source.pk, "recipient_id": recipient.pk}),
+        content_type="application/json",
+    )
+    assert created.status_code == 201
+    share_id = created.json()["id"]
+
+    client.force_login(recipient)
+    listing = client.get(collection)
+    assert listing.status_code == 200
+    payload = listing.json()
+    assert payload["content_shares"] == []
+    assert payload["owned_shares"] == []
+    assert len(payload["received_shares"]) == 1
+    received = payload["received_shares"][0]
+    assert received["viewer_role"] == "recipient"
+    assert received["source"] == {
+        "id": source.pk,
+        "kind": "question",
+        "kind_label": "Question",
+        "title": "Readable question title",
+        "available": True,
+    }
+    assert received["owner"]["display_name"] == "Source Teacher"
+    assert received["recipient"]["display_name"] == "Copy Teacher"
+    assert "private prompt" not in listing.content.decode()
+    assert list(list_received_shares(actor=recipient))
+    detail = client.get(reverse("liveclassroom:api-v1-content-share-detail", args=[share_id]))
+    assert detail.status_code == 200
+    assert detail.json()["source"]["title"] == "Readable question title"
+
+    client.force_login(owner)
+    assert client.delete(reverse("liveclassroom:api-v1-content-share-detail", args=[share_id])).status_code == 200
+    owner_listing = client.get(collection).json()["content_shares"][0]
+    assert owner_listing["active"] is False
+    assert owner_listing["source"]["title"] == "Readable question title"
+
+    client.force_login(recipient)
+    assert client.get(collection).json()["received_shares"] == []
+    assert list(list_received_shares(actor=recipient)) == []
+    assert client.get(reverse("liveclassroom:api-v1-content-share-detail", args=[share_id])).status_code == 403

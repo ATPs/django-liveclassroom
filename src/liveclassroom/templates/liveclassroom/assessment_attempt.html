@@ -6,8 +6,10 @@
     data-run-id="{{ run.public_id }}"
     data-run-url="{{ run_url }}"
     data-start-url="{{ start_url }}"
+    data-history-url="{% url 'liveclassroom:assessment-history' %}"
     data-locale="{{ active_lang|default:'en' }}"
     data-authenticated="true">
+    {% csrf_token %}
     <p class="lc-kicker">{% translate "Student assessment" %}</p>
     <h1>{{ run.title }}</h1>
     <p>{% translate "Loading assessment instructions…" %}</p>

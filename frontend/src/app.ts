@@ -9,12 +9,14 @@ import { mountStudentView } from "./surfaces/teacher/StudentView.js";
 import { mountDeckWorkspace } from "./surfaces/decks/DeckWorkspace.js";
 import { mountAssessmentBuilder } from "./surfaces/assessments/AssessmentBuilder.js";
 import { mountStudentAssessment } from "./surfaces/assessments/StudentAssessment.js";
+import { mountStudentReview } from "./surfaces/assessments/StudentReview.js";
 
 if (typeof document !== "undefined") {
   for (const el of document.querySelectorAll<HTMLElement>("[data-teacher-workspace]")) mountTeacherWorkspace(el);
   for (const el of document.querySelectorAll<HTMLElement>("[data-deck-workspace]")) mountDeckWorkspace(el);
   for (const el of document.querySelectorAll<HTMLElement>("[data-assessment-builder]")) mountAssessmentBuilder(el);
   for (const el of document.querySelectorAll<HTMLElement>("[data-student-assessment]")) mountStudentAssessment(el);
+  for (const el of document.querySelectorAll<HTMLElement>("[data-student-review]")) mountStudentReview(el);
   for (const element of document.querySelectorAll<HTMLElement>("[data-liveclassroom-app]")) {
     const audience = element.dataset.audience;
     if (audience === "student" && element.dataset.stateUrl) mountStudentSession(element);
@@ -37,4 +39,5 @@ export {
   mountDeckWorkspace,
   mountAssessmentBuilder,
   mountStudentAssessment,
+  mountStudentReview,
 };

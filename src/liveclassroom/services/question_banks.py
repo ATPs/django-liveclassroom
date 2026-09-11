@@ -6,7 +6,8 @@ from collections.abc import Mapping
 from copy import deepcopy
 from typing import Any
 
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
+from django.db.models import Q
 
 from liveclassroom.models import ActivityDefinition, Course, QuestionBank, QuestionBankItem
 
@@ -249,3 +250,36 @@ def list_bank_questions(
         _owner(actor, bank)
         queryset = ActivityDefinition.objects.filter(question_bank_items__bank=bank).order_by("-updated_at", "-id")
     return [definition for definition in queryset if _matches(definition, normalized)]
+
+
+def page_bank_questions(
+    *, actor, bank: QuestionBank, filters: Mapping[str, Any] | None = None, offset: int = 0, limit: int = 20
+) -> tuple[list[ActivityDefinition], int]:
+    """Return a bounded bank page without first materializing all members."""
+    if isinstance(offset, bool) or isinstance(limit, bool) or offset < 0 or not 1 <= limit <= 100:
+        raise ClassroomError("offset and limit are out of range.")
+    _owner(actor, bank)
+    normalized = normalize_bank_filters(filters)
+    queryset = ActivityDefinition.objects.filter(question_bank_items__bank=bank)
+    for field in ("topic", "difficulty"):
+        if normalized.get(field):
+            queryset = queryset.filter(**{f"metadata__{field}__iexact": normalized[field]})
+    if normalized.get("type_key"):
+        queryset = queryset.filter(type_key__iexact=normalized["type_key"])
+    if normalized.get("tag"):
+        # SQLite does not implement JSON ``contains``. Its JSON text lookup
+        # still bounds candidates for the development path; PostgreSQL uses
+        # exact array containment.
+        if connection.features.supports_json_field_contains:
+            queryset = queryset.filter(metadata__tags__contains=[normalized["tag"]])
+        else:
+            queryset = queryset.filter(metadata__tags__icontains=normalized["tag"])
+    if normalized.get("q"):
+        needle = normalized["q"]
+        queryset = queryset.filter(
+            Q(title__icontains=needle)
+            | Q(definition__prompt__icontains=needle)
+            | Q(metadata__topic__icontains=needle)
+        )
+    queryset = queryset.order_by("-updated_at", "-id").distinct()
+    return list(queryset[offset : offset + limit]), queryset.count()

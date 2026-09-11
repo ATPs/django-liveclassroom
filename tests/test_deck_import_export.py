@@ -81,6 +81,20 @@ def test_private_notes_round_trip_only_when_teacher_explicitly_exports(deck_teac
 
 
 @pytest.mark.django_db
+def test_private_note_marker_text_round_trips_through_the_transport_escape(deck_teacher):
+    marker = "<!-- liveclassroom:notes -->"
+    deck = create_deck(
+        actor=deck_teacher,
+        data={"title": "Marker", "slides": [{"markdown": "# Slide", "notes": marker}]},
+    )
+    exported = export_deck_markdown(actor=deck_teacher, deck=deck, include_notes=True)
+    assert f"\\{marker}" in exported
+    restored = preview_deck_import(deck_teacher, exported)
+    assert restored["valid"] is True
+    assert restored["draft"]["slides"][0]["notes"] == marker
+
+
+@pytest.mark.django_db
 def test_preview_reports_unresolved_and_unsafe_asset_references_without_writes(deck_teacher):
     asset = ClassroomAsset.objects.create(
         owner=deck_teacher,

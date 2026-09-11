@@ -60,9 +60,10 @@ and `PYTHONPATH=.:src`:
 - `git diff --check` — passed.
 
 The focused recovery test forces the post-commit grading callback to fail,
-confirms the durable submitted attempt has no grade, then runs the bounded
-recovery service and confirms one grade and one audit decision. A repeated
-recovery call reports the existing result and creates no duplicate decision.
+confirms the durable submitted attempt has no grade, then runs the
+`grade_pending_attempts --limit 500` management command and confirms one grade
+and one audit decision. A repeated recovery call reports the existing result
+and creates no duplicate decision.
 The exact scaling test confirms `0.5 * 3` becomes `1.50`; missing keys remain
 `ungraded` with a null score; a populated key with no answer is graded zero.
 

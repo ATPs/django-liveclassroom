@@ -1,170 +1,952 @@
-# LiveClassroom - Product Aim
+# django-liveclassroom — Product Aim
 
 ## Purpose
 
-Build `django-liveclassroom` as a reusable Django application that helps teachers run interactive live classes. It is a teaching companion, not only a quiz system and not a complete learning management system.
+Build `django-liveclassroom` as a reusable Django **teaching package** for creating, presenting, delivering, assessing, and reviewing teaching activities.
 
-The teacher should be able to prepare or improvise a lesson, control what appears on a classroom display and on student devices, send activities, collect named responses, communicate with the class, and review useful session data afterward.
+The package should support the complete lightweight teaching loop:
 
-The same Django models, services, APIs, migrations, WebSocket protocol, templates, and packaged frontend assets must serve both installation modes:
+**prepare → present → interact → assess → grade → review → reuse**
 
-- installation inside an existing Django project, especially `xcWebServer`;
-- the thin standalone project used for development, demonstration, and small deployments.
+It is broader than a live quiz system and broader than a presentation tool. It should support four primary teaching modes:
 
-## Lessons, classes, and classroom occurrences
+1. **Presentation** — show and control slides or other teaching materials.
+2. **Live teaching** — combine presentation, questions, polls, discussion, demonstrations, and teacher-paced activities.
+3. **Practice and assignments** — let students complete reusable learning activities at their own pace.
+4. **Examination** — deliver timed, scored, auditable quizzes and formal browser-based exams.
 
-The teacher workflow is **prepare and save a lesson → create a classroom → teach → review → save selected improvements or teach again**.
+The goal is not to replace a full LMS such as Moodle or Canvas. Instead, `django-liveclassroom` should provide a compact, modern teaching layer that can be embedded into an existing Django site or run independently.
 
-- A **lesson** is the editable reusable Flow in a teacher's library. It contains ordered activities and presentation materials. Teachers do not manage image tags, release labels, or deployment concepts.
-- Creating a classroom automatically captures a complete immutable **lesson snapshot**, including unused steps, typed definitions and asset references. A classroom owns its independently editable plan and all runtime/student data.
-- An optional **Class** represents one cohort or term, using the existing Course model. It organizes lessons, staff, an optional authenticated roster, entry/chat defaults and session history. Lessons can be used across classes without moving or changing their ownership.
-- Class defaults are resolved when a classroom is created. Explicit classroom settings take precedence, subject to host policy. New classrooms start with empty audience channels and fresh admission, answers, chat, presentation progress and temporary grants.
-- Editing a reusable lesson never changes existing classrooms automatically. Teachers may explicitly compare and import changes to steps that have not been launched. A running activity is edited separately through its revisioned classroom record.
-- **Teach again** creates a new classroom from the prior classroom's complete final plan, including unused steps and live changes. It retains provenance and never resets or clears the historical session.
-- **Save improvements to lesson** presents a simple selectable change list. Changes to the source after comparison require a fresh comparison; conflicting content needs explicit selection. Instant classrooms can be saved as personal lessons.
-- A lesson owner may share with named existing Django accounts. Recipients can inspect, use or save independent copies, but cannot edit the original or see its author's classroom records or AI conversations. Revoking sharing prevents further source access; existing copies and classrooms remain independent.
-- The library contains personal lessons, activities and materials plus lessons shared with the teacher. Sharing grants access only to materials actually referenced by the shared lesson, never to an entire private library.
-- Uploaded files retain stable asset references. VaultPub, external URLs and authorized server-path materials remain live external references: history records their references, not a reproducible copy of external bytes. Access is checked at use; a lesson share does not grant unrelated external permissions.
-- Ending a classroom closes responses and chat. Existing admitted participants may return to teacher-approved, read-only review content and their own answers. Reviewing does not create new attendance. Teachers may change review access, archive, export or delete retained sessions without rewriting teaching content.
+The same core models, services, permissions, APIs, migrations, realtime protocol, templates, and packaged frontend assets must support both:
 
-The architectural analogy is **reusable lesson snapshot → independent classroom instance → retained history**. It describes content isolation, not a requirement to use Docker or to add a container-management interface.
+* installation inside an existing Django project, especially `xcWebServer`;
+* the thin standalone project for development, demonstration, teaching, and small deployments.
 
-## Primary experience
+---
 
-LiveClassroom has three coordinated but distinct surfaces:
+## Product principles
 
-1. **Teacher console** - prepares content, controls the live session, admits participants, monitors responses, changes reveal settings, and opens the staff-only Student view.
-2. **Classroom display** - a clean presentation page for a projector or shared screen, opened by an authenticated teacher or co-host.
-3. **Student experience** - a mobile-first page that shows only the content and controls currently published to participants.
+### Teaching first
 
-The classroom display and student experience are independently controllable. For example, the display may remain on a VaultPub slide while students answer a poll, and the teacher may later reveal aggregate results on the display without exposing individual answers.
+Every major feature should answer a real teaching need.
 
-An authorized session manager may use the staff-only Student view to select an
-existing participant and inspect exactly that participant's experience. It is
-inspect-only until the manager explicitly begins acting as an admitted
-participant. Delegated responses and chat affect the selected participant's
-real session record and retain the staff actor for audit; opening or inspecting
-the view must not create attendance, presence, connections, or participants.
+The package should make common workflows easy:
 
-## Users, roles, and entry
+* prepare a lecture;
+* present slides;
+* ask questions during a lecture;
+* collect and display responses;
+* run practice exercises;
+* create a quiz or exam;
+* grade student work;
+* review individual and class performance;
+* reuse and improve teaching material.
 
-- Reuse the host project's `AUTH_USER_MODEL`; never define a separate account system.
-- Teachers and teaching staff authenticate through Django.
-- A host may supply a teacher-authorization callback. The reusable default permits authenticated users; a host can require a group or its own staff policy without preventing ineligible accounts from joining as students.
-- A session has an owner and may have co-hosts, assistants, and read-only observers with explicit capabilities.
-- Classes and prepared lessons are optional. A teacher may start an instant session, add content during class, and later save it for reuse.
-- Student access is selected per session: guest entry, Django login, or both.
-- Admission is selected per session: open entry, teacher-approved waiting room, or authenticated roster only.
-- Guest entry uses a join code or QR code and requires a display name. Responses are always identifiable to the teacher and in exports.
+Technical concepts such as snapshots, revisions, providers, queues, and realtime state are implementation mechanisms. They should not dominate the teacher-facing experience.
 
-## Teaching content and interaction
+### One content system, multiple delivery modes
 
-- Provide a visual web builder as the normal authoring experience. Django admin remains a diagnostic and maintenance interface.
-- Support reusable flows and reusable activity definitions without requiring a course.
-- Hosts may seed public, read-only demonstration lessons. A qualified teacher can inspect a demo or use it to create a private independent classroom, but cannot edit the common source or its sample records.
-- Support Markdown/YAML and JSON import through the same canonical validation layer used by the visual builder.
-- Fully support single choice, multiple choice, true/false, polls, short text, numeric response, ratings, rankings, word clouds, Markdown/media, timers, and a fixed browser-only Bash simulation.
-- Allow third-party Django projects to register additional activity types through stable backend and frontend plugin contracts.
-- Let students revise responses until an activity is closed.
-- Let teachers control, separately for students and the classroom display, whether to reveal prompts, aggregate results, correct answers, explanations, and response status.
-- Let teachers choose which earlier activities students may revisit.
-- Include a named session-wide chat feed that the teacher can enable or disable. Private messages and file attachments are not part of the first strong release.
+A question, slide deck, activity, or lesson should not need to be recreated for every use.
 
-## Live editing and trustworthy history
+The same reusable content may be used:
 
-Teachers may edit their reusable lesson or the classroom-local plan during a session. These are separate operations; reusable edits require explicit import into unused classroom steps. They may also edit the currently published activity. A substantive edit creates a new activity revision rather than rewriting history:
+* inside a live lecture;
+* as independent student practice;
+* inside homework;
+* inside a quiz;
+* inside a formal exam;
+* in another lesson or course.
 
-- earlier submissions remain attached to the exact revision that was answered;
-- students are notified that the activity changed and may resubmit against the new revision;
-- submissions carry the exact activity revision the student saw; stale screens cannot submit against a replacement prompt;
-- the server accepts student responses only to permitted participant-published activities;
-- current analytics use the latest revision by default while preserving older revisions for audit and comparison;
-- every accepted command and response update is idempotent and auditable.
+### Reusable package, not a closed application
 
-The database is authoritative. HTTP commands validate permissions and persist changes inside transactions. Realtime messages are notifications that tell clients to fetch newer authoritative state; they are not the source of truth.
+`django-liveclassroom` must remain installable as a normal Django application.
 
-## VaultPub integration
+Host projects should be able to provide or replace:
 
-VaultPub is a first-class presentation content provider. The primary integration is the existing `vaultpub_portal` Django app in `xcWebServer`.
+* authentication and authorization;
+* student rosters;
+* course models;
+* slide/content providers;
+* activity types;
+* grading strategies;
+* AI providers;
+* storage;
+* background-job infrastructure;
+* realtime configuration.
 
-- A teacher may paste a VaultPub Slide View URL or browse accessible vaults and notes.
-- Store a structured vault/note reference instead of depending on one mounted URL string.
-- Embed a single Markdown note in Slide View inside the classroom display.
-- Add a versioned, same-origin parent/iframe protocol so LiveClassroom can navigate the deck, observe the current slide, and restore presentation state after reconnecting.
-- Allow optional activity cue points at slide positions without importing every slide as a database item.
-- If a protected deck is sent to students, grant admitted participants temporary access only to that deck and its required assets. Do not expose sibling notes, search, graph, or management routes.
-- Continue to support ordinary external URLs and iframes as less capable content items.
+The standalone project is a complete reference application, not a separate implementation.
 
-## AI authoring assistance
+---
 
-Include a freeform teacher-facing AI chat assistant in the authoring workspace.
+## Core teaching concepts
 
-- Use a host-provided backend so the reusable package does not own provider credentials or depend on one AI vendor.
-- Support host-managed models and explicitly selected custom OpenAI-compatible providers.
-- The teacher must explicitly attach each activity definition, flow step, or
-  protected VaultPub note used as context.
-- AI output remains a suggestion. It never modifies or publishes classroom content automatically.
-- Persist teacher-visible prompts, assistant drafts, model identity, source references, author, and status, but do not persist copied protected source text, provider reasoning, credentials, or raw retry diagnostics.
-- Custom credentials may exist only in the active request and worker memory. They must not enter browser storage, logs, files, caches, or the database.
-- AI grading is not part of the first strong release.
+The product should expose clear teaching concepts even when the existing implementation uses different internal model names.
 
-## Realtime and resilience
+### Course
 
-- Support up to 100 connected students per session, plus teacher and display clients, with several sessions active at once.
-- Use Django Channels for WebSocket connections.
-- Use PostgreSQL `LISTEN/NOTIFY` as the cross-worker wake-up mechanism. Notification payloads contain only identifiers and state versions; clients then fetch authoritative state over HTTP.
-- Use the in-memory notification path with SQLite for the standalone single-process development server.
-- Recover from missed messages, process restarts, and unstable classroom Wi-Fi through state versions, reconnect synchronization, idempotent commands, and bounded HTTP polling.
-- Cache the frontend application shell where practical, but do not make fully offline exam delivery a first-release requirement.
+An optional organizational container for a subject or teaching program.
 
-## Data and reporting
+Examples:
 
-- Retain named participants, attendance, activity revisions, response revisions, timing, session events, and chat until a teacher deletes the session or the host applies a configured retention policy.
-- Provide live response counts and distributions without revealing correct answers early.
-- Provide post-session individual and aggregate views, revision comparison, participation timelines, and chat transcripts.
-- Export session data in CSV and JSON formats.
-- Do not build a longitudinal course gradebook in the first strong release.
+* Introduction to Bioinformatics
+* RNA-seq Data Analysis
+* Medical Statistics 2026
 
-## Reference projects
+A host application may map this concept to its own course model.
 
-Use the neighboring projects as design references, not runtime dependencies:
+### Class or cohort
 
-- **AirQuiz** - learn from its low-friction room entry, QR workflow, realtime progress, reconnect behavior, classroom-network resilience, and export workflow. Do not copy its exam-first architecture or require per-student randomization.
-- **RELATE** - learn from its course/flow/page concepts, reusable typed content, validation, attempts, and durable session history. Do not copy its full LMS scope or promise RELATE YAML compatibility.
-- **VaultPub** - reuse its Markdown rendering and Reveal.js Slide View through an explicit integration contract rather than duplicating presentation rendering in LiveClassroom.
+An optional group of students participating in a course or teaching period.
 
-## Distribution and integration
+A class may define:
 
-- Package the application as an installable Python distribution with namespaced static assets that do not reset host-site CSS.
-- Keep Django responsible for authentication, permissions, URLs, initial page rendering, and server-side validation.
-- Expose public HTTP endpoints only through the versioned `/api/v1/` contract;
-  do not retain unversioned compatibility aliases.
-- Use packaged React and TypeScript islands for the builder, teacher console, display, student interactions, analytics, and AI chat; do not require a separate frontend deployment.
-- Support Django 5.2 and 6.0, SQLite for standalone development, and PostgreSQL for multi-worker production.
-- Provide host settings for base templates, teacher authorization, content providers, activity plugins, AI backends, retention, and realtime configuration.
-- Ship complete English and Simplified Chinese interface strings.
+* students and teaching staff;
+* default admission rules;
+* assigned lessons;
+* assessments;
+* teaching history;
+* grade summaries.
 
-## Explicitly deferred
+The package must still work without a course or class.
 
-Formal exams, anti-cheat controls, question randomization, a course gradebook, server or local shell-code execution, file responses, video meetings, whiteboards, private messaging, AI grading, SCORM, LTI, QTI, certificates, marketplaces, and direct RELATE runtime or format compatibility are outside the first strong release. The Bash activity is a bounded, fixed browser simulation only.
+### Lesson
 
-## Success criteria
+A reusable teaching unit.
 
-The first strong release is complete when:
+A lesson may contain an ordered mixture of:
 
-- a teacher can start an instant or prepared session and operate it without Django admin;
-- the teacher can independently control a projector display and student devices,
-  and an authorized session manager can inspect or explicitly act as an
-  admitted participant through the audited Student view;
-- guest, authenticated, waiting-room, and roster entry policies work and reconnect safely;
-- all built-in activity types support validation, live response collection, revision, reveal controls, analytics, and export;
-- a protected VaultPub note can be selected, embedded, controlled, restored, and shared only within the selected classroom scope;
-- English and Chinese teacher/student workflows work on desktop and mobile browsers;
-- realtime delivery and recovery work across PostgreSQL-backed ASGI workers without an external message broker;
-- 100-student load tests, focused security tests, and end-to-end browser workflows pass.
+* slides;
+* Markdown or rich teaching content;
+* images and media;
+* questions;
+* polls;
+* activities;
+* demonstrations;
+* timers;
+* discussion prompts;
+* external resources.
 
-## Implementation and verification status
+A lesson is the main reusable unit for teacher-paced teaching.
 
-The package includes reusable authoring, automatic lesson snapshots, independent classroom plans, optional cohort workspaces, named-account lesson sharing, selective improvement review, prepared/instant/reused classrooms, revisioned responses, independent audience channels, teacher-controlled student review, private teaching files, queued AI authoring, exports, packaged bilingual React surfaces, task-focused help, host-configurable teacher authorization, and common read-only Bash-for-beginners demos.
+### Slide deck
 
-Implemented capabilities must be accompanied by executable workflow evidence in the implementation record. The xcWebServer adapter supplies its own teacher policy, seeds the common read-only demos, and has disposable-schema PostgreSQL acceptance evidence. A passing unit suite alone does not establish signed-in browser, 100-student or multi-worker acceptance. Host-specific VaultPub participant grants and provider-specific AI adapters remain separate integration work. External references remain live rather than historically frozen.
+A reusable presentation that can be displayed independently or embedded inside a lesson.
+
+Slides are a **first-class teaching object**, not merely an iframe attached to a classroom.
+
+### Question
+
+A reusable assessment item with structured metadata.
+
+A question may contain:
+
+* prompt;
+* question type;
+* options or answer definition;
+* points;
+* explanation;
+* feedback;
+* tags;
+* difficulty;
+* learning objectives;
+* media;
+* grading configuration.
+
+### Question bank
+
+A searchable reusable collection of questions.
+
+Teachers should be able to:
+
+* organize questions;
+* filter by tags or topic;
+* reuse questions across assessments;
+* copy and modify questions;
+* import and export questions;
+* generate assessment sections from question pools.
+
+### Assessment
+
+A reusable definition for a quiz, practice exercise, homework, or exam.
+
+An assessment defines content and rules but is separate from a student's actual attempt.
+
+### Classroom session
+
+A live teaching occurrence.
+
+It combines reusable content with fresh runtime state such as:
+
+* participants;
+* current slide;
+* current activity;
+* answers;
+* chat;
+* reveal state;
+* timing;
+* attendance;
+* teacher commands.
+
+### Assessment run and attempt
+
+Publishing an assessment creates a concrete assessment run with an immutable content snapshot.
+
+Each student's work is stored as an independent attempt with its own:
+
+* assigned questions;
+* answer revisions;
+* timing;
+* submission state;
+* score;
+* grading state;
+* audit history.
+
+Existing Django model names do not need to match these conceptual names exactly. The concepts define product behavior rather than forcing unnecessary migrations.
+
+---
+
+# Presentation and slides
+
+## Slides are a core capability
+
+A teacher must be able to use `django-liveclassroom` simply as a teaching presentation system, even when no quiz is involved.
+
+The teacher should be able to:
+
+* create or select a slide deck;
+* open a clean projector/display view;
+* navigate slides from the teacher console;
+* enter fullscreen presentation mode;
+* restore the current slide after reconnecting;
+* combine slides with activities;
+* optionally synchronize student devices to the current slide;
+* optionally allow students to revisit published slides.
+
+Presentation state and student activity state must be independently controllable.
+
+For example:
+
+* the projector may remain on a figure while students answer a question;
+* students may receive a question that is not visible on the projector;
+* aggregate answers may later appear on the projector;
+* a teacher may continue navigating slides without changing the current student activity.
+
+## Native presentation content
+
+The standalone package should be capable of presenting teaching content without requiring an external service.
+
+The native presentation system should support at least:
+
+* Markdown-based slides;
+* headings and formatted text;
+* code blocks;
+* images;
+* tables;
+* mathematical content where supported by the renderer;
+* embedded media;
+* speaker notes;
+* simple presentation themes;
+* slide separators;
+* fullscreen presentation.
+
+A packaged browser presentation library such as Reveal.js may be used, but the product contract must not depend permanently on one rendering implementation.
+
+## External presentation providers
+
+External teaching systems may provide richer presentation content through a stable provider interface.
+
+### VaultPub
+
+VaultPub is an important first-party integration.
+
+A teacher should be able to:
+
+* browse accessible VaultPub notes;
+* select a note that supports Slide View;
+* present it inside LiveClassroom;
+* control slide navigation;
+* observe the current slide;
+* restore position after reconnecting;
+* associate questions or activity cue points with slide positions.
+
+Protected content shared with students must receive only narrowly scoped temporary access.
+
+### Other sources
+
+The package should also support less integrated content such as:
+
+* ordinary URLs;
+* embedded web pages;
+* PDF teaching material where practical;
+* image-based decks;
+* host-defined content providers.
+
+PPTX conversion or high-fidelity native PowerPoint rendering is not required from the Django core and may be supplied through an optional provider or conversion plugin.
+
+---
+
+# Live teaching
+
+Live teaching combines presentation and student interaction.
+
+The teacher console should allow a teacher to:
+
+* start an instant classroom;
+* start from a prepared lesson;
+* present slides;
+* publish activities;
+* control student access;
+* monitor participation;
+* close or reopen responses;
+* reveal results;
+* reveal correct answers;
+* show explanations;
+* move between presentation and interaction;
+* add or modify content during class;
+* pause or end the session.
+
+Students join using:
+
+* Django authentication;
+* guest access with display name;
+* roster-based access;
+* or host-defined authentication policy.
+
+Admission policies may include:
+
+* open entry;
+* join code;
+* QR code;
+* waiting room;
+* authenticated roster only.
+
+Live sessions should work well on classroom Wi-Fi and recover safely from temporary disconnections.
+
+---
+
+# Activities and questions
+
+The activity system should support both **interactive teaching activities** and **gradable assessment questions**.
+
+Built-in activity/question types should include:
+
+* single choice;
+* multiple choice;
+* true/false;
+* short text;
+* long text or essay;
+* numeric response;
+* polls;
+* ratings;
+* rankings or ordering;
+* word clouds;
+* Markdown/media content;
+* timers;
+* simple browser-only interactive demonstrations.
+
+Additional types should be registerable by third-party Django applications through stable backend and frontend plugin contracts.
+
+The existing browser-only Bash simulation may remain as a safe teaching activity. The package must not execute arbitrary student shell commands on the server.
+
+---
+
+# Practice and assignments
+
+Not every activity requires a live classroom.
+
+Teachers should be able to publish reusable material for independent student work.
+
+A practice or assignment may support:
+
+* immediate or delayed feedback;
+* unlimited or limited attempts;
+* optional scoring;
+* due dates;
+* answer explanations;
+* review after completion;
+* teacher-visible progress;
+* resuming incomplete work.
+
+Practice mode should emphasize learning rather than examination security.
+
+Teachers should be able to convert suitable practice material into an assessment without recreating the questions.
+
+---
+
+# Quizzes and examinations
+
+Formal assessment is a core product capability.
+
+`django-liveclassroom` should support browser-based quizzes and exams suitable for normal university and classroom use.
+
+## Assessment configuration
+
+An assessment may define:
+
+* instructions;
+* sections;
+* questions;
+* point values;
+* passing thresholds;
+* opening time;
+* closing time;
+* duration;
+* number of attempts;
+* question navigation policy;
+* review policy;
+* result-release policy;
+* answer-feedback policy.
+
+## Question selection and randomization
+
+Assessments should support optional:
+
+* question ordering;
+* option ordering;
+* question pools;
+* random sampling;
+* per-student question selection;
+* fixed questions mixed with random questions.
+
+The exact question set assigned to a student must be retained so that the attempt remains reproducible and auditable.
+
+## Exam delivery
+
+Exam mode should support:
+
+* authenticated students;
+* optional roster restriction;
+* start and submission timestamps;
+* countdown timers;
+* autosaving;
+* reconnect recovery;
+* explicit final submission;
+* automatic submission when configured time expires;
+* server-authoritative exam timing;
+* prevention of submissions after the permitted deadline;
+* immutable assessment snapshots.
+
+Closing the browser must not silently destroy an attempt.
+
+## Examination security boundaries
+
+The package should provide reliable assessment controls but must not pretend that an ordinary browser can guarantee cheating prevention.
+
+Reasonable exam controls may include:
+
+* restricted navigation inside the assessment;
+* randomized questions;
+* randomized answer choices;
+* controlled result visibility;
+* access windows;
+* attempt limits;
+* server-authoritative timers;
+* audit events;
+* optional fullscreen warnings;
+* host-defined exam policies.
+
+Dedicated lockdown browsers, remote proctoring, webcam monitoring, operating-system restrictions, and guaranteed anti-cheating enforcement are outside the core package.
+
+They may be implemented through external systems or future integrations.
+
+---
+
+# Grading
+
+Objective question types should support deterministic automatic grading.
+
+The grading system should support:
+
+* full credit;
+* zero credit;
+* partial credit where appropriate;
+* configurable points;
+* manual overrides;
+* grading comments;
+* regrading after a grading-rule correction;
+* auditable score changes.
+
+Subjective questions such as essays should support manual grading.
+
+The data model should allow future grading plugins, including rubric-based and AI-assisted grading, without making AI grading a dependency of the core product.
+
+Students should only see scores, correct answers, explanations, or grading comments when the assessment's release policy permits them.
+
+---
+
+# Results and lightweight gradebook
+
+The package should provide enough longitudinal information to support real teaching.
+
+For each student, teachers should be able to review:
+
+* attendance;
+* activity participation;
+* practice completion;
+* assessment attempts;
+* scores;
+* question-level performance;
+* submission timing.
+
+For a class or course, teachers should be able to review:
+
+* assessment score distributions;
+* completion rates;
+* question difficulty;
+* answer distributions;
+* commonly missed questions;
+* participation trends.
+
+A lightweight grade summary across assessments is part of the teaching package.
+
+The goal is not to reproduce the complete gradebook, transcript, prerequisite, registration, and institutional workflows of a full LMS.
+
+Data should be exportable in useful machine-readable formats such as CSV and JSON.
+
+---
+
+# Content authoring
+
+Teachers should normally author content through a visual web interface.
+
+Django admin remains useful for diagnosis and maintenance but must not be required for normal teaching.
+
+The authoring workspace should provide access to:
+
+* courses and classes;
+* lessons;
+* slide decks;
+* questions;
+* question banks;
+* assessments;
+* reusable activities;
+* uploaded teaching materials.
+
+Teachers should be able to duplicate and modify reusable content without changing the source.
+
+---
+
+# Import and export
+
+Structured text formats are important because teaching material should be easy to create, version, generate, and reuse.
+
+Support Markdown/YAML and JSON import through the same canonical validation layer used by the web builder.
+
+The format should be able to describe, where practical:
+
+* slides;
+* lessons;
+* questions;
+* assessment settings;
+* reusable activities.
+
+Import must validate the complete input before committing changes.
+
+Export should make reusable teaching content and assessment results portable.
+
+Interoperability formats such as QTI, SCORM, and LTI may later be provided through optional adapters; they are not required as the internal data model.
+
+---
+
+# Classroom history and snapshots
+
+Reusable definitions and actual teaching occurrences must remain separate.
+
+The general architecture is:
+
+**reusable content → immutable delivery snapshot → student/runtime records → retained history**
+
+Editing a reusable lesson, deck, question, or assessment must not silently rewrite historical sessions or completed attempts.
+
+When a classroom or assessment begins, the system must retain enough information to determine exactly what students received.
+
+Live editing may be allowed where appropriate, but substantive edits must create revisions rather than overwrite previously answered content.
+
+Earlier responses remain attached to the exact revision that was shown to the student.
+
+---
+
+# Teacher, display, and student experiences
+
+The package has several coordinated but distinct interfaces.
+
+## Teacher workspace
+
+Used to:
+
+* create content;
+* manage question banks;
+* prepare lessons;
+* create assessments;
+* configure classrooms;
+* launch teaching;
+* control presentations;
+* monitor students;
+* grade work;
+* inspect analytics.
+
+## Teacher console
+
+Optimized for operating an active classroom.
+
+It should provide fast controls for:
+
+* slide navigation;
+* activity publication;
+* response status;
+* timers;
+* reveal state;
+* admission;
+* chat;
+* participant status.
+
+## Classroom display
+
+A clean presentation surface intended for:
+
+* projector;
+* lecture-room display;
+* screen sharing.
+
+Teacher controls should not appear on the public display.
+
+## Student experience
+
+A mobile-first interface for:
+
+* joining classes;
+* viewing published teaching content;
+* answering live activities;
+* accessing slides when permitted;
+* completing practice;
+* taking exams;
+* reviewing results.
+
+## Grading and review workspace
+
+Teachers should be able to inspect:
+
+* individual submissions;
+* question-level results;
+* manual grading queues;
+* class analytics;
+* teaching-session history.
+
+---
+
+# Users and permissions
+
+Reuse the host project's `AUTH_USER_MODEL`.
+
+Do not define an independent account system.
+
+Common roles include:
+
+* teacher;
+* co-teacher;
+* teaching assistant;
+* read-only observer;
+* authenticated student;
+* guest participant.
+
+Hosts must be able to supply authorization callbacks or adapters.
+
+Permissions should distinguish capabilities such as:
+
+* author content;
+* start classrooms;
+* manage students;
+* control presentation;
+* view named responses;
+* grade assessments;
+* manage shared content.
+
+Opening an inspection interface must never silently create attendance or a participant record.
+
+Delegated actions performed by staff on behalf of a student must retain the staff actor in the audit history.
+
+---
+
+# Content sharing and reuse
+
+Teachers should be able to maintain a personal teaching library.
+
+Reusable objects may be:
+
+* private;
+* shared with specific teachers;
+* shared read-only;
+* copied into another teacher's library;
+* supplied as host-managed demonstrations.
+
+Sharing a lesson or assessment must grant access only to content actually required by that object.
+
+Sharing must not expose unrelated private files, lessons, classrooms, assessment attempts, AI conversations, or student data.
+
+Copies become independent unless an explicit future synchronization feature is introduced.
+
+---
+
+# AI authoring assistance
+
+AI should assist teachers in preparing teaching material without becoming the authority that publishes or grades content automatically.
+
+The authoring workspace may provide a teacher-facing AI assistant capable of helping with tasks such as:
+
+* generating questions;
+* improving questions;
+* generating distractors;
+* producing explanations;
+* converting notes into slides;
+* proposing lesson structure;
+* creating practice exercises;
+* summarizing teaching materials;
+* suggesting assessment questions.
+
+The reusable package must use host-provided AI backends rather than owning provider credentials.
+
+Teachers explicitly choose protected material supplied as AI context.
+
+AI-generated content remains a draft until explicitly accepted by the teacher.
+
+Credentials, provider reasoning, and protected source contents must not be written into ordinary logs or stored unnecessarily.
+
+AI-assisted grading may be added through a future grading plugin, but human review and auditable grading policy must remain possible.
+
+---
+
+# Realtime architecture and resilience
+
+Live teaching should support approximately 100 connected students per classroom as a normal target, with multiple classrooms operating concurrently.
+
+Use Django Channels for WebSocket communication.
+
+The database remains authoritative.
+
+HTTP commands:
+
+* validate permissions;
+* validate current state;
+* persist changes transactionally.
+
+Realtime messages notify clients that newer state exists; WebSockets are not the authoritative data store.
+
+PostgreSQL deployments may use `LISTEN/NOTIFY` as a lightweight cross-worker wake-up mechanism.
+
+SQLite should remain suitable for standalone development and simple single-process deployments.
+
+Clients must recover from:
+
+* missed WebSocket messages;
+* reconnects;
+* browser refreshes;
+* worker restarts;
+* unstable classroom Wi-Fi.
+
+Exam submissions and timers must remain correct even when realtime delivery is temporarily unavailable.
+
+---
+
+# Auditability and data integrity
+
+Teaching data must be trustworthy.
+
+Important mutations should be:
+
+* permission checked;
+* transactionally persisted;
+* revision aware;
+* idempotent where needed;
+* auditable.
+
+The system should retain, according to host retention policy:
+
+* participant identity;
+* attendance;
+* lesson and assessment snapshots;
+* assigned exam questions;
+* answer revisions;
+* activity revisions;
+* timing;
+* grading changes;
+* session events;
+* chat history where enabled.
+
+A completed historical session or assessment must not be rewritten merely because reusable source content changed later.
+
+---
+
+# Extensibility
+
+The reusable package should provide stable extension points for:
+
+* activity types;
+* question types;
+* content providers;
+* slide providers;
+* authentication and authorization;
+* course and roster integration;
+* grading strategies;
+* AI providers;
+* background jobs;
+* exports;
+* host-specific policies.
+
+Extensions should not require forking the package.
+
+---
+
+# Distribution and Django integration
+
+Ship `django-liveclassroom` as a normal installable Python distribution.
+
+The package should include its frontend assets and should not require a separately deployed frontend service.
+
+Django remains responsible for:
+
+* authentication;
+* permissions;
+* URL routing;
+* server-side validation;
+* initial application bootstrapping;
+* persistence.
+
+Interactive interfaces may use packaged React and TypeScript components.
+
+Static assets must be namespaced and must not reset or interfere with the host application's styles.
+
+Public APIs should use a versioned contract such as `/api/v1/`.
+
+The package should support SQLite for development and small deployments and PostgreSQL for production multi-worker deployments.
+
+Exact supported Django and dependency versions belong in `pyproject.toml` and the README rather than being permanent product aims.
+
+The user interface should support English and Simplified Chinese.
+
+---
+
+# Reference projects
+
+Neighboring and external projects should be treated as design references rather than mandatory runtime dependencies.
+
+## AirQuiz
+
+Learn from:
+
+* low-friction room entry;
+* QR joining;
+* realtime progress;
+* exam delivery;
+* classroom-network resilience;
+* reconnect behavior;
+* result export.
+
+Unlike the earlier live-classroom-only direction, useful exam concepts such as question pools and per-student randomization are valid capabilities for `django-liveclassroom`.
+
+## RELATE
+
+Learn from:
+
+* course and flow concepts;
+* reusable typed content;
+* validation;
+* question definitions;
+* attempts;
+* grading;
+* durable history.
+
+Do not copy the full LMS scope or require RELATE runtime compatibility.
+
+## VaultPub
+
+Use VaultPub as a strong presentation/content integration.
+
+LiveClassroom should integrate with its Markdown and Slide View capabilities without making VaultPub mandatory for standalone teaching.
+
+---
+
+# Non-goals
+
+The core package is not intended to become:
+
+* a university student-information system;
+* a full Moodle/Canvas replacement;
+* a video-conferencing platform;
+* a remote-proctoring platform;
+* a lockdown browser;
+* a collaborative whiteboard platform;
+* a certificate marketplace;
+* an arbitrary code-execution service.
+
+Features such as institutional enrollment, transcripts, complex prerequisites, video meetings, webcam proctoring, SCORM, LTI, QTI, and specialized code execution should be implemented through integrations when needed rather than expanding the core indiscriminately.
+
+---
+
+# Success criteria
+
+The product direction is successful when a teacher can install `django-liveclassroom` and use the same package to perform the major workflows of ordinary teaching.
+
+A teacher can:
+
+* create reusable teaching content without Django admin;
+* prepare a slide deck;
+* present slides in a classroom;
+* combine slides with interactive questions;
+* run teacher-paced live teaching;
+* publish independent student practice;
+* build and reuse a question bank;
+* create a scored quiz;
+* create a timed formal exam;
+* optionally randomize questions and answer choices;
+* reliably collect and autosave student answers;
+* automatically grade objective questions;
+* manually grade subjective questions;
+* control when students see answers, explanations, and scores;
+* review individual and aggregate performance;
+* maintain lightweight class-level grade summaries;
+* export useful results;
+* reuse and improve teaching material without rewriting historical sessions.
+
+Students can:
+
+* join easily from phones or computers;
+* participate in live teaching;
+* view permitted presentation content;
+* answer interactive questions;
+* complete self-paced practice;
+* take timed exams safely through reconnects;
+* review results when the teacher permits it.
+
+Developers can:
+
+* install the package into an existing Django project;
+* run the standalone reference project;
+* integrate host authentication and rosters;
+* add custom activity and question types;
+* add slide/content providers;
+* add grading or AI backends;
+* operate production deployments without maintaining a separate frontend application.
+
+Historical classroom sessions and assessment attempts remain reproducible and auditable.
+
+Realtime live teaching remains usable with approximately 100 students per classroom under normal production deployment.
+
+---
+
+# Product direction versus implementation status
+
+`AIM.md` describes the intended product and architectural direction.
+
+It should **not** be used as a changelog or as a list of features that happen to be implemented today.
+
+Implementation status belongs in:
+
+* `README.md`;
+* project issues;
+* milestones;
+* a `ROADMAP.md`;
+* an implementation record or test evidence.
+
+A feature being described in this document means that the architecture should allow and ultimately support it. It does not imply that the feature is already complete.
+
+When implementation choices conflict with the teaching goals in this document, optimize for the teaching workflow while preserving data integrity, package reusability, security, and historical reproducibility.

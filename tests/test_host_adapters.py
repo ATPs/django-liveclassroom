@@ -13,6 +13,9 @@ from liveclassroom.integrations.host import (
     host_can_author,
     host_can_deliver,
     host_can_grade,
+    host_can_manage_assessment_results,
+    host_can_view_assessment_results,
+    host_can_view_grade_summary,
     host_can_view_named_responses,
     host_can_view_roster,
     host_list_roster,
@@ -66,6 +69,9 @@ def test_default_adapter_is_standalone_safe_and_host_only_capabilities_fail_clos
     assert not host_can_view_named_responses(actor=user, session_id=1)
     assert not host_can_grade(actor=user, attempt_id=1)
     assert host_can_view_named_responses(actor=user, session_id=1, package_allowed=True)
+    assert host_can_view_assessment_results(actor=user, run_id=1, package_allowed=True)
+    assert host_can_manage_assessment_results(actor=user, run_id=1, package_allowed=True)
+    assert host_can_view_grade_summary(actor=user, course_id=1, package_allowed=True)
     assert host_list_roster(actor=user, course_id=1) == []
 
 
@@ -92,6 +98,11 @@ def test_configured_adapter_is_request_aware_and_rechecked_for_each_capability()
         assert not host_can_view_named_responses(actor=user, session_id=9, request=request, package_allowed=True)
         adapter.grade = False
         assert not host_can_grade(actor=user, attempt_id=3, request=request, package_allowed=True)
+        # New assessment hooks are deliberately optional for loading an old
+        # adapter, but a configured adapter without one fails closed.
+        assert not host_can_view_assessment_results(actor=user, run_id=3, package_allowed=True)
+        assert not host_can_manage_assessment_results(actor=user, run_id=3, package_allowed=True)
+        assert not host_can_view_grade_summary(actor=user, course_id=3, package_allowed=True)
 
 
 def test_malformed_adapter_is_reported_and_does_not_grant_access():

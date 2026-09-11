@@ -15,6 +15,7 @@ from typing import Any
 
 from django.db import transaction
 
+from liveclassroom.integrations.host import host_can_manage_assessment_results
 from liveclassroom.models import (
     AnswerRevision,
     AssessmentAttempt,
@@ -101,7 +102,9 @@ def _staff_can_manage(actor, run: AssessmentRun) -> bool:
 
 def can_manage_result_release(actor, run: AssessmentRun) -> bool:
     """Return whether an actor may manage release state for this run."""
-    return _staff_can_manage(actor, run)
+    return host_can_manage_assessment_results(
+        actor=actor, run_id=run.pk, package_allowed=_staff_can_manage(actor, run)
+    )
 
 
 def _release_row(*, run: AssessmentRun, attempt: AssessmentAttempt | None, dimension: str):
@@ -336,7 +339,7 @@ def release_result_dimension(
 ) -> AssessmentResultRelease:
     """Release one dimension for a run or explicit attempt after authorization."""
     value = _dimension(dimension)
-    if not _staff_can_manage(actor, run):
+    if not can_manage_result_release(actor, run):
         raise ResultReleaseError("Teacher release access is required.")
     _validate_release_target(run=run, attempt=attempt)
     # Validate the frozen policy before writing state.  ``never`` is a valid

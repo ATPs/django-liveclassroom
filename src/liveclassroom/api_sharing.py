@@ -9,7 +9,22 @@ from django.views.decorators.http import require_http_methods
 from .api import _body, _error
 from .models import ContentShare
 from .services.permissions import can_teach
-from .services.sharing import ContentShareError, copy_shared_content, create_share, list_shares, revoke_share
+from .services.sharing import (
+    ContentShareError,
+    copy_shared_content,
+    create_share,
+    describe_shared_resource,
+    list_received_shares,
+    list_shares,
+    revoke_share,
+)
+
+_KIND_LABELS = {
+    ContentShare.Kind.QUESTION: "Question",
+    ContentShare.Kind.BANK: "Question bank",
+    ContentShare.Kind.DECK: "Deck",
+    ContentShare.Kind.ASSESSMENT: "Assessment",
+}
 
 
 def _teacher(request):
@@ -20,16 +35,56 @@ def _teacher(request):
     return None
 
 
-def _payload(share):
+def _display_name(user):
+    full_name = user.get_full_name().strip() if hasattr(user, "get_full_name") else ""
+    return full_name or user.get_username()
+
+
+def _payload(share, *, actor):
+    # The source summary is deliberately metadata-only.  In particular, do
+    # not call a portable exporter here: the list endpoint must never return
+    # question definitions, deck notes, assessment items, student attempts,
+    # or referenced assets.
+    source_title = None
+    source_available = False
+    try:
+        source = describe_shared_resource(actor=actor, share=share)
+    except (ContentShare.DoesNotExist, ContentShareError):
+        source = None
+    if source is not None:
+        source_title = getattr(source, "title", None)
+        source_available = True
+    owner = {
+        "id": share.owner_id,
+        "display_name": _display_name(share.owner),
+    }
+    recipient = {
+        "id": share.recipient_id,
+        "display_name": _display_name(share.recipient),
+    }
+    source_summary = {
+        "id": share.resource_id,
+        "kind": share.kind,
+        "kind_label": _KIND_LABELS.get(share.kind, share.kind),
+        "title": source_title,
+        "available": source_available,
+    }
     return {
         "id": share.pk,
         "kind": share.kind,
+        "kind_label": _KIND_LABELS.get(share.kind, share.kind),
         "object_id": share.resource_id,
-        "recipient": {"id": share.recipient_id, "display_name": share.recipient.get_username()},
+        "source": source_summary,
+        "source_title": source_title,
+        "source_kind": share.kind,
+        "source_kind_label": _KIND_LABELS.get(share.kind, share.kind),
+        "owner": owner,
+        "recipient": recipient,
         "created_at": share.created_at.isoformat(),
         "revoked_at": share.revoked_at.isoformat() if share.revoked_at else None,
         "active": share.active,
         "source_fingerprint": share.source_fingerprint,
+        "viewer_role": "owner" if share.owner_id == actor.pk or getattr(actor, "is_superuser", False) else "recipient",
     }
 
 
@@ -59,7 +114,18 @@ def content_shares(request):
         return denied
     try:
         if request.method == "GET":
-            return JsonResponse({"content_shares": [_payload(share) for share in list_shares(actor=request.user)]})
+            owned = [_payload(share, actor=request.user) for share in list_shares(actor=request.user)]
+            received = [_payload(share, actor=request.user) for share in list_received_shares(actor=request.user)]
+            # ``content_shares`` remains the original owner-list key.  The
+            # explicit aliases make the two directions easy for clients to
+            # render without guessing from the viewer role.
+            return JsonResponse(
+                {
+                    "content_shares": owned,
+                    "owned_shares": owned,
+                    "received_shares": received,
+                }
+            )
         body = _body(request)
         if set(body) != {"kind", "object_id", "recipient_id"}:
             raise ContentShareError("kind, object_id and recipient_id are required.")
@@ -73,19 +139,27 @@ def content_shares(request):
             object_id=body["object_id"],
             recipient=recipient,
         )
-        return JsonResponse(_payload(share), status=201)
+        return JsonResponse(_payload(share, actor=request.user), status=201)
     except ContentShareError as exc:
         return _response_error(exc)
 
 
-@require_http_methods(["DELETE"])
+@require_http_methods(["GET", "DELETE"])
 def content_share_detail(request, share_id: int):
     denied = _teacher(request)
     if denied is not None:
         return denied
     try:
         share = _share_for_action(request.user, share_id)
-        return JsonResponse(_payload(revoke_share(actor=request.user, share=share)))
+        if request.method == "GET":
+            # A recipient may inspect the safe metadata preview only while
+            # the grant is active.  Owners retain their revoked-grant audit
+            # view, but revoked recipients cannot use this endpoint as a
+            # source existence/readability oracle.
+            if share.recipient_id == request.user.pk and not share.active:
+                raise ContentShareError("This content share is not available.")
+            return JsonResponse(_payload(share, actor=request.user))
+        return JsonResponse(_payload(revoke_share(actor=request.user, share=share), actor=request.user))
     except ContentShareError as exc:
         return _response_error(exc)
 

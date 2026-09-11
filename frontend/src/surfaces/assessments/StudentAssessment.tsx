@@ -1,6 +1,6 @@
 import * as React from "react";
 import { createRoot } from "react-dom/client";
-import { LanguageSwitcher, LocaleProvider, useT } from "../../i18n.js";
+import { LanguageSwitcher, LocaleProvider, useLocale, useT } from "../../i18n.js";
 import { ApiError, getJson, postJson } from "../../protocol.js";
 import { MarkdownView, markdownFragmentFor } from "../../activities/MarkdownView.js";
 
@@ -381,8 +381,9 @@ function QuestionCard({
   );
 }
 
-function StudentAssessment({ runUrl, startUrl }: { runUrl: string; startUrl: string }) {
+function StudentAssessment({ runUrl, startUrl, historyUrl }: { runUrl: string; startUrl: string; historyUrl?: string }) {
   const t = useT();
+  const locale = useLocale();
   const [run, setRun] = React.useState<AssessmentRunEntry | null>(null);
   const [attempt, setAttempt] = React.useState<AssessmentAttempt | null>(null);
   const [answers, setAnswers] = React.useState<Record<string, AssessmentAnswer>>({});
@@ -546,6 +547,7 @@ function StudentAssessment({ runUrl, startUrl }: { runUrl: string; startUrl: str
           <h2>{t("assessmentSubmittedHeading")}</h2>
           <p>{t("assessmentSubmittedDetails")}</p>
           <p className="lc-workspace-meta">{t("assessmentScoresHidden")}</p>
+          {historyUrl ? <a className="lc-btn lc-btn-outline" href={historyUrl}>{locale.startsWith("zh") ? "查看作答" : "Review attempt"}</a> : null}
         </section>
       ) : (
         <>
@@ -577,9 +579,10 @@ type AssessmentSubmissionResult = Omit<AssessmentAttempt, "items"> & {
 export function mountStudentAssessment(el: HTMLElement): void {
   const runUrl = el.dataset.runUrl;
   const startUrl = el.dataset.startUrl;
+  const historyUrl = el.dataset.historyUrl;
   if (!runUrl || !startUrl) return;
   const locale = el.dataset.locale?.startsWith("zh") ? "zh-Hans" : "en";
   const root = createRoot(el);
-  root.render(<LocaleProvider initial={locale} root={el}><StudentAssessment runUrl={runUrl} startUrl={startUrl} /></LocaleProvider>);
+  root.render(<LocaleProvider initial={locale} root={el}><StudentAssessment runUrl={runUrl} startUrl={startUrl} historyUrl={historyUrl} /></LocaleProvider>);
   el.addEventListener("liveclassroom:unmount", () => root.unmount(), { once: true });
 }

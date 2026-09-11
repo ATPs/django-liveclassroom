@@ -100,7 +100,7 @@ def test_start_open_boundary_and_deadline_use_server_time():
 
 
 @pytest.mark.django_db
-def test_save_at_exact_deadline_is_rejected_and_previous_answer_is_retained():
+def test_save_at_exact_deadline_is_rejected_and_previous_answer_is_retained(monkeypatch):
     owner = get_user_model().objects.create_user(username="timing-save-owner")
     learner = get_user_model().objects.create_user(username="timing-save-learner")
     run = _run(owner, settings={})
@@ -129,12 +129,22 @@ def test_save_at_exact_deadline_is_rejected_and_previous_answer_is_retained():
             request_id=uuid4(),
             now=deadline,
         )
+    # The attempt-detail endpoint finalizes due attempts using the server
+    # clock. Freeze that same clock for this whole boundary scenario rather
+    # than letting the assertion depend on the date the suite is run.
+    monkeypatch.setattr("liveclassroom.services.assessment_timing.timezone.now", lambda: first)
     detail = Client()
     detail.force_login(learner)
     assert detail.get(reverse("liveclassroom:api-v1-attempt-detail", args=[attempt.public_id])).status_code == 200
     attempt.refresh_from_db()
     assert attempt.status == AssessmentAttempt.Status.IN_PROGRESS
     assert list(item.answer_revisions.values_list("answer", flat=True)) == [{"text": "kept"}]
+
+    monkeypatch.setattr("liveclassroom.services.assessment_timing.timezone.now", lambda: deadline)
+    assert detail.get(reverse("liveclassroom:api-v1-attempt-detail", args=[attempt.public_id])).status_code == 200
+    attempt.refresh_from_db()
+    assert attempt.status == AssessmentAttempt.Status.SUBMITTED
+    assert attempt.finalization_reason == "expired"
 
 
 @pytest.mark.django_db

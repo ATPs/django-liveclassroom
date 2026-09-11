@@ -18,7 +18,6 @@ from typing import Any
 
 from django.db.models import Prefetch
 
-from liveclassroom.integrations.host import host_can_view_named_responses
 from liveclassroom.models import (
     AnswerRevision,
     AssessmentAttempt,
@@ -115,13 +114,9 @@ def _course(value: Course | int) -> Course:
 def _can_read_run(actor, run: AssessmentRun) -> bool:
     if not getattr(actor, "is_authenticated", False) or not can_teach(actor):
         return False
-    if getattr(actor, "is_superuser", False) or run.owner_id == actor.pk:
-        return True
-    if run.course_id is None:
-        return False
-    return CourseMembership.objects.filter(
-        course_id=run.course_id, user=actor, role__in=STAFF_ROLES
-    ).exists()
+    from .assessment_progress import can_read_run_progress
+
+    return can_read_run_progress(actor, run)
 
 
 def _authorized_run(actor, run: AssessmentRun) -> None:
@@ -130,11 +125,13 @@ def _authorized_run(actor, run: AssessmentRun) -> None:
 
 
 def _can_view_named_responses(actor, run: AssessmentRun) -> bool:
-    """Use the existing explicit grading capability for identifying answers."""
-    package_allowed = can_grade_attempt(actor, AssessmentAttempt(run=run))
-    return host_can_view_named_responses(
-        actor=actor, session_id=run.pk, package_allowed=package_allowed
-    )
+    """Require grading authorization for every concrete named attempt.
+
+    Assessment runs are not classroom sessions, so a run identifier must never
+    be passed to the session-oriented named-response host hook.
+    """
+    attempts = AssessmentAttempt.objects.filter(run=run).only("id", "run_id")
+    return all(can_grade_attempt(actor, attempt) for attempt in attempts)
 
 
 def _test_user_ids(run: AssessmentRun) -> set[int]:
@@ -490,6 +487,8 @@ def course_question_analytics(actor, course: Course | int, *, include_named: boo
     ):
         raise QuestionAnalyticsError("You do not have permission to view question analytics.")
     runs = list(AssessmentRun.objects.filter(course=selected_course).order_by("created_at", "id"))
+    if any(not _can_read_run(actor, run) for run in runs):
+        raise QuestionAnalyticsError("You do not have permission to view question analytics.")
     if include_named and any(not _can_view_named_responses(actor, run) for run in runs):
         raise QuestionAnalyticsError("You do not have permission to view named responses.")
     payloads = [_build_run_payload(actor, run, include_named=include_named) for run in runs]

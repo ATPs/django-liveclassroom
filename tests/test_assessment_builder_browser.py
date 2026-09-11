@@ -38,9 +38,20 @@ def test_teacher_builds_reopens_previews_and_copies_fixed_assessment(live_server
         type_key="liveclassroom.short_text",
         definition={"prompt": "Name the cell powerhouse.", "answer": ["mitochondria"]},
     )
+    pooled = create_activity_definition(
+        owner=teacher,
+        title="Extra biology question",
+        type_key="liveclassroom.single_choice",
+        definition={
+            "prompt": "Which base pairs with C?",
+            "options": [{"id": "A", "text": "G"}, {"id": "B", "text": "T"}],
+            "answer": "A",
+        },
+    )
     bank = create_question_bank(actor=teacher, data={"title": "Biology"})
     add_question_to_bank(actor=teacher, bank=bank, definition=first)
     add_question_to_bank(actor=teacher, bank=bank, definition=second)
+    add_question_to_bank(actor=teacher, bank=bank, definition=pooled)
     cookie = _session_cookie(teacher)
     manager, browser = _chromium_or_skip()
     screenshots = Path(".local/screenshots")
@@ -53,6 +64,10 @@ def test_teacher_builds_reopens_previews_and_copies_fixed_assessment(live_server
         page.get_by_role("button", name="New assessment", exact=True).click()
         page.get_by_label("Title", exact=True).fill("Cell quiz")
         page.get_by_label("Instructions", exact=True).fill("Answer both questions.")
+        page.locator("summary").filter(has_text="Settings").click()
+        page.get_by_label("Open at (optional)", exact=True).fill("2020-01-01T09:00")
+        page.get_by_label("Audience", exact=True).select_option("authenticated_link")
+        page.get_by_label("Question navigation", exact=True).select_option("forward_only")
         page.get_by_role("button", name="Add questions", exact=True).click()
         page.locator(".lc-question-bank-item").filter(has_text="Biology").click()
         page.get_by_role("button", name="Add to assessment", exact=True).nth(0).click()
@@ -65,9 +80,24 @@ def test_teacher_builds_reopens_previews_and_copies_fixed_assessment(live_server
         page.get_by_text("Answer (teacher only)", exact=False).first.wait_for()
         page.get_by_role("button", name="Save draft", exact=True).click()
         page.get_by_role("status").filter(has_text="Assessment saved.").wait_for()
+        page.locator("summary").filter(has_text="Question order and random pools").click()
+        page.get_by_role("button", name="Add random pool", exact=True).click()
+        page.get_by_role("button", name="Save question plan", exact=True).click()
+        page.get_by_role("status").filter(has_text="Section plan saved.").wait_for()
         assert database_call(
             lambda: list(teacher.liveclassroom_assessments.values_list("title", flat=True))
         ) == ["Cell quiz"]
+        page.get_by_role("button", name="Publish", exact=True).click()
+        page.get_by_text("Assessment published.", exact=False).wait_for()
+        page.get_by_role("heading", name="Published results", exact=True).wait_for()
+        page.get_by_role("button", name="Refresh runs", exact=True).click()
+        # The results panel selects the newest published run automatically.
+        # Waiting on its visible correction control proves that the selected
+        # run was loaded without relying on a browser-specific label lookup.
+        page.get_by_role("button", name="Preview correction", exact=True).wait_for()
+        page.get_by_role("button", name="Question analytics", exact=True).click()
+        page.get_by_text("No submitted answers yet.", exact=True).wait_for()
+        assert page.get_by_role("link", name="Download CSV", exact=True).is_visible()
         page.locator(".lc-assessment-list-item").filter(has_text="Cell quiz").click()
         page.get_by_role("button", name="Copy", exact=True).click()
         page.get_by_text("Assessment copied.", exact=False).wait_for()

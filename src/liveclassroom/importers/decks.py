@@ -192,6 +192,13 @@ def _extract_notes(fragment: str) -> tuple[str, str, str | None]:
         return fragment.strip(), "", "Private notes marker is missing its closing marker."
     public = "".join(lines[:begin] + lines[end + 1 :]).strip()
     notes = "".join(lines[begin + 1 : end]).strip()
+    # The exporter escapes only delimiter-looking note lines.  Reverse that
+    # transport escape after the block has been located, leaving ordinary
+    # backslashes untouched.
+    notes = "\n".join(
+        line[1:] if line.startswith("\\") and line[1:].strip() in _OPEN_MARKERS | _CLOSE_MARKERS else line
+        for line in notes.splitlines()
+    )
     if len(notes) > MAX_NOTES_LENGTH:
         return public, notes, "Private presenter notes are too long."
     return public, notes, None

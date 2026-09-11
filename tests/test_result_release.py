@@ -57,8 +57,8 @@ def _run(owner, *, release_policy=None, closes_at=None, due_at=None):
     return publish_assessment(actor=owner, assessment=assessment, expected_version=assessment.version)
 
 
-def _attempt(run, learner):
-    attempt, created = start_or_resume_attempt(actor=learner, run=run, request_id=uuid4())
+def _attempt(run, learner, *, now=None):
+    attempt, created = start_or_resume_attempt(actor=learner, run=run, request_id=uuid4(), now=now)
     assert created
     return attempt
 
@@ -164,7 +164,7 @@ def test_after_close_uses_closes_at_and_ignores_informational_due_at():
         closes_at=closes,
         due_at=closes - timedelta(days=1),
     )
-    attempt = _attempt(run, learner)
+    attempt = _attempt(run, learner, now=closes - timedelta(seconds=1))
     assert not can_release_result(run=run, attempt=attempt, dimension="scores", now=closes - timedelta(seconds=1))
     assert can_release_result(run=run, attempt=attempt, dimension="scores", now=closes)
 

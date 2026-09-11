@@ -12,10 +12,13 @@ from . import (
     api_deck_portability,
     api_decks,
     api_flows,
+    api_grade_corrections,
     api_grade_summaries,
     api_grading,
+    api_markdown_import,
     api_organization,
     api_plans,
+    api_portable,
     api_presentation,
     api_progress,
     api_question_analytics,
@@ -27,12 +30,17 @@ from . import (
     deck_views,
     document_views,
     fragment_views,
+    student_review_views,
     views,
 )
 
 app_name = "liveclassroom"
 
 urlpatterns = [
+    path("api/v1/portable/<str:kind>/<int:object_id>/", api_portable.portable_export, name="api-v1-portable-export"),
+    path("api/v1/portable/import/", api_portable.portable_import, name="api-v1-portable-import"),
+    path("api/v1/imports/markdown/preview/", api_markdown_import.preview, name="api-v1-markdown-import-preview"),
+    path("api/v1/imports/markdown/commit/", api_markdown_import.commit, name="api-v1-markdown-import-commit"),
     path("api/v1/assessment-history/", api_assessment_review.history, name="api-v1-assessment-history"),
     path("api/v1/content-shares/", api_sharing.content_shares, name="api-v1-content-shares"),
     path(
@@ -77,6 +85,21 @@ urlpatterns = [
         name="api-v1-attempt-submit",
     ),
     path("api/v1/grading/queue/", api_grading.grading_queue, name="api-v1-grading-queue"),
+    path(
+        "api/v1/assessment-attempts/<uuid:attempt_id>/items/<uuid:item_key>/grade-override/",
+        api_grade_corrections.grade_override,
+        name="api-v1-grade-override",
+    ),
+    path(
+        "api/v1/assessment-runs/<uuid:run_id>/regrade/preview/",
+        api_grade_corrections.regrade_preview,
+        name="api-v1-regrade-preview",
+    ),
+    path(
+        "api/v1/assessment-runs/<uuid:run_id>/regrade/apply/",
+        api_grade_corrections.regrade_apply,
+        name="api-v1-regrade-apply",
+    ),
     path(
         "api/v1/attempts/<uuid:public_id>/items/<uuid:item_key>/manual-grade/",
         api_grading.manual_grade,
@@ -348,6 +371,7 @@ urlpatterns = [
     path("teacher/builder/", views.FlowBuilderView.as_view(), name="flow-builder"),
     path("teacher/decks/", views.DeckWorkspaceView.as_view(), name="deck-workspace"),
     path("teacher/assessments/", views.AssessmentWorkspaceView.as_view(), name="assessment-workspace"),
+    path("assessments/history/", student_review_views.StudentReviewView.as_view(), name="assessment-history"),
     path(
         "assessments/runs/<uuid:public_id>/",
         views.AssessmentAttemptView.as_view(),

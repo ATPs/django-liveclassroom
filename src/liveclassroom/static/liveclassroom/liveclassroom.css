@@ -1951,6 +1951,9 @@
 }
 
 #liveclassroom-root .lc-assessment-root { width: min(100%, 90rem); margin: 0 auto; }
+#liveclassroom-root .lc-markdown-import { min-width: 0; }
+#liveclassroom-root .lc-markdown-import > label { display: grid; gap: .3rem; min-width: 0; }
+#liveclassroom-root .lc-markdown-import input[type="file"] { box-sizing: border-box; width: 100%; min-width: 0; max-width: 100%; }
 #liveclassroom-root .lc-assessment-layout { display: grid; grid-template-columns: minmax(13rem, 18rem) minmax(0, 1fr); gap: 1rem; margin-top: 1rem; align-items: start; }
 #liveclassroom-root .lc-assessment-list { position: sticky; top: 1rem; }
 #liveclassroom-root .lc-assessment-list ul { list-style: none; padding: 0; margin: 0; display: grid; gap: .25rem; }

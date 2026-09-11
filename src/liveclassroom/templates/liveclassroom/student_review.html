@@ -1,0 +1,17 @@
+{% extends liveclassroom_base_template %}
+{% load i18n %}
+{% block title %}{% translate "Assessment history" %} · LiveClassroom{% endblock %}
+{% block content %}
+  <section class="lc-card lc-wide" data-student-review
+    data-history-url="{{ history_url }}"
+    data-review-url-template="{{ review_url_template }}"
+    data-start-url-template="{{ start_url_template }}"
+    data-available-url-template="{{ available_url_template }}"
+    data-assessment-url-template="{{ assessment_url_template }}"
+    data-export-url-template="{{ export_url_template }}"
+    data-locale="{{ active_lang|default:'en' }}">
+    <p class="lc-kicker">{% translate "Assessment history" %}</p>
+    <h1>{% translate "Assessment history" %}</h1>
+    <p>{% translate "Loading assessment history…" %}</p>
+  </section>
+{% endblock %}

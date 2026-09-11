@@ -45,3 +45,40 @@ def test_teacher_creates_reorders_and_saves_deck_on_mobile(live_server):
     finally:
         browser.close()
         manager.stop()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_second_stage_deck_save_failure_keeps_the_draft_retryable(live_server):
+    teacher = get_user_model().objects.create_user(username="deck-browser-retry", password="password")
+    cookie = _session_cookie(teacher)
+    manager, browser = _chromium_or_skip()
+    try:
+        page = browser.new_page()
+        page.context.add_cookies([{"name": settings.SESSION_COOKIE_NAME, "value": cookie, "url": live_server.url}])
+        page.goto(f"{live_server.url}{reverse('liveclassroom:deck-workspace')}")
+        page.get_by_role("button", name="New deck", exact=True).click()
+        page.get_by_label("Title", exact=True).fill("Retry deck")
+        page.get_by_label("Markdown", exact=True).fill("# Retained")
+        page.get_by_role("button", name="Save", exact=True).click()
+        page.get_by_text("Deck saved.", exact=True).wait_for()
+        page.get_by_label("Title", exact=True).fill("Retry deck updated")
+        page.get_by_label("Markdown", exact=True).fill("# Still retained")
+        failed = {"value": False}
+
+        def reject_once(route):
+            if not failed["value"]:
+                failed["value"] = True
+                route.fulfill(status=500, content_type="application/json", body='{"detail":"storage failed"}')
+            else:
+                route.continue_()
+
+        page.route("**/slides/", reject_once)
+        page.get_by_role("button", name="Save", exact=True).click()
+        page.get_by_text("Details saved, but slides are still local.", exact=False).wait_for()
+        page.unroute("**/slides/", reject_once)
+        page.get_by_role("button", name="Save", exact=True).click()
+        page.get_by_text("Deck saved.", exact=True).wait_for()
+        assert database_call(lambda: teacher.liveclassroom_decks.filter(title="Retry deck updated").count()) == 1
+    finally:
+        browser.close()
+        manager.stop()
