@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { deleteJson, getJson, patchJson, postJson } from "../../protocol.js";
 import { getLocale, type Locale } from "../../locales.js";
-import { LanguageSwitcher, LocaleProvider, useLocale } from "../../i18n.js";
+import { LocaleProvider, useLocale } from "../../i18n.js";
 import { useQuerySelection } from "../../navigation.js";
 import { QuestionBankWorkspace } from "../questions/QuestionBankWorkspace.js";
 
@@ -1194,7 +1194,6 @@ function TeacherWorkspace({ apiRoot, builderUrl, assessmentUrl, initialTab = "le
 
   return (
     <div className="lc-wide lc-workspace-root">
-      <LanguageSwitcher />
       <header className="lc-builder-topbar">
         <div className="lc-builder-title-group">
           <p className="lc-kicker">{t("workspace")}</p>

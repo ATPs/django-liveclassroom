@@ -5,6 +5,8 @@ create a participant, start an assessment attempt, or expose a reusable draft
 to a learner.
 """
 
+from urllib.parse import urlencode
+
 from django.db.models import Q
 from django.http import JsonResponse
 from django.urls import reverse
@@ -26,6 +28,89 @@ from .models import (
 from .services.classroom import can_manage_session, can_view_session
 from .services.permissions import can_author_course, can_teach, can_use_flow
 
+_DEFAULT_BROWSE_PAGE_SIZE = 25
+_MAX_BROWSE_PAGE_SIZE = 100
+_BROWSE_LINK_QUERY_KEYS = ("lang", "q", "sort")
+_BROWSE_SORTS = {
+    "title": ("title", "id"),
+    "-title": ("-title", "-id"),
+    "updated": ("-updated_at", "-id"),
+    "-updated": ("updated_at", "id"),
+    # These aliases keep common list labels readable while retaining a
+    # deterministic ordering for each supported value.
+    "recent": ("-updated_at", "-id"),
+    "-recent": ("updated_at", "id"),
+}
+
+
+def _browse_positive_int(request, name, default):
+    raw = request.GET.get(name)
+    if raw is None or raw == "":
+        return default
+    if not raw.isascii() or not raw.isdecimal():
+        raise ValueError(f"{name} must be a positive integer.")
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be a positive integer.") from exc
+    if value < 1:
+        raise ValueError(f"{name} must be a positive integer.")
+    return value
+
+
+def _browse_options(request):
+    page = _browse_positive_int(request, "page", 1)
+    page_size = min(
+        _browse_positive_int(request, "page_size", _DEFAULT_BROWSE_PAGE_SIZE),
+        _MAX_BROWSE_PAGE_SIZE,
+    )
+    sort = request.GET.get("sort")
+    if sort not in (None, "") and sort not in _BROWSE_SORTS:
+        raise ValueError("sort is not a supported browse sort.")
+    return page, page_size, sort or "title"
+
+
+def _browse_queryset(request, queryset):
+    """Apply public list filters after the caller scopes the queryset."""
+    query = request.GET.get("q", "").strip()
+    if query:
+        queryset = queryset.filter(Q(title__icontains=query) | Q(description__icontains=query))
+    sort = request.GET.get("sort") or "title"
+    return queryset.order_by(*_BROWSE_SORTS[sort])
+
+
+def _browse_page_url(request, page, page_size):
+    pairs = []
+    for key in _BROWSE_LINK_QUERY_KEYS:
+        value = request.GET.get(key)
+        if value not in (None, ""):
+            pairs.append((key, value))
+    pairs.extend((("page", str(page)), ("page_size", str(page_size))))
+    return f"{request.path}?{urlencode(pairs)}"
+
+
+def _browse_envelope(request, queryset, serializer):
+    """Return a bounded list envelope for an already-authorized queryset."""
+    try:
+        page, page_size, _sort = _browse_options(request)
+    except ValueError as exc:
+        return _error(str(exc), 400, code="invalid_request")
+
+    queryset = _browse_queryset(request, queryset)
+    count = queryset.count()
+    start = (page - 1) * page_size
+    rows = [] if start >= count else queryset[start : start + page_size]
+    return JsonResponse(
+        {
+            "items": [serializer(row) for row in rows],
+            "count": count,
+            "page": page,
+            "page_size": page_size,
+            "next": _browse_page_url(request, page + 1, page_size) if start + page_size < count else None,
+            "previous": _browse_page_url(request, page - 1, page_size) if page > 1 else None,
+        }
+    )
+
 
 def _teacher_denied(request):
     if not getattr(request.user, "is_authenticated", False):
@@ -44,6 +129,27 @@ def _teaching_classes(actor):
             memberships__user=actor,
             memberships__role__in=[CourseMembership.Role.TEACHER, CourseMembership.Role.ASSISTANT],
         )
+    ).distinct()
+
+
+def _teaching_courses(actor):
+    classes = _teaching_classes(actor)
+    if actor.is_superuser:
+        return TeachingCourse.objects.all()
+    return TeachingCourse.objects.filter(Q(created_by=actor) | Q(cohorts__in=classes)).distinct()
+
+
+def _learning_classes(actor):
+    return Course.objects.filter(
+        memberships__user=actor,
+        memberships__role=CourseMembership.Role.STUDENT,
+    ).distinct()
+
+
+def _learning_courses(actor):
+    return TeachingCourse.objects.filter(
+        cohorts__memberships__user=actor,
+        cohorts__memberships__role=CourseMembership.Role.STUDENT,
     ).distinct()
 
 
@@ -279,12 +385,19 @@ def home(request):
                         "key": "sessions",
                         "title": "Current sessions",
                         "items": [_session_link(row, teaching=True) for row in sessions],
+                        "view_all_url": reverse("liveclassroom:teacher-sessions"),
                     },
-                    {"key": "recent", "title": "Recent teaching work", "items": recent[:6]},
+                    {
+                        "key": "recent",
+                        "title": "Recent teaching work",
+                        "items": recent[:6],
+                        "view_all_url": reverse("liveclassroom:teacher-dashboard"),
+                    },
                     {
                         "key": "classes",
                         "title": "Courses and classes",
                         "items": [_class_summary(row, mode="teaching") for row in classes.order_by("title", "id")[:6]],
+                        "view_all_url": reverse("liveclassroom:teacher-courses"),
                     },
                 ],
                 "quick_actions": [
@@ -320,6 +433,11 @@ def home(request):
         AssessmentRun.objects.filter(course__in=learner_classes, audience=AssessmentRun.Audience.CLASS)
         .order_by("-created_at", "-id")[:6]
     )
+    submitted = (
+        AssessmentAttempt.objects.filter(user=actor, status=AssessmentAttempt.Status.SUBMITTED)
+        .select_related("run")
+        .order_by("-submitted_at", "-id")[:6]
+    )
     return JsonResponse(
         {
             "mode": "learning",
@@ -336,16 +454,19 @@ def home(request):
                         }
                         for row in attempts
                     ],
+                    "view_all_url": reverse("liveclassroom:assessment-history"),
                 },
                 {
                     "key": "sessions",
                     "title": "Current sessions",
                     "items": [_session_link(row, teaching=False) for row in sessions],
+                    "view_all_url": reverse("liveclassroom:learning-home"),
                 },
                 {
                     "key": "assessments",
                     "title": "Available assessments",
                     "items": [_run_summary(row) for row in available_runs],
+                    "view_all_url": reverse("liveclassroom:learning-home"),
                 },
                 {
                     "key": "classes",
@@ -354,6 +475,21 @@ def home(request):
                         _class_summary(row, mode="learning")
                         for row in learner_classes.order_by("title", "id")[:6]
                     ],
+                    "view_all_url": reverse("liveclassroom:learning-home"),
+                },
+                {
+                    "key": "submitted",
+                    "title": "Recent submitted attempts",
+                    "items": [
+                        {
+                            "id": str(row.public_id),
+                            "title": row.run.title,
+                            "status": row.status,
+                            "url": reverse("liveclassroom:learn-attempt-review", args=[row.public_id]),
+                        }
+                        for row in submitted
+                    ],
+                    "view_all_url": reverse("liveclassroom:assessment-history"),
                 },
             ],
             "quick_actions": [],
@@ -468,16 +604,39 @@ def _class_sections(course, *, learner=False, actor=None):
 
 
 @require_GET
+def teaching_courses(request):
+    """List all teaching courses visible to the authenticated teacher."""
+    denied = _teacher_denied(request)
+    if denied is not None:
+        return denied
+    return _browse_envelope(
+        request,
+        _teaching_courses(request.user),
+        lambda row: _teaching_course_summary(row, mode="teaching"),
+    )
+
+
+@require_GET
+def teaching_classes(request):
+    """List all classes the authenticated teacher may author."""
+    denied = _teacher_denied(request)
+    if denied is not None:
+        return denied
+    return _browse_envelope(
+        request,
+        _teaching_classes(request.user),
+        lambda row: _class_summary(row, mode="teaching"),
+    )
+
+
+@require_GET
 def teaching_index(request):
     denied = _teacher_denied(request)
     if denied is not None:
         return denied
     actor = request.user
     classes = _teaching_classes(actor)
-    if actor.is_superuser:
-        programs = TeachingCourse.objects.all()
-    else:
-        programs = TeachingCourse.objects.filter(Q(created_by=actor) | Q(cohorts__in=classes)).distinct()
+    programs = _teaching_courses(actor)
     return JsonResponse(
         {
             "courses": [_teaching_course_summary(row, mode="teaching") for row in programs],
@@ -524,15 +683,37 @@ def teaching_class(request, class_id):
 
 
 @require_GET
+def learning_courses(request):
+    """List teaching courses that contain a class the learner attends."""
+    denied = _learner_denied(request)
+    if denied is not None:
+        return denied
+    return _browse_envelope(
+        request,
+        _learning_courses(request.user),
+        lambda row: _teaching_course_summary(row, mode="learning"),
+    )
+
+
+@require_GET
+def learning_classes(request):
+    """List only classes where the learner has a student membership."""
+    denied = _learner_denied(request)
+    if denied is not None:
+        return denied
+    return _browse_envelope(
+        request,
+        _learning_classes(request.user),
+        lambda row: _class_summary(row, mode="learning"),
+    )
+
+
+@require_GET
 def learning_index(request):
     denied = _learner_denied(request)
     if denied is not None:
         return denied
-    classes = (
-        Course.objects.filter(memberships__user=request.user, memberships__role=CourseMembership.Role.STUDENT)
-        .select_related("teaching_course")
-        .distinct()
-    )
+    classes = _learning_classes(request.user).select_related("teaching_course")
     program_ids = {row.teaching_course_id for row in classes if row.teaching_course_id}
     programs = TeachingCourse.objects.filter(pk__in=program_ids)
     attempts = AssessmentAttempt.objects.filter(user=request.user).select_related("run").order_by("-started_at")[:100]

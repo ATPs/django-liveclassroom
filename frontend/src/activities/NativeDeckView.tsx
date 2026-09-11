@@ -23,11 +23,20 @@ export function NativeDeckView({
   state,
   audience,
   stateUrl,
+  reviewSlideKey,
+  onReviewSlide,
+  onReviewSelection,
 }: {
   deck: DeckPresentationState;
   state: SessionState | null;
   audience: Audience;
   stateUrl?: string;
+  /** A student-only, URL-backed review selection. */
+  reviewSlideKey?: string;
+  /** Called for student review navigation; this must not issue a server command. */
+  onReviewSlide?: (key: string) => void;
+  /** Reports whether the requested student review selection is still permitted. */
+  onReviewSelection?: (valid: boolean) => void;
 }) {
   const t = useT();
   const [payload, setPayload] = useState<DeckPayload | null>(null);
@@ -112,15 +121,6 @@ export function NativeDeckView({
   }, [channel, deck.slides_url]);
 
   useEffect(() => {
-    if (frameReady.current && frame.current?.contentWindow) {
-      frame.current.contentWindow.postMessage(
-        { protocol: "vaultpub.slide", version: 1, type: "command", command: "go_to", index: deck.slide_index },
-        window.location.origin,
-      );
-    }
-  }, [deck.slide_index, richUrl]);
-
-  useEffect(() => {
     const onFullscreen = () => setFullscreen(document.fullscreenElement === root.current);
     document.addEventListener("fullscreenchange", onFullscreen);
     onFullscreen();
@@ -157,6 +157,40 @@ export function NativeDeckView({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [audience, deck.revision, stateUrl]);
 
+  const slides = payload?.slides ?? [];
+  const serverIndex = Math.max(0, Math.min(deck.slide_index, Math.max(0, slides.length - 1)));
+  const requestedReviewIndex = reviewSlideKey ? slides.findIndex((item) => item.key === reviewSlideKey) : null;
+  const effectiveReviewIndex = requestedReviewIndex !== null && requestedReviewIndex >= 0 ? requestedReviewIndex : reviewIndex;
+  const index = effectiveReviewIndex === null
+    ? serverIndex
+    : Math.max(0, Math.min(effectiveReviewIndex, Math.max(0, slides.length - 1)));
+  const slide = slides[index];
+  const navigation = state?.channels?.[channel]?.presentation?.navigation_mode ?? "follow";
+  const canReview = audience === "student" && deck.allow_review && navigation === "paged";
+  const frameIndex = canReview && reviewSlideKey && requestedReviewIndex !== null && requestedReviewIndex >= 0
+    ? index
+    : deck.slide_index;
+
+  useEffect(() => {
+    if (audience !== "student" || !reviewSlideKey) return;
+    if (error) {
+      onReviewSelection?.(false);
+      return;
+    }
+    if (!payload) return;
+    const valid = canReview && slides.some((item) => item.key === reviewSlideKey);
+    onReviewSelection?.(valid);
+  }, [audience, canReview, error, onReviewSelection, payload, reviewSlideKey, slides]);
+
+  useEffect(() => {
+    if (frameReady.current && frame.current?.contentWindow) {
+      frame.current.contentWindow.postMessage(
+        { protocol: "vaultpub.slide", version: 1, type: "command", command: "go_to", index: frameIndex },
+        window.location.origin,
+      );
+    }
+  }, [deck.slide_index, frameIndex, richUrl]);
+
   useEffect(() => {
     const onMessage = (event: MessageEvent<unknown>) => {
       if (!frame.current || event.origin !== window.location.origin || event.source !== frame.current.contentWindow) return;
@@ -166,21 +200,14 @@ export function NativeDeckView({
       if (message.type === "ready") {
         frameReady.current = true;
         frame.current.contentWindow?.postMessage(
-          { protocol: "vaultpub.slide", version: 1, type: "command", command: "go_to", index: deck.slide_index },
+          { protocol: "vaultpub.slide", version: 1, type: "command", command: "go_to", index: frameIndex },
           window.location.origin,
         );
       }
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [deck.slide_index, richUrl]);
-
-  const slides = payload?.slides ?? [];
-  const serverIndex = Math.max(0, Math.min(deck.slide_index, Math.max(0, slides.length - 1)));
-  const index = reviewIndex === null ? serverIndex : Math.max(0, Math.min(reviewIndex, Math.max(0, slides.length - 1)));
-  const slide = slides[index];
-  const navigation = state?.channels?.[channel]?.presentation?.navigation_mode ?? "follow";
-  const canReview = audience === "student" && deck.allow_review && navigation === "paged";
+  }, [frameIndex, richUrl]);
 
   if (error) return <p role="status">{error || t("unavailable")}</p>;
   if (!payload) return <p role="status">{t("loading")}</p>;
@@ -211,8 +238,24 @@ export function NativeDeckView({
       </div>
       {canReview ? (
         <nav className="lc-native-deck-review" aria-label={t("filePresentationControls")}>
-          <button type="button" disabled={index <= 0} onClick={() => setReviewIndex(index - 1)}>{t("filePreviousPage")}</button>
-          <button type="button" disabled={index >= slides.length - 1} onClick={() => setReviewIndex(index + 1)}>{t("fileNextPage")}</button>
+          <button
+            type="button"
+            disabled={index <= 0}
+            onClick={() => {
+              const next = slides[index - 1]?.key;
+              if (!next) return;
+              onReviewSlide ? onReviewSlide(next) : setReviewIndex(index - 1);
+            }}
+          >{t("filePreviousPage")}</button>
+          <button
+            type="button"
+            disabled={index >= slides.length - 1}
+            onClick={() => {
+              const next = slides[index + 1]?.key;
+              if (!next) return;
+              onReviewSlide ? onReviewSlide(next) : setReviewIndex(index + 1);
+            }}
+          >{t("fileNextPage")}</button>
         </nav>
       ) : null}
     </section>

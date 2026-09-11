@@ -17,7 +17,6 @@
       <p class="lc-context-help-link">{% include "liveclassroom/_help_link.html" %}</p>
     </aside>
     <div class="lc-card lc-wide" data-liveclassroom-builder data-flow-id="{{ flow_id|default:'' }}" data-session-id="{{ session_id|default:'' }}" data-api-v1-url="{% url 'liveclassroom:api-v1-flows' %}" data-flow-url-template="{% url 'liveclassroom:flow-builder-detail' 0 %}" data-library-url="{% url 'liveclassroom:teacher-library-lessons' %}" data-is-superuser="{{ request.user.is_superuser|yesno:'true,false' }}" data-locale="{{ active_lang|default:'en' }}">
-      <button type="button" class="lc-lang-switch" aria-label="Switch language / 切换语言">EN / 中文</button>
     </div>
   </div>
 {% endblock %}

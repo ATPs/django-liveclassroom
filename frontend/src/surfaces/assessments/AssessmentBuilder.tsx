@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 
 import { MarkdownView } from "../../activities/MarkdownView.js";
-import { LanguageSwitcher, LocaleProvider, useLocale } from "../../i18n.js";
+import { LocaleProvider, useLocale } from "../../i18n.js";
 import { ApiError, getJson, patchJson, postJson, putJson } from "../../protocol.js";
 import { Breadcrumbs, routeUrl, updateLocation, useLocationPath, useNavigationHeading, useQuerySelection, useUnsavedChangesWarning, useUnsavedNavigationGuard } from "../../navigation.js";
 import { QuestionBankWorkspace, type QuestionPickerSelection } from "../questions/QuestionBankWorkspace.js";
@@ -495,7 +495,6 @@ function AssessmentBuilder({ apiRoot, initialAssessmentId = "", assessmentUrlTem
 
   return (
     <div className="lc-assessment-root">
-      <LanguageSwitcher />
       <Breadcrumbs items={[{ href: libraryUrl, label: text("Library", "资料库") }, { label: text("Assessment builder", "测验编辑器") }]} />
       <header className="lc-builder-topbar">
         <div><p className="lc-kicker">{text("Independent assessment", "独立测验")}</p><h1 id="lc-assessment-heading" tabIndex={-1}>{text("Assessment builder", "测验编辑器")}</h1><p>{text("Build a reusable quiz, assignment, practice, or timed exam. Keep advanced delivery choices together in Settings.", "创建可复用的测验、作业、练习或限时考试。高级投递选项集中在“设置”中。")}</p></div>

@@ -7,7 +7,15 @@
     data-mode="{{ navigation_bootstrap.mode }}"
     data-authenticated="{{ request.user.is_authenticated|yesno:'true,false' }}"
     data-join-url="{% url 'liveclassroom:join' %}"
-    data-help-url="{% url 'liveclassroom:help' %}">
+    data-help-url="{% url 'liveclassroom:help' %}"
+    data-login-url="{{ navigation_bootstrap.host_links.login_url|default:'' }}">
     <h1>LiveClassroom</h1>
+    <div class="lc-home-guest-actions">
+      <a class="lc-btn lc-btn-primary" href="{% url 'liveclassroom:join' %}">{% translate "Join a session" %}</a>
+      <a class="lc-btn lc-btn-outline" href="{% url 'liveclassroom:help' %}">{% translate "Help" %}</a>
+      {% if navigation_bootstrap.host_links.login_url %}
+        <a class="lc-btn lc-btn-outline" href="{{ navigation_bootstrap.host_links.login_url }}">{% translate "Sign in" %}</a>
+      {% endif %}
+    </div>
   </section>
 {% endblock %}

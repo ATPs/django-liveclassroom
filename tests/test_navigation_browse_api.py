@@ -74,6 +74,12 @@ def test_home_and_navigation_browse_are_bounded_and_role_scoped():
             "assessment",
             "session",
         }
+        teaching_sections = {section["key"]: section for section in teaching.json()["sections"]}
+        assert teaching_sections["sessions"]["view_all_url"] == reverse("liveclassroom:teacher-sessions")
+        assert teaching_sections["classes"]["view_all_url"] == reverse("liveclassroom:teacher-courses")
+        learning_sections = {section["key"]: section for section in home.json()["sections"]}
+        assert learning_sections["submitted"]["items"] == []
+        assert learning_sections["submitted"]["view_all_url"] == reverse("liveclassroom:assessment-history")
 
 
 @pytest.mark.django_db
@@ -167,3 +173,99 @@ def test_learning_browse_reverses_navigation_urls_under_a_mount_prefix():
     response = client.get(reverse("liveclassroom:api-v1-browse-learning"))
     assert response.status_code == 200
     assert response.json()["courses"][0]["url"] == f"/classroom/learn/courses/{program.id}/"
+
+
+@pytest.mark.django_db
+@override_settings(ROOT_URLCONF="tests.mounted_urls")
+def test_teaching_browse_lists_paginate_authorized_classes_and_preserve_mount_query():
+    users = get_user_model()
+    teacher = users.objects.create_user(username="browse-page-teacher")
+    other = users.objects.create_user(username="browse-page-other")
+    for index in range(3):
+        Course.objects.create(
+            title=f"Class {index}",
+            slug=f"browse-page-class-{index}",
+            created_by=teacher,
+        )
+    Course.objects.create(title="Private class", slug="browse-page-private", created_by=other)
+    TeachingCourse.objects.create(title="Owned course", created_by=teacher)
+    TeachingCourse.objects.create(title="Private course", created_by=other)
+    client = Client()
+    client.force_login(teacher)
+
+    response = client.get(
+        reverse("liveclassroom:api-v1-browse-teaching-classes"),
+        {"page": "2", "page_size": "1", "q": "Class", "sort": "title", "lang": "zh-Hans", "ignored": "x"},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["page"] == 2
+    assert payload["page_size"] == 1
+    assert payload["count"] == 3
+    assert [row["title"] for row in payload["items"]] == ["Class 1"]
+    assert payload["next"] == (
+        "/classroom/api/v1/browse/teaching/classes/?lang=zh-Hans&q=Class&sort=title&page=3&page_size=1"
+    )
+    assert payload["previous"] == (
+        "/classroom/api/v1/browse/teaching/classes/?lang=zh-Hans&q=Class&sort=title&page=1&page_size=1"
+    )
+    assert "ignored" not in payload["next"]
+
+    courses = client.get(reverse("liveclassroom:api-v1-browse-teaching-courses"), {"page_size": "101"})
+    assert courses.status_code == 200
+    assert courses.json()["page_size"] == 100
+    assert [row["title"] for row in courses.json()["items"]] == ["Owned course"]
+
+
+@pytest.mark.django_db
+def test_learning_browse_lists_are_paginated_and_keep_student_scope():
+    users = get_user_model()
+    teacher = users.objects.create_user(username="browse-learning-page-teacher")
+    learner = users.objects.create_user(username="browse-learning-page-learner")
+    other = users.objects.create_user(username="browse-learning-page-other")
+    visible_program = TeachingCourse.objects.create(title="Visible program", created_by=teacher)
+    hidden_program = TeachingCourse.objects.create(title="Hidden program", created_by=teacher)
+    visible = Course.objects.create(
+        title="Visible learner class",
+        slug="browse-learning-page-visible",
+        created_by=teacher,
+        teaching_course=visible_program,
+    )
+    hidden = Course.objects.create(
+        title="Hidden learner class",
+        slug="browse-learning-page-hidden",
+        created_by=teacher,
+        teaching_course=hidden_program,
+    )
+    CourseMembership.objects.create(course=visible, user=learner, role=CourseMembership.Role.STUDENT)
+    CourseMembership.objects.create(course=hidden, user=other, role=CourseMembership.Role.STUDENT)
+    client = Client()
+    client.force_login(learner)
+
+    courses = client.get(reverse("liveclassroom:api-v1-browse-learning-courses"), {"page": "2", "page_size": "1"})
+    assert courses.status_code == 200
+    assert courses.json()["count"] == 1
+    assert courses.json()["items"] == []
+    assert courses.json()["previous"].endswith("page=1&page_size=1")
+
+    classes = client.get(reverse("liveclassroom:api-v1-browse-learning-classes"))
+    assert classes.status_code == 200
+    assert classes.json()["page"] == 1
+    assert [row["title"] for row in classes.json()["items"]] == ["Visible learner class"]
+    assert all("Hidden learner class" not in str(row) for row in classes.json()["items"])
+
+    invalid = client.get(reverse("liveclassroom:api-v1-browse-learning-classes"), {"page": "0"})
+    assert invalid.status_code == 400
+    assert invalid.json() == {"code": "invalid_request", "detail": "page must be a positive integer."}
+
+
+@pytest.mark.django_db
+@override_settings(LIVECLASSROOM={"TEACHER_AUTHORIZER": lambda actor: False})
+def test_paginated_browse_list_permissions_match_legacy_browse_permissions():
+    users = get_user_model()
+    learner = users.objects.create_user(username="browse-page-permission-learner")
+    client = Client()
+    anonymous = client.get(reverse("liveclassroom:api-v1-browse-learning-classes"))
+    assert anonymous.status_code == 401
+    client.force_login(learner)
+    assert client.get(reverse("liveclassroom:api-v1-browse-teaching-classes")).status_code == 403

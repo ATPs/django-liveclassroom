@@ -3,7 +3,7 @@ import * as React from "react";
 import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { readBootstrap, type Bootstrap } from "../../bootstrap.js";
-import { LanguageSwitcher, LocaleProvider, useLocale, useT } from "../../i18n.js";
+import { LocaleProvider, useLocale, useT } from "../../i18n.js";
 import {
   apiEndpoint,
   getJson,
@@ -839,7 +839,6 @@ function TeacherConsole({ bootstrap }: { bootstrap: TeacherBootstrap }) {
 
   return (
     <>
-      <LanguageSwitcher />
       <a href={bootstrap.workspaceUrl}>{tr("Teacher home","教师首页")}</a>
       <p className="lc-kicker">{t("teacher")} · {bootstrap.sessionTitle}</p>
       <h1>{bootstrap.flowTitle || t("instantSession")}</h1>

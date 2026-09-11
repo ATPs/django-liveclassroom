@@ -36,6 +36,15 @@ type NavigationPayload = { resolved: ResolvedDestination[] };
 
 const MAX_PINS = 12;
 const MAX_RECENT = 10;
+const DRAWER_EVENT = "liveclassroom:shell-drawer";
+
+function isMobileViewport(): boolean {
+  return window.matchMedia("(max-width: 767px)").matches;
+}
+
+function publishDrawer(open: boolean): void {
+  window.dispatchEvent(new CustomEvent<{ open: boolean }>(DRAWER_EVENT, { detail: { open } }));
+}
 
 function tr(bootstrap: Bootstrap, english: string, chinese: string): string {
   return bootstrap.locale === "zh-Hans" ? chinese : english;
@@ -132,10 +141,17 @@ function recordRecent(bootstrap: Bootstrap, reference?: string): void {
   savePreferences(bootstrap, preferences);
 }
 
-function navigateFromShell(event: React.MouseEvent<HTMLAnchorElement>, bootstrap: Bootstrap, href: string, reference?: string): void {
+function navigateFromShell(
+  event: React.MouseEvent<HTMLAnchorElement>,
+  bootstrap: Bootstrap,
+  href: string,
+  reference?: string,
+  onNavigate?: () => void,
+): void {
   if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
   event.preventDefault();
   requestApplicationNavigation(() => {
+    onNavigate?.();
     recordRecent(bootstrap, reference);
     window.location.assign(preserveLocale(href));
   });
@@ -143,12 +159,32 @@ function navigateFromShell(event: React.MouseEvent<HTMLAnchorElement>, bootstrap
 
 function ShellHeader({ bootstrap }: { bootstrap: Bootstrap }) {
   const [preferences, setPreferences] = React.useState(() => loadPreferences(bootstrap));
+  const [mobile, setMobile] = React.useState(isMobileViewport);
+  const [drawerOpen, setDrawerOpen] = React.useState(false);
   const root = document.querySelector<HTMLElement>("[data-classroom-shell]");
+  React.useEffect(() => {
+    const media = window.matchMedia("(max-width: 767px)");
+    const update = () => {
+      setMobile(media.matches);
+      if (!media.matches) setDrawerOpen(false);
+    };
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+  React.useEffect(() => {
+    const sync = (event: Event) => setDrawerOpen((event as CustomEvent<{ open: boolean }>).detail.open);
+    window.addEventListener(DRAWER_EVENT, sync);
+    return () => window.removeEventListener(DRAWER_EVENT, sync);
+  }, []);
   React.useEffect(() => {
     if (root) root.dataset.sidebar = preferences.collapsed ? "collapsed" : "expanded";
     savePreferences(bootstrap, preferences);
     publishPreferences(preferences);
   }, [bootstrap, preferences, root]);
+  React.useEffect(() => {
+    if (root) root.dataset.drawer = drawerOpen ? "open" : "closed";
+    publishDrawer(drawerOpen);
+  }, [drawerOpen, root]);
   const modes = [
     ...(bootstrap.teacher_allowed ? [{ value: "teaching", label: tr(bootstrap, "Teaching", "教学") }] : []),
     ...(bootstrap.authenticated ? [{ value: "learning", label: tr(bootstrap, "Learning", "学习") }] : []),
@@ -166,8 +202,11 @@ function ShellHeader({ bootstrap }: { bootstrap: Bootstrap }) {
   };
   const pinned = Boolean(bootstrap.current_ref && preferences.pins.includes(bootstrap.current_ref));
   return <>
-    <div className="lc-shell-brand"><a href={preserveLocale(bootstrap.links.home)} onClick={(event) => navigateFromShell(event, bootstrap, bootstrap.links.home, "page:home")}>LiveClassroom</a></div>
-    <button type="button" className="lc-shell-toggle" aria-label={tr(bootstrap, "Toggle navigation", "切换导航")} aria-expanded={!preferences.collapsed} onClick={() => setPreferences((value) => ({ ...value, collapsed: !value.collapsed }))}>M</button>
+    <div className="lc-shell-brand"><a href={preserveLocale(bootstrap.links.home)} onClick={(event) => navigateFromShell(event, bootstrap, bootstrap.links.home, "page:home", () => setDrawerOpen(false))}>LiveClassroom</a></div>
+    <button type="button" className="lc-shell-toggle" aria-label={tr(bootstrap, "Toggle navigation", "切换导航")} aria-expanded={mobile ? drawerOpen : !preferences.collapsed} onClick={() => {
+      if (mobile) setDrawerOpen((open) => !open);
+      else setPreferences((value) => ({ ...value, collapsed: !value.collapsed }));
+    }}>M</button>
     <div className="lc-shell-header-context">{bootstrap.current_context?.title || tr(bootstrap, "Workspace", "工作区")}</div>
     <div className="lc-shell-header-actions">
       {modes.length ? <label className="lc-shell-role"><span>{tr(bootstrap, "Role", "角色")}</span><select value={bootstrap.mode === "guest" ? "learning" : bootstrap.mode} onChange={(event) => {
@@ -198,13 +237,16 @@ function AppNavigation({ bootstrap }: { bootstrap: Bootstrap }) {
   const [preferences, setPreferences] = React.useState(() => loadPreferences(bootstrap));
   const [resolved, setResolved] = React.useState<ResolvedDestination[]>([]);
   const [openGroup, setOpenGroup] = React.useState<string | null>(null);
+  const [drawerOpen, setDrawerOpen] = React.useState(false);
+  const navigationRef = React.useRef<HTMLElement>(null);
   const groupLaunchers = React.useRef(new Map<string, HTMLButtonElement>());
   const filterValue = filter.trim().toLocaleLowerCase();
   const visibleGroups = groups(bootstrap).map((group) => ({
     ...group,
     destinations: group.destinations.filter((item) => !filterValue || item.label.toLocaleLowerCase().includes(filterValue)),
   })).filter((group) => group.destinations.length);
-  const link = (item: Destination) => <a key={item.key} className="lc-shell-link" href={preserveLocale(item.href || "")} data-current={bootstrap.path === item.href ? "true" : undefined} title={item.label} onClick={(event) => item.href && navigateFromShell(event, bootstrap, item.href, item.ref)}><span aria-hidden="true" className="lc-shell-link-icon">{item.initial}</span><span className="lc-shell-link-label">{item.label}</span></a>;
+  const closeDrawer = React.useCallback(() => publishDrawer(false), []);
+  const link = (item: Destination) => <a key={item.key} className="lc-shell-link" href={preserveLocale(item.href || "")} data-current={bootstrap.path === item.href ? "true" : undefined} title={item.label} onClick={(event) => item.href && navigateFromShell(event, bootstrap, item.href, item.ref, closeDrawer)}><span aria-hidden="true" className="lc-shell-link-icon">{item.initial}</span><span className="lc-shell-link-label">{item.label}</span></a>;
   const removeReference = (reference: string) => setPreferences((current) => ({
     ...current,
     pins: current.pins.filter((item) => item !== reference),
@@ -217,9 +259,20 @@ function AppNavigation({ bootstrap }: { bootstrap: Bootstrap }) {
     return () => window.removeEventListener("liveclassroom:shell-preferences", sync);
   }, []);
   React.useEffect(() => {
+    const sync = (event: Event) => setDrawerOpen((event as CustomEvent<{ open: boolean }>).detail.open);
+    window.addEventListener(DRAWER_EVENT, sync);
+    return () => window.removeEventListener(DRAWER_EVENT, sync);
+  }, []);
+  React.useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       setFilter("");
+      if (drawerOpen) {
+        event.preventDefault();
+        closeDrawer();
+        window.requestAnimationFrame(() => document.querySelector<HTMLButtonElement>(".lc-shell-toggle")?.focus());
+        return;
+      }
       if (openGroup) {
         const launcher = groupLaunchers.current.get(openGroup);
         setOpenGroup(null);
@@ -228,7 +281,31 @@ function AppNavigation({ bootstrap }: { bootstrap: Bootstrap }) {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [openGroup]);
+  }, [closeDrawer, drawerOpen, openGroup]);
+  React.useEffect(() => {
+    if (!drawerOpen) return;
+    const navigation = navigationRef.current;
+    if (!navigation) return;
+    const selector = "a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled])";
+    const focusable = () => Array.from(navigation.querySelectorAll<HTMLElement>(selector)).filter((element) => !element.hidden);
+    window.requestAnimationFrame(() => focusable()[0]?.focus());
+    const trapFocus = (event: KeyboardEvent) => {
+      if (event.key !== "Tab") return;
+      const controls = focusable();
+      if (!controls.length) return;
+      const first = controls[0];
+      const last = controls[controls.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    window.addEventListener("keydown", trapFocus);
+    return () => window.removeEventListener("keydown", trapFocus);
+  }, [drawerOpen]);
   React.useEffect(() => {
     const references = [...preferences.pins, ...preferences.recent].slice(0, MAX_PINS + MAX_RECENT);
     if (!bootstrap.authenticated || !bootstrap.links.navigation || !references.length) {
@@ -238,7 +315,7 @@ function AppNavigation({ bootstrap }: { bootstrap: Bootstrap }) {
     const controller = new AbortController();
     const url = new URL(bootstrap.links.navigation, window.location.href);
     references.forEach((reference) => url.searchParams.append("ref", reference));
-    void getJson<NavigationPayload>(url.toString()).then((payload) => {
+    void getJson<NavigationPayload>(url.toString(), { signal: controller.signal }).then((payload) => {
       if (controller.signal.aborted) return;
       const allowed = new Set(payload.resolved.map((item) => item.ref));
       setResolved(payload.resolved);
@@ -254,14 +331,26 @@ function AppNavigation({ bootstrap }: { bootstrap: Bootstrap }) {
     return () => controller.abort();
   }, [bootstrap.authenticated, bootstrap.links.navigation, preferences.pins, preferences.recent]);
   const resolvedByReference = new Map(resolved.map((item) => [item.ref, item]));
+  const movePin = (reference: string, direction: -1 | 1) => setPreferences((current) => {
+    const from = current.pins.indexOf(reference);
+    const to = from + direction;
+    if (from < 0 || to < 0 || to >= current.pins.length) return current;
+    const pins = [...current.pins];
+    [pins[from], pins[to]] = [pins[to], pins[from]];
+    return { ...current, pins };
+  });
   const savedLink = (reference: string, pinned: boolean) => {
     const item = resolvedByReference.get(reference);
     if (!item) return null;
     return <div className="lc-shell-saved-link" key={reference}>
-      <a href={preserveLocale(item.url)} onClick={(event) => navigateFromShell(event, bootstrap, item.url, reference)}>
+      <a href={preserveLocale(item.url)} onClick={(event) => navigateFromShell(event, bootstrap, item.url, reference, closeDrawer)}>
         <span aria-hidden="true">{pinned ? "P" : "R"}</span><span>{item.label}</span>
       </a>
-      {pinned ? <button type="button" aria-label={tr(bootstrap, "Remove pin", "取消固定")} onClick={() => removeReference(reference)}>x</button> : null}
+      {pinned ? <span className="lc-shell-saved-actions">
+        <button type="button" aria-label={tr(bootstrap, "Move pin up", "上移固定项")} title={tr(bootstrap, "Move pin up", "上移固定项")} onClick={() => movePin(reference, -1)}>^</button>
+        <button type="button" aria-label={tr(bootstrap, "Move pin down", "下移固定项")} title={tr(bootstrap, "Move pin down", "下移固定项")} onClick={() => movePin(reference, 1)}>v</button>
+        <button type="button" aria-label={tr(bootstrap, "Remove pin", "取消固定")} title={tr(bootstrap, "Remove pin", "取消固定")} onClick={() => removeReference(reference)}>x</button>
+      </span> : null}
     </div>;
   };
   const renderGroup = (group: Group, contents: React.ReactNode = group.destinations.map(link)) => {
@@ -286,17 +375,26 @@ function AppNavigation({ bootstrap }: { bootstrap: Bootstrap }) {
       {expanded ? <div id={`lc-shell-group-${group.key}`} className="lc-shell-group-menu">{contents}</div> : null}
     </div>;
   };
-  return <nav className="lc-shell-navigation" aria-label={tr(bootstrap, "Classroom navigation", "课堂导航")}>
+  const visiblePins = preferences.pins.filter((reference) => {
+    const item = resolvedByReference.get(reference);
+    return item && (!filterValue || item.label.toLocaleLowerCase().includes(filterValue));
+  });
+  const visibleRecent = preferences.recent.filter((reference) => {
+    const item = resolvedByReference.get(reference);
+    return item && (!filterValue || item.label.toLocaleLowerCase().includes(filterValue));
+  });
+  return <nav ref={navigationRef} className="lc-shell-navigation" aria-label={tr(bootstrap, "Classroom navigation", "课堂导航")}>
+    <div className="lc-shell-drawer-title"><span>{tr(bootstrap, "Navigation", "导航")}</span><button type="button" className="lc-shell-icon-button" aria-label={tr(bootstrap, "Close navigation", "关闭导航")} onClick={closeDrawer}>x</button></div>
     <label className="lc-shell-filter"><span>{tr(bootstrap, "Filter navigation", "筛选导航")}</span><input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder={tr(bootstrap, "Filter", "筛选")} /></label>
     <a className="lc-shell-link" href={preserveLocale(bootstrap.links.home)} data-current={bootstrap.path === bootstrap.links.home ? "true" : undefined} title={tr(bootstrap, "Home", "首页")} onClick={(event) => navigateFromShell(event, bootstrap, bootstrap.links.home, "page:home")}><span aria-hidden="true" className="lc-shell-link-icon">H</span><span className="lc-shell-link-label">{tr(bootstrap, "Home", "首页")}</span></a>
     {visibleGroups.map((group) => renderGroup(group))}
-    {preferences.pins.length ? renderGroup(
+    {visiblePins.length ? renderGroup(
       { key: "pins", label: tr(bootstrap, "Pinned", "固定"), destinations: [] },
-      preferences.pins.map((reference) => savedLink(reference, true)),
+      visiblePins.map((reference) => savedLink(reference, true)),
     ) : null}
-    {preferences.recent.length ? renderGroup(
+    {visibleRecent.length ? renderGroup(
       { key: "recent", label: tr(bootstrap, "Recent", "最近访问"), destinations: [] },
-      preferences.recent.map((reference) => savedLink(reference, false)),
+      visibleRecent.map((reference) => savedLink(reference, false)),
     ) : null}
     <div className="lc-shell-utility-links">
       {link({ key: "join", label: tr(bootstrap, "Join a session", "加入课堂"), href: bootstrap.links.join, initial: "J", ref: "page:join" })}
@@ -316,11 +414,32 @@ function parseBootstrap(): Bootstrap | null {
   }
 }
 
+function ShellDrawerOverlay({ bootstrap }: { bootstrap: Bootstrap }) {
+  const [drawerOpen, setDrawerOpen] = React.useState(false);
+  React.useEffect(() => {
+    const sync = (event: Event) => setDrawerOpen((event as CustomEvent<{ open: boolean }>).detail.open);
+    window.addEventListener(DRAWER_EVENT, sync);
+    return () => window.removeEventListener(DRAWER_EVENT, sync);
+  }, []);
+  if (!drawerOpen) return null;
+  return <button
+    type="button"
+    className="lc-shell-drawer-dismiss"
+    aria-label={tr(bootstrap, "Close navigation", "关闭导航")}
+    onClick={() => {
+      publishDrawer(false);
+      window.requestAnimationFrame(() => document.querySelector<HTMLButtonElement>(".lc-shell-toggle")?.focus());
+    }}
+  />;
+}
+
 export function mountAppShell(): void {
   const bootstrap = parseBootstrap();
   const header = document.querySelector<HTMLElement>("[data-liveclassroom-shell-header]");
   const navigation = document.querySelector<HTMLElement>("[data-liveclassroom-shell-navigation]");
+  const overlay = document.querySelector<HTMLElement>("[data-liveclassroom-shell-overlay]");
   if (!bootstrap || !header || !navigation) return;
   createRoot(header).render(<ShellHeader bootstrap={bootstrap} />);
   createRoot(navigation).render(<AppNavigation bootstrap={bootstrap} />);
+  if (overlay) createRoot(overlay).render(<ShellDrawerOverlay bootstrap={bootstrap} />);
 }

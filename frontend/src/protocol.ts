@@ -142,8 +142,8 @@ export function csrfToken(): string {
   return document.querySelector<HTMLInputElement>("input[name=csrfmiddlewaretoken]")?.value ?? "";
 }
 
-export async function getJson<T>(url: string): Promise<T> {
-  const response = await fetch(url, { credentials: "same-origin" });
+export async function getJson<T>(url: string, options: RequestInit = {}): Promise<T> {
+  const response = await fetch(url, { ...options, credentials: "same-origin" });
   const payload = await response.json().catch(() => ({})) as T & ApiErrorPayload;
   if (!response.ok) throw new ApiError(payload.detail ?? "Request failed", payload.code, response.status);
   return payload;
