@@ -11,7 +11,21 @@
   <body data-liveclassroom-static-url="{% get_static_prefix %}">
     <div hidden aria-hidden="true">{% csrf_token %}</div>
     <main id="liveclassroom-root">
+      {% if classroom_shell %}
+        {{ navigation_bootstrap|json_script:"liveclassroom-navigation-bootstrap" }}
+        <div class="lc-shell" data-classroom-shell data-sidebar="collapsed">
+          <a class="lc-skip-link" href="#liveclassroom-content">Skip to content</a>
+          <header class="lc-shell-header" data-liveclassroom-shell-header></header>
+          <div class="lc-shell-body">
+            <aside class="lc-shell-sidebar" data-liveclassroom-shell-navigation></aside>
+            <div class="lc-shell-content" id="liveclassroom-content" tabindex="-1">
+      {% endif %}
       {% block content %}{% endblock %}
+      {% if classroom_shell %}
+            </div>
+          </div>
+        </div>
+      {% endif %}
     </main>
   </body>
 </html>

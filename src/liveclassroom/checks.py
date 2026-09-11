@@ -17,6 +17,7 @@ from .conf import (
     postgres_notify_channel,
     server_file_paths_allowed,
     setting,
+    shell_links,
     teacher_authorizer,
     websocket_path,
 )
@@ -156,6 +157,7 @@ def check_liveclassroom_settings(app_configs: Any = None, **kwargs: Any) -> list
         ai_job_timeout_seconds()
         asset_max_bytes()
         server_file_paths_allowed()
+        shell_links()
         teacher_authorizer()
         postgres_notify_channel()
     except (KeyError, ValueError) as exc:

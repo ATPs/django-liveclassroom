@@ -508,7 +508,7 @@ function AssessmentBuilder({ apiRoot, initialAssessmentId = "", assessmentUrlTem
           <h2>{text("Your assessments", "我的测验")}</h2>
           {loading ? <p>{text("Loading…", "加载中…")}</p> : assessments.length ? <ul>{assessments.map((assessment) => <li key={assessment.id}><button type="button" className={draft?.id === assessment.id ? "lc-assessment-list-item lc-assessment-selected" : "lc-assessment-list-item"} onClick={() => requestNavigation(() => void open(assessment))}>{assessment.title}<span>{assessment.total_points} {text("points", "分")}</span></button></li>)}</ul> : <p className="lc-empty-notice">{text("No assessments yet. Create one to begin.", "还没有测验。创建一个开始吧。")}</p>}
         </aside>
-        <main className="lc-assessment-main">
+        <section className="lc-assessment-main">
           {!draft ? <section className="lc-card lc-assessment-empty"><h2>{text("Create a reusable assessment", "创建可复用测验")}</h2><p>{text("Choose New assessment, then add questions from a bank.", "选择“新建测验”，然后从题库添加题目。")}</p></section> : (
             <>
               <form className="lc-card lc-assessment-form" onSubmit={save}>
@@ -562,7 +562,7 @@ function AssessmentBuilder({ apiRoot, initialAssessmentId = "", assessmentUrlTem
               {showPreview ? <section className="lc-assessment-preview" aria-labelledby="assessment-preview-heading"><h2 id="assessment-preview-heading">{text("Teacher preview", "教师预览")}</h2><p className="lc-guidance-risk">{text("This private preview uses the exact pinned revisions and includes answer keys only for you.", "此私有预览使用固定版本，仅向你显示答案。")}</p>{draft.items.map((item) => <QuestionPinnedPreview key={item.key} item={item} apiRoot={apiRoot} locale={locale} />)}</section> : null}
             </>
           )}
-        </main>
+        </section>
       </div>
       <ManualGradingQueue apiRoot={apiRoot} />
       <AssessmentResults apiRoot={apiRoot} assessmentId={draft?.id ?? null} />

@@ -2,22 +2,7 @@
 {% load i18n %}
 {% block title %}{% translate "Teacher" %} · LiveClassroom{% endblock %}
 {% block content %}
-<div class="lc-app-shell">
-  <nav class="lc-app-nav" aria-label="Teacher navigation">
-    <details class="lc-app-nav-menu" open>
-      <summary>{% translate "Teaching" %}</summary>
-      <div class="lc-app-nav-links">
-    <a href="{% url 'liveclassroom:teacher-courses' %}?lang={{ active_lang|urlencode }}">{% translate "Courses" %}</a>
-    <a href="{% url 'liveclassroom:teacher-library-lessons' %}?lang={{ active_lang|urlencode }}">{% translate "Library" %}</a>
-    <a href="{% url 'liveclassroom:teacher-library-decks' %}?lang={{ active_lang|urlencode }}">{% translate "Slide decks" %}</a>
-    <a href="{% url 'liveclassroom:teacher-library-assessments' %}?lang={{ active_lang|urlencode }}">{% translate "Assessments" %}</a>
-    <a href="{% url 'liveclassroom:teacher-independent-work' %}?lang={{ active_lang|urlencode }}">{% translate "Independent work" %}</a>
-    <a href="{% url 'liveclassroom:assessment-workspace' %}?lang={{ active_lang|urlencode }}">{% translate "Results" %}</a>
-    <a href="{% url 'liveclassroom:learning-home' %}?lang={{ active_lang|urlencode }}">{% translate "Learning" %}</a>
-      </div>
-    </details>
-  </nav>
-  <main class="lc-app-content lc-page-stack">
+<div class="lc-page-stack">
   <aside class="lc-card lc-context-help" aria-labelledby="workspace-guidance-title">
     {% if active_lang == "zh-Hans" %}
       <p class="lc-context-kicker">开始之前</p>
@@ -45,6 +30,5 @@
    <a href="{% url 'liveclassroom:deck-workspace' %}?lang={{ active_lang|urlencode }}">{% translate "Slide decks" %}</a>
    <a href="{% url 'liveclassroom:assessment-workspace' %}?lang={{ active_lang|urlencode }}">{% translate "Assessment builder" %}</a>
   </section>
-  </main>
 </div>
 {% endblock %}

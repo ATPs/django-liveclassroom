@@ -24,6 +24,7 @@ export type NavigationLinkProps = Omit<React.AnchorHTMLAttributes<HTMLAnchorElem
 };
 
 const NAVIGATION_EVENT = "liveclassroom:navigation";
+const NAVIGATION_REQUEST_EVENT = "liveclassroom:request-navigation";
 
 function currentState(): HistoryEntryState {
   return (window.history.state ?? {}) as HistoryEntryState;
@@ -31,6 +32,16 @@ function currentState(): HistoryEntryState {
 
 function notifyNavigation(): void {
   window.dispatchEvent(new Event(NAVIGATION_EVENT));
+}
+
+/** Ask an active editor to guard a controlled application navigation. */
+export function requestApplicationNavigation(navigate: () => void): void {
+  const event = new CustomEvent<{ navigate: () => void }>(NAVIGATION_REQUEST_EVENT, {
+    cancelable: true,
+    detail: { navigate },
+  });
+  window.dispatchEvent(event);
+  if (!event.defaultPrevented) navigate();
 }
 
 export function queryValue(name: string): string | null {
@@ -113,9 +124,11 @@ export function routeUrl(pathname: string, query: Record<string, QueryValue> = {
 export function NavigationLink({ href, onNavigate, onClick, ...props }: NavigationLinkProps): React.ReactElement {
   return <a {...props} href={preserveLocale(href)} onClick={(event) => {
     onClick?.(event);
-    if (event.defaultPrevented || !onNavigate || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     event.preventDefault();
-    onNavigate(() => window.location.assign(preserveLocale(href)));
+    const navigate = () => window.location.assign(preserveLocale(href));
+    if (onNavigate) onNavigate(navigate);
+    else requestApplicationNavigation(navigate);
   }} />;
 }
 
@@ -219,6 +232,16 @@ export function useUnsavedNavigationGuard({
     if (!dirty) navigate();
     else setPending(() => navigate);
   }, [dirty]);
+  useEffect(() => {
+    if (!dirty) return;
+    const guard = (event: Event) => {
+      if (event.defaultPrevented) return;
+      event.preventDefault();
+      requestNavigation((event as CustomEvent<{ navigate: () => void }>).detail.navigate);
+    };
+    window.addEventListener(NAVIGATION_REQUEST_EVENT, guard);
+    return () => window.removeEventListener(NAVIGATION_REQUEST_EVENT, guard);
+  }, [dirty, requestNavigation]);
   const discard = useCallback(() => {
     const navigate = pending;
     setPending(null);

@@ -2,20 +2,9 @@
 {% load i18n %}
 {% block title %}{% translate "Learning" %} · LiveClassroom{% endblock %}
 {% block content %}
-<div class="lc-app-shell">
-  <nav class="lc-app-nav" aria-label="{% translate 'Mode navigation' %}">
-    <details class="lc-app-nav-menu" open>
-      <summary>{% translate "Learning" %}</summary>
-      <div class="lc-app-nav-links">
-    {% if teacher_url %}<a href="{{ teacher_url }}?lang={{ active_lang|urlencode }}">{% translate "Teaching" %}</a>{% endif %}
-    <a href="{{ join_url }}?lang={{ active_lang|urlencode }}">{% translate "Join classroom" %}</a>
-      </div>
-    </details>
-  </nav>
-  <main class="lc-app-content">
+<div class="lc-workspace-page">
   <section class="lc-card lc-wide" data-learning-workspace data-browse-url="{{ browse_url }}" data-join-url="{{ join_url }}" data-locale="{{ active_lang|default:'en' }}">
     <h1>{% translate "My courses" %}</h1>
   </section>
-  </main>
 </div>
 {% endblock %}

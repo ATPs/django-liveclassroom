@@ -20,6 +20,7 @@ import { NativeDeckView } from "../../activities/NativeDeckView.js";
 import { activityContent, activityKind, activityTitle, choicesFor, presentationTitle, selectedChoices, stringValue } from "../../activities/activityData.js";
 import { FilePicker } from "../FilePicker.js";
 import { PresentationSourcePicker } from "./PresentationSourcePicker.js";
+import { useQuerySelection } from "../../navigation.js";
 
 type TeacherBootstrap = Bootstrap & {
   capabilities: string[];
@@ -37,6 +38,20 @@ type TeacherBootstrap = Bootstrap & {
   isSuperuser: boolean;
   flowSteps: Array<{ id: number; position: number; title: string }>;
 };
+
+type ConsolePanel = "current" | "results" | "lesson" | "more" | "students";
+
+const CONSOLE_PANELS: readonly ConsolePanel[] = ["current", "results", "lesson", "more", "students"];
+
+function isConsolePanel(value: string): value is ConsolePanel {
+  return CONSOLE_PANELS.includes(value as ConsolePanel);
+}
+
+function activityIdFromQuery(value: string): number | null {
+  if (!/^\d+$/.test(value)) return null;
+  const id = Number(value);
+  return Number.isSafeInteger(id) && id > 0 ? id : null;
+}
 
 function readTeacherBootstrap(root: HTMLElement): TeacherBootstrap {
   const base = readBootstrap(root);
@@ -742,11 +757,17 @@ function TeacherConsole({ bootstrap }: { bootstrap: TeacherBootstrap }) {
   const sync = useSessionState({ stateUrl, websocketPath: bootstrap.websocketUrl, channel: canManage ? "display" : "participants", enabled: true });
   const state = sync.state;
   const { run, status, setStatus, pending: commandPending } = useCommand(stateUrl, sync.refresh);
+  const serverCurrentActivityId = state?.current_activity?.id ?? null;
+  const [activitySelection, selectActivity] = useQuerySelection(
+    "activity",
+    serverCurrentActivityId === null ? "" : String(serverCurrentActivityId),
+  );
+  const [panelSelection, selectPanel] = useQuerySelection("panel", "current");
   const [analytics, setAnalytics] = useState<Record<string, unknown> | null>(null);
   const [participants, setParticipants] = useState<Array<Record<string, unknown>>>([]);
   const [chat, setChat] = useState<{ enabled: boolean; messages: Array<{ id: number; display_name: string; body: string }> } | null>(null);
-  const [selectedId,setSelectedId] = useState<number|null>(null);
   const [history,setHistory] = useState<Array<ActivityState & {reviewable:boolean;review_visibility:Record<string,boolean>}>>([]);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
   const [planSteps, setPlanSteps] = useState<PresenterStep[]>([]);
   const [previewStep, setPreviewStep] = useState<PresenterStep | null>(null);
   const [holdStudents, setHoldStudents] = useState(false);
@@ -760,11 +781,12 @@ function TeacherConsole({ bootstrap }: { bootstrap: TeacherBootstrap }) {
   useEffect(() => {
     if (!state) return;
     const generation = ++supportGeneration.current;
+    setHistoryLoaded(false);
     setSupportingError("");
     const failed = () => {
       if (supportGeneration.current === generation) setSupportingError(tr("Some classroom details could not be refreshed.", "部分课堂信息无法刷新。"));
     };
-    void getJson<{activities:typeof history}>(apiEndpoint(stateUrl,"sessions/history")).then(d=>{ if (supportGeneration.current === generation) setHistory(d.activities); }).catch(failed);
+    void getJson<{activities:typeof history}>(apiEndpoint(stateUrl,"sessions/history")).then(d=>{ if (supportGeneration.current === generation) { setHistory(d.activities); setHistoryLoaded(true); } }).catch(failed);
     void getJson<{steps: PresenterStep[]}>(apiEndpoint(stateUrl, "sessions/plan")).then(d => { if (supportGeneration.current === generation) setPlanSteps(d.steps ?? []); }).catch(failed);
     void getJson<Record<string, unknown>>(apiEndpoint(stateUrl, "sessions/analytics"))
       .then((data) => { if (supportGeneration.current === generation) setAnalytics(data); })
@@ -777,7 +799,38 @@ function TeacherConsole({ bootstrap }: { bootstrap: TeacherBootstrap }) {
       .catch(failed);
   }, [stateUrl, stateVersion, supportRefresh]);
 
-  const focused = history.find(a=>a.id===(selectedId ?? state?.current_activity?.id)) ?? state?.current_activity ?? null;
+  useEffect(() => {
+    if (!state || !historyLoaded) return;
+    const selectedId = activityIdFromQuery(activitySelection);
+    const available = selectedId !== null && (
+      selectedId === serverCurrentActivityId
+      || history.some((activity) => activity.id === selectedId)
+    );
+    if (available) return;
+    if (serverCurrentActivityId === null) {
+      if (activitySelection) selectActivity("", { replace: true });
+    } else if (activitySelection !== String(serverCurrentActivityId)) {
+      selectActivity(String(serverCurrentActivityId), { replace: true });
+    }
+  }, [activitySelection, history, historyLoaded, selectActivity, serverCurrentActivityId, state]);
+
+  useEffect(() => {
+    if (isConsolePanel(panelSelection) && (panelSelection !== "more" || canManage)) return;
+    selectPanel("current", { replace: true });
+  }, [canManage, panelSelection, selectPanel]);
+
+  const selectedId = activityIdFromQuery(activitySelection);
+  const focused = history.find((activity) => activity.id === (selectedId ?? serverCurrentActivityId))
+    ?? (selectedId === serverCurrentActivityId ? state?.current_activity : null)
+    ?? state?.current_activity
+    ?? null;
+  const handlePanelToggle = (panel: Exclude<ConsolePanel, "current">) => (event: React.ToggleEvent<HTMLDetailsElement>) => {
+    if (event.currentTarget.open) {
+      if (panelSelection !== panel) selectPanel(panel);
+    } else if (panelSelection === panel) {
+      selectPanel("current");
+    }
+  };
   const pending = participants.filter((p) => p.admission_state === "pending");
   const studentsHeld = holdStudents || Boolean(
     state?.channels?.participants?.activity
@@ -817,16 +870,17 @@ function TeacherConsole({ bootstrap }: { bootstrap: TeacherBootstrap }) {
       {canManage && <LiveResults state={state} analytics={analytics} run={run} pending={commandPending} />}
       {state?.session.status === "ended" ? <div className="lc-actions"><a href="#results">{t("viewResults")}</a><button type="button" onClick={() => { const endpoint = new URL(stateUrl, window.location.href); endpoint.pathname = endpoint.pathname.replace(/sessions\/\d+\/state\/?$/, "sessions/"); void postJson<{ console_url: string }>(endpoint.toString(), { title: `${bootstrap.sessionTitle} — ${t("teachAgain")}`, source_session_id: state.session.id }, crypto.randomUUID()).then(({ console_url }) => window.location.assign(console_url)).catch((error) => setStatus(error instanceof Error ? error.message : t("unavailable"))); }}>{t("teachAgain")}</button></div> : null}
       {canAdmit && pending.length ? <button type="button" className="lc-pending-notice" onClick={() => {
-        const panel = document.getElementById("students-panel") as HTMLDetailsElement | null;
-        if (panel) { panel.open = true; panel.scrollIntoView({ block: "nearest" }); }
+        selectPanel("students");
+        window.requestAnimationFrame(() => document.getElementById("students-panel")?.scrollIntoView({ block: "nearest" }));
       }}>{pending.length} {t("pending")}</button> : null}
-      <details className="lc-console-panel"><summary>{tr("Results", "结果")}</summary>
-        <label>{tr("Activity to inspect", "选择查看的活动")}<select value={selectedId??""} onChange={e=>setSelectedId(e.target.value?Number(e.target.value):null)}><option value="">{tr("Current display activity","当前投屏活动")}</option>{history.map(a=><option key={a.id} value={a.id}>{activityTitle(a,t("activity"))}</option>)}</select></label>
+      <details className="lc-console-panel" data-console-panel="results" open={panelSelection === "results"} onToggle={handlePanelToggle("results")}>
+        <summary>{tr("Results", "结果")}</summary>
+        <label>{tr("Activity to inspect", "选择查看的活动")}<select value={activitySelection || (serverCurrentActivityId === null ? "" : String(serverCurrentActivityId))} onChange={(event) => selectActivity(event.target.value)}><option value="">{tr("Current display activity","当前投屏活动")}</option>{history.filter((activity) => activity.id !== serverCurrentActivityId).map((activity) => <option key={activity.id} value={activity.id}>{activityTitle(activity,t("activity"))}</option>)}</select></label>
         <div className="lc-actions">{canAdmit && <>{["summary","responses","participants","chat"].map(dataset=><a key={dataset} href={`${bootstrap.exportUrl}?format=csv&dataset=${dataset}`}>{({summary:tr("Summary","汇总"),responses:tr("Responses","答案"),participants:tr("Attendance","出席"),chat:tr("Chat","聊天")} as Record<string,string>)[dataset]} CSV</a>)}<a href={bootstrap.exportUrl}>JSON</a></>}</div>
         <AnalyticsPanel stateUrl={stateUrl} analytics={analytics} activity={focused} />
       </details>
-      <details className="lc-console-panel"><summary>{tr("Edit lesson", "编辑教案")}</summary><SessionPlanPanel stateUrl={stateUrl} state={state} onRefresh={sync.refresh}/></details>
-      {canManage && <details className="lc-console-panel"><summary>{tr("More", "更多")}</summary>
+      <details className="lc-console-panel" data-console-panel="lesson" open={panelSelection === "lesson"} onToggle={handlePanelToggle("lesson")}><summary>{tr("Edit lesson", "编辑教案")}</summary><SessionPlanPanel stateUrl={stateUrl} state={state} onRefresh={sync.refresh}/></details>
+      {canManage && <details className="lc-console-panel" data-console-panel="more" open={panelSelection === "more"} onToggle={handlePanelToggle("more")}><summary>{tr("More", "更多")}</summary>
         <AudienceControls state={state} steps={planSteps} holdStudents={holdStudents} setHoldStudents={setHoldStudents} run={run} />
         <h2>{tr("Advanced audience and review", "高级受众与复习设置")}</h2>
         <ChannelControls state={state} run={run} />{focused && <fieldset><legend>{tr("Student review access","学生复习权限")}</legend>
@@ -835,7 +889,7 @@ function TeacherConsole({ bootstrap }: { bootstrap: TeacherBootstrap }) {
         </fieldset>}
         {["draft", "ended"].includes(state?.session.status ?? "") && <button className="lc-btn-danger" onClick={()=>{if(window.confirm(tr("Delete this classroom permanently? Its classroom records will be removed; its reusable lesson remains.","永久删除本次课堂吗？课堂记录将被移除，教案会保留。"))) void postJson(apiEndpoint(stateUrl,"sessions/delete"),{confirm:true},crypto.randomUUID()).then(()=>window.location.assign(bootstrap.workspaceUrl)).catch(error=>window.alert(error instanceof Error?error.message:tr("Delete failed","删除失败")));}}>{tr("Delete classroom","删除课堂")}</button>}
       </details>}
-      <details id="students-panel" className="lc-console-panel"><summary>{tr("Students", "学生")}{pending.length ? ` (${pending.length})` : ""}</summary>
+      <details id="students-panel" className="lc-console-panel" data-console-panel="students" open={panelSelection === "students"} onToggle={handlePanelToggle("students")}><summary>{tr("Students", "学生")}{pending.length ? ` (${pending.length})` : ""}</summary>
       <ParticipantPreview state={state} stateUrl={stateUrl} />
       {canAdmit && pending.length ? (
         <section data-liveclassroom-admission>

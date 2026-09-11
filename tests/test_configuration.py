@@ -4,7 +4,7 @@ from django.core.checks import Tags, run_checks
 from django.test import override_settings
 from django.urls import reverse
 
-from liveclassroom.conf import join_code_length
+from liveclassroom.conf import join_code_length, shell_links
 from liveclassroom.models import LiveSession
 from liveclassroom.services.classroom import ClassroomError, create_instant_session, join_guest, start_session
 
@@ -82,3 +82,29 @@ def test_system_check_rejects_incomplete_host_extension_objects():
 
     assert "liveclassroom.E005" in identifiers
     assert "liveclassroom.E006" in identifiers
+
+
+@override_settings(
+    LIVECLASSROOM={
+        "SHELL_LINKS": {
+            "home_url": "/",
+            "account_url": "/accounts/profile/",
+            "login_url": "/accounts/login/",
+            "logout_url": "/accounts/logout/",
+        }
+    }
+)
+def test_shell_links_are_optional_host_owned_local_paths():
+    assert shell_links() == {
+        "home_url": "/",
+        "account_url": "/accounts/profile/",
+        "login_url": "/accounts/login/",
+        "logout_url": "/accounts/logout/",
+    }
+
+
+@override_settings(LIVECLASSROOM={"SHELL_LINKS": {"home_url": "https://outside.example/"}})
+def test_shell_links_reject_external_urls():
+    messages = run_checks(tags=[Tags.compatibility])
+
+    assert any(message.id == "liveclassroom.E004" for message in messages)

@@ -1,0 +1,26 @@
+{% extends liveclassroom_base_template %}
+{% load i18n %}
+{% block title %}{% translate "Sessions" %} · LiveClassroom{% endblock %}
+{% block content %}
+  <section class="lc-workspace-page lc-session-index">
+    <header class="lc-page-heading">
+      <div>
+        <p class="lc-kicker">{% translate "Teaching" %}</p>
+        <h1>{% translate "Sessions" %}</h1>
+      </div>
+      <a class="lc-btn lc-btn-primary" href="{% url 'liveclassroom:teacher-dashboard' %}?lang={{ active_lang|urlencode }}">{% translate "Start a live classroom" %}</a>
+    </header>
+    {% if sessions %}
+      <div class="lc-data-list">
+        {% for session in sessions %}
+          <a class="lc-data-list-row" href="{% url 'liveclassroom:teacher-console' session.id %}?lang={{ active_lang|urlencode }}">
+            <span><strong>{{ session.title }}</strong>{% if session.course %}<small>{{ session.course.title }}</small>{% endif %}</span>
+            <span class="lc-status-chip">{{ session.get_status_display }}</span>
+          </a>
+        {% endfor %}
+      </div>
+    {% else %}
+      <section class="lc-empty-state"><h2>{% translate "No sessions yet" %}</h2><p>{% translate "Start a classroom when you are ready to teach live." %}</p></section>
+    {% endif %}
+  </section>
+{% endblock %}

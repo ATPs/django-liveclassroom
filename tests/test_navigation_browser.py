@@ -7,6 +7,13 @@ from django.test import Client
 from django.urls import reverse
 
 from liveclassroom.models import Course, CourseMembership, TeachingCourse
+from liveclassroom.services.classroom import (
+    create_activity_definition,
+    create_instant_session,
+    launch_item,
+    publish_activity_to_audiences,
+    start_session,
+)
 from liveclassroom.services.decks import create_deck
 from tests.test_browser_workflows import _chromium_or_skip, database_call
 
@@ -77,6 +84,68 @@ def test_deck_object_urls_restore_the_selected_deck_on_back(live_server):
             "element => element.classList.contains('lc-deck-selected')"
         )
         assert selected
+    finally:
+        browser.close()
+        manager.stop()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_teacher_console_inspection_history_does_not_replay_live_commands(live_server):
+    teacher = get_user_model().objects.create_user(username="navigation-console-teacher", password="password")
+    first_definition = create_activity_definition(
+        owner=teacher,
+        title="First discussion",
+        type_key="liveclassroom.markdown",
+        definition={"markdown": "First"},
+    )
+    second_definition = create_activity_definition(
+        owner=teacher,
+        title="Second discussion",
+        type_key="liveclassroom.markdown",
+        definition={"markdown": "Second"},
+    )
+    session = create_instant_session(owner=teacher, title="Navigation classroom")
+    start_session(session=session, actor=teacher)
+    first = launch_item(session=session, item=first_definition, actor=teacher)
+    publish_activity_to_audiences(session=session, activity=first, channels=["display", "participants"], actor=teacher)
+    second = launch_item(session=session, item=second_definition, actor=teacher)
+    publish_activity_to_audiences(session=session, activity=second, channels=["display", "participants"], actor=teacher)
+    cookie = database_call(lambda: _cookie(teacher))
+    manager, browser = _chromium_or_skip()
+    try:
+        page = browser.new_page(viewport={"width": 1440, "height": 900})
+        page.context.add_cookies([{"name": settings.SESSION_COOKIE_NAME, "value": cookie, "url": live_server.url}])
+        command_posts: list[str] = []
+        page.on(
+            "request",
+            lambda request: command_posts.append(request.url)
+            if request.method == "POST"
+            else None,
+        )
+        page.goto(f"{live_server.url}{reverse('liveclassroom:teacher-console', args=[session.id])}")
+        page.wait_for_function(
+            "(id) => new URL(window.location.href).searchParams.get('activity') === String(id)",
+            arg=second.id,
+        )
+        results_panel = page.locator('[data-console-panel="results"]')
+        results_panel.locator("summary").click()
+        page.wait_for_function("new URL(window.location.href).searchParams.get('panel') === 'results'")
+        results_panel.locator("select").select_option(str(first.id))
+        page.wait_for_function(
+            "(id) => new URL(window.location.href).searchParams.get('activity') === String(id)",
+            arg=first.id,
+        )
+        page.go_back()
+        page.wait_for_function(
+            "(id) => new URL(window.location.href).searchParams.get('activity') === String(id)",
+            arg=second.id,
+        )
+        assert page.evaluate("new URL(window.location.href).searchParams.get('panel')") == "results"
+        page.go_back()
+        page.wait_for_function("new URL(window.location.href).searchParams.get('panel') === null")
+        assert page.evaluate("new URL(window.location.href).searchParams.get('activity')") == str(second.id)
+        assert not results_panel.locator("select").is_visible()
+        assert command_posts == []
     finally:
         browser.close()
         manager.stop()
