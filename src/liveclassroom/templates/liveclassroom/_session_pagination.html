@@ -1,0 +1,6 @@
+{% load i18n %}
+<nav class="lc-actions" aria-label="{% translate 'Pagination' %}">
+  {% if previous_url %}<a class="lc-btn lc-btn-outline" href="{{ previous_url }}">{% translate "Previous" %}</a>{% endif %}
+  <span>{{ session_page.number }} / {{ session_page.paginator.num_pages }} · {{ session_page.paginator.count }}</span>
+  {% if next_url %}<a class="lc-btn lc-btn-outline" href="{{ next_url }}">{% translate "Next" %}</a>{% endif %}
+</nav>

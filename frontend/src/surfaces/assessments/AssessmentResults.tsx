@@ -1,8 +1,9 @@
 import * as React from "react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { ApiError, getJson, postJson } from "../../protocol.js";
 import { useLocale } from "../../i18n.js";
+import { useUnsavedChangesWarning, useUnsavedNavigationGuard } from "../../navigation.js";
 
 type Run = { public_id: string; title: string; created_at?: string };
 type Progress = {
@@ -12,6 +13,7 @@ type Progress = {
 };
 type Analytics = { questions?: Array<{ identity: string; type_key?: string; completion?: { submitted?: number }; distribution?: Array<{ label?: string; count?: number }> }> };
 type StudentOverview = { student: { username: string }; summary: Record<string, number>; attempts: Array<{ id: string; status: string; progress_status: string; grade?: { awarded_points?: string; possible_points?: string } | null }> };
+type CorrectionPreview = { preview_fingerprint: string; counts?: Record<string, number>; items?: Array<{ old?: Record<string, string>; new?: Record<string, string> }> };
 
 function endpoint(apiRoot: string, path: string): string {
   const base = new URL(apiRoot, window.location.href);
@@ -31,9 +33,12 @@ export function AssessmentResults({ apiRoot, assessmentId }: { apiRoot: string; 
   const [reason, setReason] = useState("");
   const [ruleVersion, setRuleVersion] = useState("activity-registry-v2");
   const [ruleConfig, setRuleConfig] = useState('{"answer": 11}');
-  const [preview, setPreview] = useState<{ preview_fingerprint: string; counts?: Record<string, number>; items?: Array<{ old?: Record<string, string>; new?: Record<string, string> }> } | null>(null);
+  const [preview, setPreview] = useState<CorrectionPreview | null>(null);
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
   const [student, setStudent] = useState<StudentOverview | null>(null);
+  const [savedCorrection, setSavedCorrection] = useState({ ruleVersion: "activity-registry-v2", ruleConfig: '{"answer": 11}', reason: "" });
+  const correctionDirty = Boolean(run) && (ruleVersion !== savedCorrection.ruleVersion || ruleConfig !== savedCorrection.ruleConfig || reason !== savedCorrection.reason || Boolean(preview));
+  useUnsavedChangesWarning(correctionDirty);
   const loadRuns = async () => {
     if (!assessmentId) { setRuns([]); setRun(null); return; }
     setLoading(true); setError("");
@@ -63,16 +68,46 @@ export function AssessmentResults({ apiRoot, assessmentId }: { apiRoot: string; 
       setPreview(result); setError("");
     } catch (cause) { setError(cause instanceof SyntaxError ? text(locale, "Rule configuration must be JSON.", "规则配置必须是 JSON。") : cause instanceof ApiError ? cause.message : text(locale, "Unable to preview this correction.", "无法预览此更正。")); }
   };
-  const applyRegrade = async () => {
-    if (!run || !preview) return;
+  const applyRegrade = useCallback(async (): Promise<boolean> => {
+    if (!run || !preview) return false;
     try {
       const config = JSON.parse(ruleConfig) as Record<string, unknown>;
       await postJson(endpoint(apiRoot, `assessment-runs/${run.public_id}/regrade/apply/`), { rule_version: ruleVersion, rule_config: config, reason, preview_fingerprint: preview.preview_fingerprint, idempotency_key: crypto.randomUUID() });
       setPreview(null);
+      setSavedCorrection({ ruleVersion, ruleConfig, reason });
       const result = await getJson<Progress>(endpoint(apiRoot, `assessment-runs/${run.public_id}/progress/`));
       setProgress(result);
-    } catch (cause) { setError(cause instanceof ApiError ? cause.message : text(locale, "Unable to apply this correction.", "无法应用此更正。")); }
-  };
+      return true;
+    } catch (cause) { setError(cause instanceof ApiError ? cause.message : text(locale, "Unable to apply this correction.", "无法应用此更正。")); return false; }
+  }, [apiRoot, locale, preview, reason, ruleConfig, ruleVersion, run]);
+
+  const saveCorrection = useCallback(async (): Promise<boolean> => {
+    if (!preview) {
+      setError(text(locale, "Preview the correction before saving it.", "保存前请先预览更正。"));
+      return false;
+    }
+    return applyRegrade();
+  }, [applyRegrade, locale, preview]);
+
+  const discardCorrection = useCallback(() => {
+    setRuleVersion(savedCorrection.ruleVersion);
+    setRuleConfig(savedCorrection.ruleConfig);
+    setReason(savedCorrection.reason);
+    setPreview(null);
+  }, [savedCorrection]);
+
+  const { requestNavigation, dialog: unsavedDialog } = useUnsavedNavigationGuard({
+    dirty: correctionDirty,
+    onSave: saveCorrection,
+    onBeforeLeave: discardCorrection,
+    labels: {
+      title: text(locale, "Unsaved correction", "更正有未保存的更改"),
+      body: text(locale, "Save this correction before leaving?", "离开前保存此更正吗？"),
+      save: text(locale, "Save correction and leave", "保存更正并离开"),
+      discard: text(locale, "Discard and leave", "放弃并离开"),
+      stay: text(locale, "Stay", "留在此页"),
+    },
+  });
   const loadAnalytics = async () => {
     if (!run) return;
     try { setAnalytics(await getJson<Analytics>(endpoint(apiRoot, `assessment-runs/${run.public_id}/question-analytics/`))); setError(""); }
@@ -86,7 +121,7 @@ export function AssessmentResults({ apiRoot, assessmentId }: { apiRoot: string; 
   return <section className="lc-card lc-assessment-results" aria-labelledby="assessment-results-heading">
     <h2 id="assessment-results-heading">{text(locale, "Published results", "已发布结果")}</h2>
     {!assessmentId ? <p>{text(locale, "Save an assessment to view its published runs.", "保存测验后可查看其已发布运行。")}</p> : null}
-    {assessmentId ? <label>{text(locale, "Published run", "已发布运行")}<select className="lc-select" value={run?.public_id ?? ""} onChange={(event) => setRun(runs.find((item) => item.public_id === event.target.value) ?? null)}><option value="">{text(locale, "Choose a run", "选择运行")}</option>{runs.map((item) => <option key={item.public_id} value={item.public_id}>{item.title}</option>)}</select></label> : null}
+    {assessmentId ? <label>{text(locale, "Published run", "已发布运行")}<select className="lc-select" value={run?.public_id ?? ""} onChange={(event) => requestNavigation(() => { setRun(runs.find((item) => item.public_id === event.target.value) ?? null); setPreview(null); setStudent(null); })}><option value="">{text(locale, "Choose a run", "选择运行")}</option>{runs.map((item) => <option key={item.public_id} value={item.public_id}>{item.title}</option>)}</select></label> : null}
     <button type="button" className="lc-btn lc-btn-outline" onClick={() => void loadRuns()} disabled={loading || !assessmentId}>{text(locale, "Refresh runs", "刷新运行")}</button>
     {progress ? <><p>{text(locale, "Not started", "未开始")}: {progress.counts.not_started ?? 0}; {text(locale, "In progress", "进行中")}: {progress.counts.in_progress ?? 0}; {text(locale, "Submitted", "已提交")}: {progress.counts.submitted ?? 0}; {text(locale, "Graded", "已评分")}: {progress.counts.graded ?? 0}</p><ul>{progress.students.map((student) => <li key={student.student_id}><button type="button" className="lc-btn-sm lc-btn-outline" onClick={() => void loadStudent(student.student_id)}>{student.student_username}</button>: {student.status}{student.latest_attempt?.grade ? ` (${student.latest_attempt.grade.awarded_points ?? "—"}/${student.latest_attempt.grade.possible_points ?? "—"})` : ""}</li>)}</ul><div className="lc-actions">{["scores", "answers", "explanations", "comments"].map((dimension) => <button type="button" className="lc-btn lc-btn-outline" key={dimension} onClick={() => void release(dimension)}>{text(locale, `Release ${dimension}`, `发布${dimension}`)}</button>)}{run ? <><a className="lc-btn lc-btn-outline" href={endpoint(apiRoot, `assessment-runs/${run.public_id}/results/export/?format=csv`)}>{text(locale, "Download CSV", "下载 CSV")}</a><a className="lc-btn lc-btn-outline" href={endpoint(apiRoot, `assessment-runs/${run.public_id}/results/export/?format=json`)}>{text(locale, "Download JSON", "下载 JSON")}</a><button type="button" className="lc-btn lc-btn-outline" onClick={() => void loadAnalytics()}>{text(locale, "Question analytics", "题目分析")}</button></> : null}{courseId ? <a className="lc-btn lc-btn-outline" href={endpoint(apiRoot, `classes/${courseId}/results/export/?format=csv`)}>{text(locale, "Download class CSV", "下载班级 CSV")}</a> : null}</div></> : null}
     {student ? <section className="lc-card lc-student-overview" aria-label={text(locale, "Learner overview", "学生概览")}><h3>{student.student.username}</h3><p>{text(locale, "Attempts", "作答次数")}: {student.summary.attempt_count ?? 0}; {text(locale, "Graded", "已评分")}: {student.summary.graded ?? 0}</p><ul>{student.attempts.map((attempt) => <li key={attempt.id}>{attempt.progress_status}{attempt.grade ? ` (${attempt.grade.awarded_points ?? "—"}/${attempt.grade.possible_points ?? "—"})` : ""}</li>)}</ul></section> : null}
@@ -100,5 +135,6 @@ export function AssessmentResults({ apiRoot, assessmentId }: { apiRoot: string; 
       {preview ? <section role="status"><p>{text(locale, "Review the affected items, then apply the correction.", "检查受影响题目后再应用更正。")} {preview.items?.length ?? 0}</p><ul>{preview.items?.map((item, index) => <li key={index}>{text(locale, "Item", "题目")} {index + 1}: {item.old?.awarded_points ?? "—"} → {item.new?.awarded_points ?? "—"}</li>)}</ul></section> : null}
     </section> : null}
     {error ? <p className="lc-form-error" role="alert">{error}</p> : null}
+    {unsavedDialog}
   </section>;
 }

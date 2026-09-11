@@ -17,6 +17,7 @@ from .integrations.host import host_can_view_grade_summary
 from .models import (
     AssessmentAttempt,
     AssessmentDefinition,
+    AssessmentItemGrade,
     AssessmentRun,
     Course,
     CourseMembership,
@@ -25,7 +26,9 @@ from .models import (
     LiveSession,
     TeachingCourse,
 )
+from .services.attempts import _can_access
 from .services.classroom import can_manage_session, can_view_session
+from .services.manual_grading import can_grade_attempt
 from .services.permissions import can_author_course, can_teach, can_use_flow
 
 _DEFAULT_BROWSE_PAGE_SIZE = 25
@@ -170,14 +173,63 @@ def _class_summary(course, *, mode):
     }
 
 
-def _teaching_course_summary(course, *, mode):
+def _teaching_course_summary(course, *, mode, actor=None):
     root = "liveclassroom:teacher-course-detail" if mode == "teaching" else "liveclassroom:learn-course-detail"
-    return {
+    summary = {
         "id": course.id,
         "title": course.title,
         "description": course.description,
         "url": reverse(root, args=[course.id]),
     }
+    if mode == "teaching":
+        results_url = _teaching_course_results_url(course, actor=actor)
+        if results_url:
+            summary["results_url"] = results_url
+    return summary
+
+
+def _teaching_course_results_url(course, *, actor):
+    """Return aggregate-results navigation only for an authorized owner."""
+    if actor is None or not can_teach(actor):
+        return None
+    if not (actor.is_superuser or course.created_by_id == actor.pk):
+        return None
+    for cohort in Course.objects.filter(teaching_course=course).only("id", "created_by_id"):
+        if host_can_view_grade_summary(
+            actor=actor,
+            course_id=cohort.id,
+            package_allowed=can_author_course(actor, cohort),
+        ):
+            return reverse("liveclassroom:teacher-course-results", args=[course.id])
+    return None
+
+
+def _teaching_class_results_url(course, *, actor):
+    """Return class results navigation only when the host permits it."""
+    package_allowed = bool(actor and can_author_course(actor, course))
+    if not actor or not host_can_view_grade_summary(
+        actor=actor,
+        course_id=course.id,
+        package_allowed=package_allowed,
+    ):
+        return None
+    route = (
+        "liveclassroom:teacher-course-class-results"
+        if course.teaching_course_id
+        else "liveclassroom:teacher-class-results"
+    )
+    args = [course.teaching_course_id, course.id] if course.teaching_course_id else [course.id]
+    return reverse(route, args=args)
+
+
+def _teaching_class_navigation_section(course, *, actor):
+    """Return a class tab descriptor without loading its child content."""
+    summary = _class_summary(course, mode="teaching")
+    summary["browse_url"] = reverse("liveclassroom:api-v1-browse-teaching-class", args=[course.id])
+    results_url = _teaching_class_results_url(course, actor=actor)
+    if results_url:
+        summary["results_url"] = results_url
+    return {"class": summary}
 
 
 def _session_summary(session):
@@ -213,6 +265,53 @@ def _session_link(session, *, teaching: bool):
 
 def _material_link(item, route_name):
     return {"id": item.id, "title": item.title, "url": reverse(route_name, args=[item.id])}
+
+
+def _grading_attention(actor):
+    """Read the teacher's pending subjective work without materializing grades."""
+    if actor.is_superuser:
+        scope = Q()
+    else:
+        scope = (
+            Q(item__attempt__run__owner_id=actor.pk)
+            | Q(item__attempt__run__course__created_by_id=actor.pk)
+            | Q(
+                item__attempt__run__course__memberships__user_id=actor.pk,
+                item__attempt__run__course__memberships__role__in=(
+                    CourseMembership.Role.TEACHER,
+                    CourseMembership.Role.ASSISTANT,
+                ),
+            )
+        )
+    pending = (
+        AssessmentItemGrade.objects.filter(
+            scope,
+            status=AssessmentItemGrade.Status.PENDING,
+            item__attempt__status=AssessmentAttempt.Status.SUBMITTED,
+        )
+        .select_related("item__attempt__run", "item__attempt__user", "item__attempt__run__course")
+        .distinct()
+        .order_by("updated_at", "id")
+    )
+    items = []
+    count = 0
+    results_url = reverse("liveclassroom:teacher-results")
+    for grade in pending:
+        attempt = grade.item.attempt
+        if not can_grade_attempt(actor, attempt):
+            continue
+        count += 1
+        if len(items) < 6:
+            username = attempt.user.get_username() if hasattr(attempt.user, "get_username") else str(attempt.user)
+            items.append(
+                {
+                    "id": f"{attempt.public_id}:{grade.item.key}",
+                    "title": f"{attempt.run.title} · {username}",
+                    "status": "pending_manual",
+                    "url": f"{results_url}?{urlencode({'panel': 'grading', 'run': str(attempt.run.public_id)})}",
+                }
+            )
+    return count, items
 
 
 _PAGE_REFERENCES = {
@@ -363,6 +462,7 @@ def home(request):
 
     if selected_mode == "teaching":
         classes = _teaching_classes(actor)
+        grading_count, grading_items = _grading_attention(actor)
         sessions = (
             LiveSession.objects.filter(Q(teacher=actor) | Q(course__in=classes))
             .exclude(status=LiveSession.Status.ENDED)
@@ -394,10 +494,17 @@ def home(request):
                         "view_all_url": reverse("liveclassroom:teacher-dashboard"),
                     },
                     {
+                        "key": "grading",
+                        "title": "Grading requiring attention",
+                        "count": grading_count,
+                        "items": grading_items,
+                        "view_all_url": f"{reverse('liveclassroom:teacher-results')}?panel=grading",
+                    },
+                    {
                         "key": "classes",
                         "title": "Courses and classes",
                         "items": [_class_summary(row, mode="teaching") for row in classes.order_by("title", "id")[:6]],
-                        "view_all_url": reverse("liveclassroom:teacher-courses"),
+                        "view_all_url": reverse("liveclassroom:teacher-classes"),
                     },
                 ],
                 "quick_actions": [
@@ -429,10 +536,11 @@ def home(request):
         .distinct()
         .order_by("-updated_at", "-id")[:6]
     )
-    available_runs = (
+    available_run_query = (
         AssessmentRun.objects.filter(course__in=learner_classes, audience=AssessmentRun.Audience.CLASS)
-        .order_by("-created_at", "-id")[:6]
+        .order_by("-created_at", "-id")
     )
+    available_runs = [row for row in available_run_query if _can_access(actor, row)][:6]
     submitted = (
         AssessmentAttempt.objects.filter(user=actor, status=AssessmentAttempt.Status.SUBMITTED)
         .select_related("run")
@@ -460,13 +568,13 @@ def home(request):
                     "key": "sessions",
                     "title": "Current sessions",
                     "items": [_session_link(row, teaching=False) for row in sessions],
-                    "view_all_url": reverse("liveclassroom:learning-home"),
+                    "view_all_url": f"{reverse('liveclassroom:learning-home')}?tab=sessions",
                 },
                 {
                     "key": "assessments",
                     "title": "Available assessments",
                     "items": [_run_summary(row) for row in available_runs],
-                    "view_all_url": reverse("liveclassroom:learning-home"),
+                    "view_all_url": f"{reverse('liveclassroom:learning-home')}?tab=assessments",
                 },
                 {
                     "key": "classes",
@@ -475,7 +583,7 @@ def home(request):
                         _class_summary(row, mode="learning")
                         for row in learner_classes.order_by("title", "id")[:6]
                     ],
-                    "view_all_url": reverse("liveclassroom:learning-home"),
+                    "view_all_url": f"{reverse('liveclassroom:learning-home')}?tab=classes",
                 },
                 {
                     "key": "submitted",
@@ -506,7 +614,18 @@ def navigation(request):
     teacher = can_teach(actor)
     contexts = []
     if teacher:
-        for course in _teaching_classes(actor).order_by("title", "id")[:25]:
+        for program in _teaching_courses(actor).order_by("title", "id")[:25]:
+            context = {
+                "kind": "course",
+                "id": program.id,
+                "title": program.title,
+                "teaching_url": reverse("liveclassroom:teacher-course-detail", args=[program.id]),
+            }
+            results_url = _teaching_course_results_url(program, actor=actor)
+            if results_url:
+                context["results_url"] = results_url
+            contexts.append(context)
+        for course in _teaching_classes(actor).order_by("title", "id")[: max(0, 25 - len(contexts))]:
             contexts.append(
                 {
                     "kind": "class",
@@ -526,8 +645,8 @@ def navigation(request):
             )
     for course in Course.objects.filter(
         memberships__user=actor, memberships__role=CourseMembership.Role.STUDENT
-    ).order_by("title", "id")[:25]:
-        existing = next((row for row in contexts if row["id"] == course.id), None)
+    ).order_by("title", "id")[: max(0, 25 - len(contexts))]:
+        existing = next((row for row in contexts if row["kind"] == "class" and row["id"] == course.id), None)
         if existing is not None:
             existing["learning_url"] = reverse("liveclassroom:learn-class-detail", args=[course.id])
         else:
@@ -540,8 +659,8 @@ def navigation(request):
                 }
             )
     refs = request.GET.getlist("ref")
-    if len(refs) > 22:
-        return _error("At most 22 navigation references may be resolved.", 400, code="invalid_request")
+    if len(refs) > 23:
+        return _error("At most 23 navigation references may be resolved.", 400, code="invalid_request")
     resolved = []
     seen = set()
     for reference in refs:
@@ -579,6 +698,7 @@ def _class_sections(course, *, learner=False, actor=None):
         "counts": {"sessions": session_query.count(), "assessments": run_query.count()},
     }
     if not learner:
+        payload["class"]["browse_url"] = reverse("liveclassroom:api-v1-browse-teaching-class", args=[course.id])
         flow_query = Flow.objects.filter(associated_courses=course).order_by("title", "id")
         flows = list(flow_query[:100])
         payload["lessons"] = [
@@ -588,18 +708,9 @@ def _class_sections(course, *, learner=False, actor=None):
         package_allowed = bool(actor and can_author_course(actor, course))
         payload["capabilities"] = {"manage": package_allowed}
         payload["counts"]["lessons"] = flow_query.count()
-        result_route = (
-            "liveclassroom:teacher-course-class-results"
-            if course.teaching_course_id
-            else "liveclassroom:teacher-class-results"
-        )
-        result_args = [course.teaching_course_id, course.id] if course.teaching_course_id else [course.id]
-        if actor and host_can_view_grade_summary(
-            actor=actor,
-            course_id=course.id,
-            package_allowed=package_allowed,
-        ):
-            payload["results_url"] = reverse(result_route, args=result_args)
+        results_url = _teaching_class_results_url(course, actor=actor)
+        if results_url:
+            payload["results_url"] = results_url
     return payload
 
 
@@ -612,7 +723,7 @@ def teaching_courses(request):
     return _browse_envelope(
         request,
         _teaching_courses(request.user),
-        lambda row: _teaching_course_summary(row, mode="teaching"),
+        lambda row: _teaching_course_summary(row, mode="teaching", actor=request.user),
     )
 
 
@@ -639,7 +750,7 @@ def teaching_index(request):
     programs = _teaching_courses(actor)
     return JsonResponse(
         {
-            "courses": [_teaching_course_summary(row, mode="teaching") for row in programs],
+            "courses": [_teaching_course_summary(row, mode="teaching", actor=actor) for row in programs],
             "independent_classes": [
                 _class_summary(row, mode="teaching") for row in classes.filter(teaching_course__isnull=True)
             ],
@@ -660,9 +771,19 @@ def teaching_course(request, course_id):
     if not (request.user.is_superuser or program.created_by_id == request.user.pk or accessible.exists()):
         return _error("Not found.", 404, code="not_found")
     classes = accessible if not request.user.is_superuser else Course.objects.filter(teaching_course=program)
+    if request.GET.get("summary") in {"1", "true", "yes"}:
+        return JsonResponse(
+            {
+                "course": _teaching_course_summary(program, mode="teaching", actor=request.user),
+                "classes": [
+                    _teaching_class_navigation_section(row, actor=request.user)
+                    for row in classes.order_by("title", "id")
+                ],
+            }
+        )
     return JsonResponse(
         {
-            "course": _teaching_course_summary(program, mode="teaching"),
+            "course": _teaching_course_summary(program, mode="teaching", actor=request.user),
             "classes": [_class_sections(row, actor=request.user) for row in classes],
         }
     )
@@ -701,9 +822,17 @@ def learning_classes(request):
     denied = _learner_denied(request)
     if denied is not None:
         return denied
+    course_id = request.GET.get("course_id")
+    if course_id not in (None, ""):
+        try:
+            queryset = _learning_classes(request.user).filter(teaching_course_id=int(course_id))
+        except (TypeError, ValueError):
+            return _error("course_id must be an integer.", 400, code="invalid_request")
+    else:
+        queryset = _learning_classes(request.user)
     return _browse_envelope(
         request,
-        _learning_classes(request.user),
+        queryset,
         lambda row: _class_summary(row, mode="learning"),
     )
 
@@ -748,13 +877,17 @@ def learning_course(request, course_id):
         return _error("Not found.", 404, code="not_found")
     classes = Course.objects.filter(
         teaching_course=program, memberships__user=request.user, memberships__role=CourseMembership.Role.STUDENT
-    ).distinct()
+    ).distinct().order_by("title", "id")
     if not classes.exists():
         return _error("Not found.", 404, code="not_found")
+    # The course overview is a bounded directory. Class sessions and
+    # assessments are loaded through their scoped tab endpoints after the
+    # learner chooses a destination, avoiding one query fanout per class.
+    class_summaries = [{"class": _class_summary(row, mode="learning")} for row in classes[:100]]
     return JsonResponse(
         {
             "course": _teaching_course_summary(program, mode="learning"),
-            "classes": [_class_sections(row, learner=True, actor=request.user) for row in classes],
+            "classes": class_summaries,
         }
     )
 
@@ -770,4 +903,6 @@ def learning_class(request, class_id):
         )
     except Course.DoesNotExist:
         return _error("Not found.", 404, code="not_found")
+    if request.GET.get("tab") == "overview":
+        return JsonResponse({"class": _class_summary(course, mode="learning")})
     return JsonResponse(_class_sections(course, learner=True, actor=request.user))
