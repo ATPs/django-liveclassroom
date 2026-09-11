@@ -200,6 +200,42 @@ def test_workspace_tabs_and_learner_courses_have_addressable_history(live_server
 
 
 @pytest.mark.django_db(transaction=True)
+def test_paginated_course_browse_uses_page_history_without_posting(live_server):
+    teacher = get_user_model().objects.create_user(username="navigation-page-teacher", password="password")
+    for index in range(26):
+        TeachingCourse.objects.create(title=f"Paged teaching course {index:02d}", created_by=teacher)
+    cookie = database_call(lambda: _cookie(teacher))
+    manager, browser = _chromium_or_skip()
+    try:
+        page = browser.new_page(viewport={"width": 1280, "height": 800})
+        page.context.add_cookies([{"name": settings.SESSION_COOKIE_NAME, "value": cookie, "url": live_server.url}])
+        command_posts: list[str] = []
+        page.on(
+            "request",
+            lambda request: command_posts.append(request.url)
+            if request.method == "POST"
+            else None,
+        )
+        courses_url = reverse("liveclassroom:teacher-courses")
+        page.goto(f"{live_server.url}{courses_url}?page=2")
+        page.locator('[data-browse-page="2"]').first.wait_for()
+        course_section = page.locator(".lc-learning-section").filter(
+            has=page.get_by_role("heading", name="Teaching courses", exact=True)
+        )
+        course_section.get_by_role("button", name="Previous", exact=True).click()
+        page.wait_for_function("new URL(window.location.href).searchParams.get('page') === '1'")
+        course_section.get_by_role("button", name="Next", exact=True).click()
+        page.wait_for_function("new URL(window.location.href).searchParams.get('page') === '2'")
+        page.go_back()
+        page.wait_for_function("new URL(window.location.href).searchParams.get('page') === '1'")
+        page.locator('[data-browse-page="1"]').first.wait_for()
+        assert command_posts == []
+    finally:
+        browser.close()
+        manager.stop()
+
+
+@pytest.mark.django_db(transaction=True)
 def test_deck_object_urls_restore_the_selected_deck_on_back(live_server):
     teacher = get_user_model().objects.create_user(username="navigation-deck-teacher", password="password")
     first = create_deck(actor=teacher, data={"title": "Deck one", "slides": [{"markdown": "# One"}]})

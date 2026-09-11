@@ -3,7 +3,7 @@
 {% block title %}{% translate "Learning" %} · LiveClassroom{% endblock %}
 {% block content %}
 <div class="lc-workspace-page">
-  <section class="lc-card lc-wide" data-learning-workspace data-browse-url="{{ browse_url }}" data-join-url="{{ join_url }}" data-locale="{{ active_lang|default:'en' }}">
+  <section class="lc-card lc-wide" data-learning-workspace data-browse-url="{{ browse_url }}" data-join-url="{{ join_url }}"{% if courses_url %} data-courses-url="{{ courses_url }}" data-classes-url="{{ classes_url }}"{% endif %} data-locale="{{ active_lang|default:'en' }}">
     <h1>{% translate "My courses" %}</h1>
   </section>
 </div>

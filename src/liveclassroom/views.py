@@ -641,6 +641,8 @@ class LearningWorkspaceView(LoginRequiredMixin, LocaleContextMixin, TemplateView
             context["browse_url"] = reverse("liveclassroom:api-v1-browse-learning-class", args=[kwargs["class_id"]])
         else:
             context["browse_url"] = reverse("liveclassroom:api-v1-browse-learning")
+            context["courses_url"] = reverse("liveclassroom:api-v1-browse-learning-courses")
+            context["classes_url"] = reverse("liveclassroom:api-v1-browse-learning-classes")
         context["join_url"] = reverse("liveclassroom:join")
         context["teacher_url"] = reverse("liveclassroom:teacher-dashboard") if can_teach(self.request.user) else ""
         return context
