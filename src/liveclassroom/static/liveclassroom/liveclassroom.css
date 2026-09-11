@@ -338,7 +338,12 @@
 #liveclassroom-root .lc-shell[data-sidebar="collapsed"] .lc-shell-group { position: relative; border-top: 0; padding-top: 0; }
 #liveclassroom-root .lc-shell[data-sidebar="collapsed"] .lc-shell-group-toggle { justify-content: center; font-size: 0; }
 #liveclassroom-root .lc-shell[data-sidebar="collapsed"] .lc-shell-group-toggle::after { content: attr(data-initial); width: 1.45rem; display: inline-grid; place-items: center; color: var(--lc-text-2); font-size: .72rem; font-weight: 750; }
-#liveclassroom-root .lc-shell[data-sidebar="collapsed"] .lc-shell-group-menu { position: absolute; top: 0; left: calc(100% + .5rem); z-index: 50; width: 15rem; padding: .5rem; border: 1px solid var(--lc-border); border-radius: var(--lc-radius); background: var(--lc-surface); box-shadow: var(--lc-shadow-md); }
+#liveclassroom-root .lc-shell[data-sidebar="collapsed"] .lc-shell-group-menu { position: fixed; top: 4rem; left: 3.5rem; z-index: 50; width: 15rem; max-height: calc(100vh - 5rem); overflow-y: auto; padding: .5rem; border: 1px solid var(--lc-border); border-radius: var(--lc-radius); background: var(--lc-surface); box-shadow: var(--lc-shadow-md); }
+#liveclassroom-root .lc-shell[data-sidebar="collapsed"] .lc-shell-group-menu .lc-shell-link-label,
+#liveclassroom-root .lc-shell[data-sidebar="collapsed"] .lc-shell-group-menu .lc-shell-saved-link > a span:last-child,
+#liveclassroom-root .lc-shell[data-sidebar="collapsed"] .lc-shell-group-menu .lc-shell-saved-link button { display: inline; }
+#liveclassroom-root .lc-shell[data-sidebar="collapsed"] .lc-shell-group-menu .lc-shell-link { justify-content: flex-start; }
+#liveclassroom-root .lc-shell[data-sidebar="collapsed"] .lc-shell-group-toggle::after { display: none; }
 #liveclassroom-root .lc-shell[data-sidebar="collapsed"] .lc-shell-link,
 #liveclassroom-root .lc-shell[data-sidebar="collapsed"] .lc-shell-saved-link > a { justify-content: center; padding-inline: .2rem; }
 
@@ -392,13 +397,16 @@
 @media (max-width: 47.99rem) {
   #liveclassroom-root .lc-shell-header { grid-template-columns: auto auto minmax(0, 1fr); padding-inline: .75rem; }
   #liveclassroom-root .lc-shell-header-actions { justify-content: end; }
+  #liveclassroom-root .lc-shell-pin-button { display: none; }
+  #liveclassroom-root .lc-shell-role { min-width: 0; }
+  #liveclassroom-root .lc-shell-role select { width: 7.75rem; min-width: 0; }
   #liveclassroom-root .lc-shell-role span,
   #liveclassroom-root .lc-shell-user { display: none; }
   #liveclassroom-root .lc-shell-body,
   #liveclassroom-root .lc-shell[data-sidebar="collapsed"] .lc-shell-body { display: block; }
-  #liveclassroom-root .lc-shell-sidebar { position: fixed; z-index: 40; top: 3.5rem; left: 0; width: min(18rem, calc(100vw - 2.5rem)); transform: translateX(-105%); transition: transform var(--lc-transition); box-shadow: var(--lc-shadow-md); }
-  #liveclassroom-root .lc-shell[data-drawer="open"] .lc-shell-sidebar { transform: translateX(0); }
-  #liveclassroom-root .lc-shell-drawer-overlay { position: fixed; z-index: 35; inset: 3.5rem 0 0; display: block; pointer-events: none; }
+  #liveclassroom-root .lc-shell-sidebar { position: fixed; z-index: 40; top: 3.5rem; left: 0; width: min(18rem, calc(100vw - 2.5rem)); visibility: hidden; transform: translateX(-105%); transition: transform var(--lc-transition); box-shadow: var(--lc-shadow-md); }
+  #liveclassroom-root .lc-shell[data-drawer="open"] .lc-shell-sidebar { visibility: visible; transform: translateX(0); }
+  #liveclassroom-root .lc-shell-drawer-overlay { position: fixed; z-index: 35; top: 3.5rem; right: 0; bottom: 0; left: min(18rem, calc(100vw - 2.5rem)); display: block; pointer-events: none; }
   #liveclassroom-root .lc-shell[data-drawer="open"] .lc-shell-drawer-overlay { pointer-events: auto; background: color-mix(in srgb, var(--lc-text) 35%, transparent); }
   #liveclassroom-root .lc-shell-drawer-dismiss { width: 100%; height: 100%; border: 0; padding: 0; background: transparent; cursor: default; }
   #liveclassroom-root .lc-shell-drawer-title { min-height: 2.25rem; display: flex; align-items: center; justify-content: space-between; gap: .5rem; font-size: .9rem; font-weight: 750; }
@@ -630,17 +638,55 @@
 }
 
 #liveclassroom-root .lc-help-page {
-  width: min(100%, 76rem);
+  width: 100%;
+  max-width: none;
+  display: grid;
+  grid-template-columns: minmax(12rem, 15rem) minmax(0, 1fr);
+  align-items: start;
+  column-gap: clamp(1.25rem, 3vw, 3rem);
+}
+
+#liveclassroom-root .lc-help-page > :not(.lc-help-nav) {
+  grid-column: 2;
+  max-width: 80ch;
+}
+
+#liveclassroom-root .lc-help-page > .lc-help-footer {
+  margin-top: 1rem;
 }
 
 #liveclassroom-root .lc-help-nav {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 0.4rem;
-  margin-bottom: 1.5rem;
+  grid-column: 1;
+  grid-row: 1 / -1;
+  position: sticky;
+  top: 4.5rem;
+  display: grid;
+  align-content: start;
+  gap: .2rem;
+  min-width: 0;
+  padding: .6rem;
+  border: 1px solid var(--lc-border);
+  border-radius: var(--lc-radius);
+  background: var(--lc-surface-2);
   color: var(--lc-text-2);
   font-size: 0.9rem;
+}
+
+#liveclassroom-root .lc-help-nav a {
+  display: block;
+  min-height: 2.5rem;
+  padding: .55rem .7rem;
+  border-radius: var(--lc-radius-sm);
+  color: var(--lc-text-2);
+  font-size: .9rem;
+  font-weight: 650;
+  text-decoration: none;
+}
+
+#liveclassroom-root .lc-help-nav a:hover,
+#liveclassroom-root .lc-help-nav a:focus-visible {
+  background: var(--lc-accent-soft);
+  color: var(--lc-accent-active);
 }
 
 #liveclassroom-root .lc-help-lead {
@@ -722,6 +768,32 @@
 #liveclassroom-root .lc-help-tasks p {
   margin: 0.65rem 0 0;
   color: var(--lc-text-2);
+}
+
+@media (max-width: 60rem) {
+  #liveclassroom-root .lc-help-page {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 1rem;
+  }
+
+  #liveclassroom-root .lc-help-page > :not(.lc-help-nav) {
+    grid-column: 1;
+  }
+
+  #liveclassroom-root .lc-help-nav {
+    grid-column: 1;
+    grid-row: auto;
+    position: sticky;
+    top: 4rem;
+    z-index: 2;
+    display: flex;
+    flex-wrap: wrap;
+    gap: .2rem;
+  }
+
+  #liveclassroom-root .lc-help-nav a {
+    min-height: 2.75rem;
+  }
 }
 
 #liveclassroom-root .lc-workspace-root .lc-grid {
@@ -1316,7 +1388,7 @@
   box-sizing: border-box;
 }
 
-#liveclassroom-root .lc-deck-root { width: min(100%, 76rem); }
+#liveclassroom-root .lc-deck-root { width: 100%; }
 #liveclassroom-root .lc-native-deck { width: min(100%, 76rem); margin-inline: auto; }
 #liveclassroom-root .lc-native-deck-header { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; }
 #liveclassroom-root .lc-native-deck-toolbar { display: flex; justify-content: flex-end; gap: .5rem; margin: .65rem 0; }
@@ -2336,7 +2408,7 @@
 /* ---------------------------------------------------------------------------
  * Student assessment attempts
  * ------------------------------------------------------------------------- */
-#liveclassroom-root .lc-student-assessment-root { width: min(100%, 72rem); margin: 0 auto; }
+#liveclassroom-root .lc-student-assessment-root { width: 100%; margin: 0 auto; }
 #liveclassroom-root .lc-student-assessment-header { margin: 1rem 0 1.25rem; }
 #liveclassroom-root .lc-student-assessment-header h1 { margin-bottom: .5rem; }
 #liveclassroom-root .lc-student-assessment-header .lc-markdown-body { max-width: 70ch; }
@@ -2387,7 +2459,7 @@
   #liveclassroom-root .lc-student-assessment-actions button { flex: 1 1 8rem; }
 }
 
-#liveclassroom-root .lc-assessment-root { width: min(100%, 90rem); margin: 0 auto; }
+#liveclassroom-root .lc-assessment-root { width: 100%; margin: 0 auto; }
 #liveclassroom-root .lc-markdown-import { min-width: 0; }
 #liveclassroom-root .lc-markdown-import > label { display: grid; gap: .3rem; min-width: 0; }
 #liveclassroom-root .lc-markdown-import input[type="file"] { box-sizing: border-box; width: 100%; min-width: 0; max-width: 100%; }
@@ -2413,14 +2485,45 @@
 #liveclassroom-root .lc-assessment-item-heading h3 { margin: 0 0 .2rem; }
 #liveclassroom-root .lc-assessment-item-number { display: inline-grid; width: 2rem; height: 2rem; place-items: center; flex: 0 0 auto; border-radius: 50%; background: var(--lc-accent-soft); color: var(--lc-accent); font-weight: 700; }
 #liveclassroom-root button.lc-assessment-item-number { border: 0; cursor: pointer; }
-#liveclassroom-root .lc-results-root { display: grid; gap: 1rem; width: min(100%, 90rem); margin: 0 auto; }
+#liveclassroom-root .lc-results-root { display: grid; gap: 1rem; width: 100%; max-width: none; margin: 0 auto; }
 #liveclassroom-root .lc-results-summary { display: flex; gap: 1.5rem; flex-wrap: wrap; }
 #liveclassroom-root .lc-results-summary p { margin: 0; }
 #liveclassroom-root .lc-results-runs { display: grid; gap: .6rem; }
 #liveclassroom-root .lc-results-runs h2, #liveclassroom-root .lc-results-run h2 { margin: 0; }
+#liveclassroom-root .lc-results-layout {
+  display: grid;
+  grid-template-columns: 16rem minmax(0, 1fr) minmax(20rem, 28rem);
+  gap: 1rem;
+  align-items: start;
+  min-width: 0;
+}
+#liveclassroom-root .lc-results-filters,
+#liveclassroom-root .lc-results-table-region,
+#liveclassroom-root .lc-results-submission { min-width: 0; }
+#liveclassroom-root .lc-results-filters { position: sticky; top: 4.5rem; }
+#liveclassroom-root .lc-results-filters > label,
+#liveclassroom-root .lc-results-table-region > label { display: grid; gap: .3rem; margin-bottom: .75rem; }
+#liveclassroom-root .lc-results-filters h2,
+#liveclassroom-root .lc-results-table-region h2,
+#liveclassroom-root .lc-results-submission h2 { margin-top: 0; }
+#liveclassroom-root .lc-results-layout:not(:has(.lc-results-submission)) .lc-results-table-region { grid-column: 2 / -1; }
+#liveclassroom-root .lc-results-submission { width: auto; max-width: none; margin: 0; }
 #liveclassroom-root .lc-results-table-wrap { overflow-x: auto; }
 #liveclassroom-root .lc-results-table-wrap table { width: 100%; min-width: 36rem; border-collapse: collapse; }
 #liveclassroom-root .lc-results-table-wrap th, #liveclassroom-root .lc-results-table-wrap td { padding: .55rem .7rem; border-bottom: 1px solid var(--lc-border); text-align: left; }
+#liveclassroom-root .lc-results-submission pre { max-width: 100%; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 64rem) {
+  #liveclassroom-root .lc-results-layout { grid-template-columns: minmax(13rem, 16rem) minmax(0, 1fr); }
+  #liveclassroom-root .lc-results-layout:not(:has(.lc-results-submission)) .lc-results-table-region { grid-column: 2; }
+  #liveclassroom-root .lc-results-submission { grid-column: 1 / -1; }
+  #liveclassroom-root .lc-results-filters { top: 1rem; }
+}
+@media (max-width: 48rem) {
+  #liveclassroom-root .lc-results-layout { grid-template-columns: minmax(0, 1fr); }
+  #liveclassroom-root .lc-results-layout:not(:has(.lc-results-submission)) .lc-results-table-region,
+  #liveclassroom-root .lc-results-submission { grid-column: 1; }
+  #liveclassroom-root .lc-results-filters { position: static; }
+}
 #liveclassroom-root .lc-assessment-item-prompt { margin: 0 0 0 2.7rem; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--lc-text-2); }
 #liveclassroom-root .lc-assessment-item-controls { display: flex; align-items: center; justify-content: space-between; gap: .75rem; flex-wrap: wrap; margin-left: 2.7rem; }
 #liveclassroom-root .lc-assessment-item-controls > label { display: flex; align-items: center; gap: .45rem; }
@@ -2472,4 +2575,83 @@
   #liveclassroom-root .lc-manual-grading-header,
   #liveclassroom-root .lc-manual-grade-heading { flex-direction: column; }
   #liveclassroom-root .lc-manual-grading-header .lc-btn { width: 100%; }
+}
+
+/* Workspace composition follows the width left after the navigation rail. */
+#liveclassroom-root .lc-shell-content { container: classroom-workspace / inline-size; }
+#liveclassroom-root .lc-shell-content :is(.lc-wide, .lc-page-stack, .lc-app-shell, .lc-builder-root, .lc-learning-root, .lc-workspace-root, .lc-assessment-root, .lc-deck-root, .lc-results-root) {
+  width: 100%; max-width: none; min-width: 0; margin-inline: 0;
+}
+#liveclassroom-root .lc-shell-content > .lc-card.lc-wide {
+  padding: 0; border: 0; box-shadow: none; background: transparent;
+}
+#liveclassroom-root .lc-shell-content :is(.lc-assessment-main, .lc-learning-section, .lc-deck-editor, .lc-builder-main, .lc-question-bank-main) { min-width: 0; }
+#liveclassroom-root .lc-shell-content :is(.lc-assessment-form, .lc-assessment-item, .lc-student-assessment-question, .lc-assessment-list, .lc-student-assessment-nav) {
+  width: 100%; padding: 1rem;
+}
+#liveclassroom-root .lc-shell-content :is(input, textarea, select) { max-width: 100%; }
+#liveclassroom-root .lc-shell-content :is(.lc-markdown-body, .lc-assessment-item-prompt, .lc-student-assessment-header > p) { overflow-wrap: anywhere; }
+#liveclassroom-root .lc-student-assessment-question :is(.lc-markdown-body, .lc-assessment-answer-label, .lc-assessment-response-options) { max-width: 80ch; }
+#liveclassroom-root .lc-assessment-outline ol { list-style: none; margin: 0; padding: 0; }
+#liveclassroom-root .lc-assessment-outline [aria-current="true"] { background: var(--lc-accent-soft); color: var(--lc-accent); }
+#liveclassroom-root .lc-assessment-main { align-items: start; }
+#liveclassroom-root .lc-assessment-items { min-width: 0; }
+#liveclassroom-root .lc-deck-slide-form textarea { box-sizing: border-box; width: 100%; }
+#liveclassroom-root .lc-results-layout:not(:has(.lc-results-submission)) { grid-template-columns: 16rem minmax(0, 1fr); }
+#liveclassroom-root .lc-result-grade-override .lc-form { display: grid; gap: .75rem; }
+#liveclassroom-root .lc-result-grade-override label { display: grid; gap: .3rem; }
+#liveclassroom-root .lc-session-filters { align-items: end; margin-block: 1rem; }
+#liveclassroom-root .lc-session-filters label { display: grid; gap: .25rem; }
+#liveclassroom-root .lc-builder-outline { display: flex; flex-direction: column; gap: .4rem; min-width: 0; align-self: start; }
+#liveclassroom-root .lc-builder-outline button { width: 100%; text-align: start; white-space: normal; overflow-wrap: anywhere; }
+#liveclassroom-root .lc-builder-outline [aria-current="true"] { color: var(--lc-accent); background: var(--lc-accent-soft); }
+#liveclassroom-root .lc-builder-layout:has(.lc-builder-outline) { display: grid; grid-template-columns: 13rem minmax(0, 1fr); gap: 1rem; }
+#liveclassroom-root .lc-builder-layout:has(.lc-builder-outline) > .lc-builder-sidebar { grid-column: 2; max-width: none; width: 100%; }
+
+@container classroom-workspace (min-width: 90rem) {
+  #liveclassroom-root .lc-builder-layout:has(.lc-builder-outline) { grid-template-columns: 13rem minmax(0, 1fr) 24rem; }
+  #liveclassroom-root .lc-builder-layout:has(.lc-builder-outline) > .lc-builder-sidebar { grid-column: 3; }
+  #liveclassroom-root .lc-builder-layout:has(.lc-builder-sidebar[style*="display: none"]) { grid-template-columns: 13rem minmax(0, 1fr); }
+}
+
+@container classroom-workspace (min-width: 70rem) {
+  #liveclassroom-root .lc-student-assessment-layout { grid-template-columns: 12rem minmax(0, 1fr) 16rem; }
+  #liveclassroom-root .lc-attempt-status { width: 100%; padding: 1rem; position: sticky; top: 4.5rem; overflow-wrap: anywhere; }
+  #liveclassroom-root .lc-question-bank-main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(20rem, 1fr); gap: 1rem; align-items: start; }
+  #liveclassroom-root .lc-question-bank-main > .lc-question-filters { grid-column: 1 / -1; width: 100%; padding: 1rem; }
+  #liveclassroom-root .lc-question-bank-main > .lc-question-list { grid-column: 1; grid-row: 2 / span 2; }
+  #liveclassroom-root .lc-question-bank-main > :is(.lc-question-preview, .lc-question-editor) { grid-column: 2; width: 100%; margin: 0; padding: 1rem; }
+  #liveclassroom-root .lc-question-metadata-form { grid-template-columns: minmax(0, 1fr); }
+  #liveclassroom-root .lc-assessment-layout { grid-template-columns: 14rem minmax(0, 1fr); }
+  #liveclassroom-root .lc-assessment-main { grid-template-columns: minmax(0, 1.4fr) minmax(20rem, 1fr); }
+  #liveclassroom-root .lc-assessment-main > .lc-assessment-form { grid-column: 2; grid-row: 1 / span 3; }
+  #liveclassroom-root .lc-assessment-main > .lc-assessment-items { grid-column: 1; grid-row: 1; }
+  #liveclassroom-root .lc-assessment-main > :is(.lc-assessment-preview, .lc-assessment-picker) { grid-column: 1; }
+  #liveclassroom-root .lc-deck-layout { grid-template-columns: 12rem minmax(0, 1fr); }
+  #liveclassroom-root .lc-deck-editor { display: grid; grid-template-columns: minmax(0, 1.8fr) minmax(18rem, 1fr); gap: 1rem; align-items: start; }
+  #liveclassroom-root .lc-deck-toolbar { grid-column: 1 / -1; }
+  #liveclassroom-root .lc-deck-edit-layout { grid-template-columns: 9rem minmax(0, 1fr); }
+  #liveclassroom-root .lc-deck-preview { margin: 0; min-width: 0; }
+  #liveclassroom-root .lc-learning-classes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+}
+@container classroom-workspace (max-width: 69.99rem) {
+  #liveclassroom-root .lc-attempt-status { grid-column: 1 / -1; width: 100%; padding: 1rem; }
+  #liveclassroom-root .lc-results-layout,
+  #liveclassroom-root .lc-results-layout:not(:has(.lc-results-submission)) { grid-template-columns: 13rem minmax(0, 1fr); }
+  #liveclassroom-root .lc-results-submission { grid-column: 1 / -1; }
+  #liveclassroom-root .lc-builder-layout { grid-template-columns: minmax(0, 1fr); }
+  #liveclassroom-root .lc-builder-sidebar { width: 100%; max-width: none; }
+  #liveclassroom-root .lc-presenter { grid-template-columns: minmax(0, 1fr); grid-template-areas: "current" "navigation" "next" "strip"; }
+}
+@container classroom-workspace (max-width: 44rem) {
+  #liveclassroom-root .lc-builder-layout:has(.lc-builder-outline) { grid-template-columns: minmax(0, 1fr); }
+  #liveclassroom-root .lc-builder-layout:has(.lc-builder-outline) > .lc-builder-sidebar { grid-column: 1; }
+  #liveclassroom-root :is(.lc-assessment-layout, .lc-student-assessment-layout, .lc-question-bank-layout, .lc-deck-layout, .lc-deck-edit-layout, .lc-results-layout),
+  #liveclassroom-root .lc-results-layout:not(:has(.lc-results-submission)) { grid-template-columns: minmax(0, 1fr); }
+  #liveclassroom-root :is(.lc-assessment-list, .lc-student-assessment-nav, .lc-results-filters) { position: static; }
+  #liveclassroom-root .lc-assessment-main { grid-template-columns: minmax(0, 1fr); }
+  #liveclassroom-root .lc-question-metadata-form { grid-template-columns: minmax(0, 1fr); }
+  #liveclassroom-root .lc-student-assessment-nav ol { display: flex; flex-wrap: wrap; }
+  #liveclassroom-root .lc-student-assessment-nav li { flex: 0 0 3rem; }
+  #liveclassroom-root .lc-shell-content :is(.lc-actions, .lc-builder-topbar, .lc-deck-toolbar) { flex-wrap: wrap; }
 }

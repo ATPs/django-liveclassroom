@@ -4,12 +4,10 @@
 {% block content %}
   <div class="lc-page-stack">
     <section class="lc-card lc-wide lc-help-page">
-      <nav class="lc-help-nav" aria-label="{% if active_lang == 'zh-Hans' %}语言和页面导航{% else %}Language and page navigation{% endif %}">
-        <a href="{% url 'liveclassroom:home' %}?lang={{ active_lang|urlencode }}">{% if active_lang == "zh-Hans" %}首页{% else %}Home{% endif %}</a>
-        <span aria-hidden="true">·</span>
-        <a href="{% url 'liveclassroom:help' %}?lang=en">English</a>
-        <span aria-hidden="true">/</span>
-        <a href="{% url 'liveclassroom:help' %}?lang=zh-Hans">简体中文</a>
+      <nav class="lc-help-nav" aria-label="{% if active_lang == 'zh-Hans' %}帮助主题{% else %}Help topics{% endif %}">
+        <a href="#help-start">{% if active_lang == "zh-Hans" %}开始使用{% else %}Getting started{% endif %}</a>
+        <a href="#help-navigation">{% if active_lang == "zh-Hans" %}导航与返回{% else %}Navigation and Back{% endif %}</a>
+        <a href="#help-tasks">{% if active_lang == "zh-Hans" %}常见任务{% else %}Common tasks{% endif %}</a>
       </nav>
 
       {% if active_lang == "zh-Hans" %}
@@ -17,14 +15,14 @@
         <h1>LiveClassroom 帮助</h1>
         <p class="lc-help-lead">按下面的路径准备内容、开始课堂、交付测验和查看结果。每一步都说明了当前页面能做什么，以及还需要什么条件。</p>
 
-        <h2>教师快速路径</h2>
+        <h2 id="help-start">教师快速路径</h2>
         <ol class="lc-help-steps">
           <li><strong>准备组织：</strong>打开<a href="{% url 'liveclassroom:teacher-dashboard' %}?lang={{ active_lang|urlencode }}">教师工作区</a>，可选地创建 Course（课程主题）和 Class（学生班级）。保存的内容需要账号；即时课堂仍可让访客使用加入码进入。</li>
           <li><strong>编写内容：</strong>在<a href="{% url 'liveclassroom:flow-builder' %}?lang={{ active_lang|urlencode }}">教案编辑器</a>添加活动，或导入 Markdown / YAML。要写幻灯片可打开<a href="{% url 'liveclassroom:deck-workspace' %}?lang={{ active_lang|urlencode }}">幻灯片工作区</a>；启用主机适配器后，可使用 VaultPub 的笔记和 Slide View。</li>
-          <li><strong>共享或复制：</strong>命名内容共享目前提供授权 API（<a href="{% url 'liveclassroom:api-v1-content-shares' %}">共享接口</a>），接收者得到独立副本。工作区中的统一共享按钮尚未提供；请不要把此页面当作公开分享。</li>
+          <li><strong>共享或复制：</strong>在内容编辑器中使用共享控件，或从“与我共享”打开已授权内容。复制得到独立副本。</li>
           <li><strong>开始授课：</strong>回到<a href="{% url 'liveclassroom:teacher-dashboard' %}?lang={{ active_lang|urlencode }}">教师工作区</a>，从教案创建课堂，再在教师控制台开始课堂、发布活动和控制大屏/学生端。学生可从<a href="{% url 'liveclassroom:join' %}?lang={{ active_lang|urlencode }}">加入页面</a>输入加入码。</li>
           <li><strong>创建测验：</strong>在<a href="{% url 'liveclassroom:assessment-workspace' %}?lang={{ active_lang|urlencode }}">测验编辑器</a>选择题目、预览固定版本并发布。学生使用教师分享的测验链接开始或继续作答，答案会保存到其账号，完成后提交。</li>
-          <li><strong>复盘结果：</strong>教师可以按授权范围使用<a href="{% url 'liveclassroom:api-v1-assessment-history' %}">历史接口</a>和结果导出接口；学生只能查看已发布的结果。班级成绩、导出和重评分需要对应的班级或测验 ID，目前没有统一的结果首页。</li>
+          <li><strong>复盘结果：</strong>打开<a href="{% url 'liveclassroom:teacher-results' %}?lang={{ active_lang|urlencode }}">结果与评分</a>，选择测验、提交和题目，或打开人工评分队列。学生从“我的作答与结果”查看教师已发布的结果。</li>
         </ol>
 
         <aside class="lc-help-warning" role="note">
@@ -51,11 +49,13 @@
           <li>结束课堂会关闭新的作答和课堂聊天；归档保留记录，删除已归档课堂会永久移除它及其记录。</li>
         </ul>
 
-        <h2>常见任务</h2>
+        <h2 id="help-navigation">导航与返回</h2>
+        <p>左侧导航可折叠为图标栏；手机上通过顶部按钮打开。教学和学习模式只显示你有权限访问的内容。课程、班级、题目和编辑面板可通过链接重新打开；浏览器返回和前进用于恢复浏览位置。未保存的编辑会提示保存、放弃或留在此页。返回不会撤销已发布活动，也不会暂停测验计时。</p>
+        <h2 id="help-tasks">常见任务</h2>
         <div class="lc-help-tasks">
           <details open><summary>创建可复用教案</summary><p>打开<a href="{% url 'liveclassroom:flow-builder' %}?lang={{ active_lang|urlencode }}">教案编辑器</a>，设置标题，添加活动或导入 Markdown / YAML、JSON，保存后回到工作区开始课堂。</p></details>
           <details><summary>创建即时课堂</summary><p>在<a href="{% url 'liveclassroom:teacher-dashboard' %}?lang={{ active_lang|urlencode }}">教师工作区</a>选择即时课堂，填写信息并创建；进入控制台后确认加入码、准入方式和频道。</p></details>
-          <details><summary>查看学生视角</summary><p>从教师控制台打开学生视图并选择已有参与者。查看不会新增出勤；只有明确启用代为操作后，操作才会写入真实课堂记录。</p></details>
+          <details><summary>查看学生视角</summary><p>从角色菜单选择“学生预览”，选择课堂后明确点击“开始测试学生”。打开页面、刷新或浏览器返回不会自动创建测试参与者。</p></details>
         </div>
 
         <h2>页面状态、键盘和手机</h2>
@@ -65,14 +65,14 @@
         <h1>LiveClassroom help</h1>
         <p class="lc-help-lead">Follow this path to prepare content, start class, deliver an assessment, and review results. Each step states what is available now and what requires another setup.</p>
 
-        <h2>Simple teacher path: A safe sequence for starting class</h2>
+        <h2 id="help-start">Getting started</h2>
         <ol class="lc-help-steps">
           <li><strong>Set up organization:</strong> Open the <a href="{% url 'liveclassroom:teacher-dashboard' %}?lang={{ active_lang|urlencode }}">teacher workspace</a> and optionally create a Course (subject) and Class (learner cohort). Saved content uses an account; an instant classroom still supports guest entry with a join code.</li>
           <li><strong>Author content:</strong> Use the <a href="{% url 'liveclassroom:flow-builder' %}?lang={{ active_lang|urlencode }}">lesson builder</a> to add activities or import Markdown / YAML. Use the <a href="{% url 'liveclassroom:deck-workspace' %}?lang={{ active_lang|urlencode }}">slide-deck workspace</a> for native slides. VaultPub note and Slide View rendering is available when the host adapter is enabled.</li>
-          <li><strong>Share or copy:</strong> Named content sharing is available through the authorized <a href="{% url 'liveclassroom:api-v1-content-shares' %}">sharing API</a>; a recipient receives an independent copy. A unified sharing button in the workspace is not available yet, so this page never acts as a public share.</li>
+          <li><strong>Share or copy:</strong> Use the sharing controls in content editors, or open authorized content from Shared with me. Copying creates an independent copy.</li>
           <li><strong>Teach:</strong> Return to the <a href="{% url 'liveclassroom:teacher-dashboard' %}?lang={{ active_lang|urlencode }}">teacher workspace</a>, create a classroom from a lesson, then start class, publish activities, and control the display and student channels in the console. Students can enter through the <a href="{% url 'liveclassroom:join' %}?lang={{ active_lang|urlencode }}">join page</a> with the code.</li>
           <li><strong>Create an assessment:</strong> Open the <a href="{% url 'liveclassroom:assessment-workspace' %}?lang={{ active_lang|urlencode }}">assessment builder</a> to choose questions, preview pinned versions, and publish. Students use the run link you provide to start or resume; answers save to their account and can then be submitted.</li>
-          <li><strong>Review results:</strong> Teachers can use the authorized <a href="{% url 'liveclassroom:api-v1-assessment-history' %}">history API</a> and result-export endpoints; students see only released result dimensions. Class grades, exports, and regrading require the relevant class or run ID and do not yet have one general results landing page.</li>
+          <li><strong>Review results:</strong> Open <a href="{% url 'liveclassroom:teacher-results' %}?lang={{ active_lang|urlencode }}">Results and grading</a>, select an assessment, submission, and question, or open the manual grading queue. Students use My attempts and results to view results released by their teacher.</li>
         </ol>
 
         <aside class="lc-help-warning" role="note">
@@ -99,11 +99,13 @@
           <li>Ending a classroom closes new responses and chat; archiving keeps the record, while deleting an archived classroom permanently removes it and its records.</li>
         </ul>
 
-        <h2>Common tasks</h2>
+        <h2 id="help-navigation">Navigation and Back</h2>
+        <p>Collapse the sidebar to an icon strip, or use the header button to open it on a phone. Teaching and Learning modes show permitted destinations. Links can reopen courses, classes, questions, and editor panels; browser Back and Forward restore browsing state. Unsaved editing offers Save, Discard, or Stay. Back never reverses a published activity or pauses an assessment timer.</p>
+        <h2 id="help-tasks">Common tasks</h2>
         <div class="lc-help-tasks">
           <details open><summary>Create a reusable lesson</summary><p>Open the <a href="{% url 'liveclassroom:flow-builder' %}?lang={{ active_lang|urlencode }}">lesson builder</a>, set a title, add activities or import Markdown / YAML or JSON, save it, then return to the workspace to start a classroom.</p></details>
           <details><summary>Create an instant classroom</summary><p>Choose Instant classroom in the <a href="{% url 'liveclassroom:teacher-dashboard' %}?lang={{ active_lang|urlencode }}">teacher workspace</a>, enter the details, and check the join code, admission mode, and channels in the console.</p></details>
-          <details><summary>Inspect the student view</summary><p>Open Student view from a teacher console and select an existing participant. Inspection does not create attendance; actions affect the participant's real record only after act-as mode is explicitly activated.</p></details>
+          <details><summary>Try the student view</summary><p>Choose Student preview in the role menu, select a session, then explicitly select Start test student. Opening, refreshing, or returning to the page never starts test participation automatically.</p></details>
         </div>
 
         <h2>Empty, loading, error, keyboard, and mobile guidance</h2>

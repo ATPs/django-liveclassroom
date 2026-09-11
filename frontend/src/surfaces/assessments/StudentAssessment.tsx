@@ -617,6 +617,25 @@ function StudentAssessment({ runUrl, startUrl, historyUrl, initialAttemptId = ""
     } finally { setSubmitting(false); }
   };
 
+  const goNext = () => {
+    const current = attemptRef.current;
+    if (!current || submitting) return;
+    const item = current.items[selected];
+    if (!item) return;
+    const navigation = current.navigation;
+    const isForwardCommand = navigation?.mode === "forward_only"
+      && navigation.current_item_key === item.key
+      && navigation.can_go_next;
+    if (isForwardCommand) {
+      void advance();
+      return;
+    }
+    const next = current.items[selected + 1];
+    if (next && (navigation?.mode !== "forward_only" || next.position <= navigation.highest_accessible_item_position)) {
+      selectQuestion(next.key);
+    }
+  };
+
   const submit = async () => {
     if (!attempt || submitting || attempt.status !== "in_progress") return;
     setSubmitting(true); setError(""); setNotice("");
@@ -681,12 +700,25 @@ function StudentAssessment({ runUrl, startUrl, historyUrl, initialAttemptId = ""
               {attempt.items[selected] ? <QuestionCard item={attempt.items[selected]} answer={answers[attempt.items[selected].key] ?? {}} status={statuses[attempt.items[selected].key] ?? "idle"} disabled={submitting || Boolean(attempt.navigation?.mode === "forward_only" && attempt.navigation.locked_item_keys.includes(attempt.items[selected].key))} onChange={(next) => changeAnswer(attempt.items[selected], next)} onRetry={() => controller.retry(attempt.items[selected].key)} /> : <p>{t("assessmentNoQuestions")}</p>}
               <div className="lc-student-assessment-actions">
                 <button type="button" className="lc-btn lc-btn-outline" onClick={() => { const prior = attempt.items[selected - 1]; if (prior) selectQuestion(prior.key); }} disabled={selected === 0 || submitting}>{t("assessmentPrevious")}</button>
-                {attempt.navigation?.can_go_next ? <button type="button" className="lc-btn lc-btn-outline" onClick={() => void advance()} disabled={submitting}>{t("assessmentNext")}</button> : null}
+                {(() => {
+                  const navigation = attempt.navigation;
+                  const next = attempt.items[selected + 1];
+                  const canReviewNext = Boolean(next && (navigation?.mode !== "forward_only" || next.position <= navigation.highest_accessible_item_position));
+                  const canAdvance = Boolean(navigation?.mode === "forward_only" && navigation.current_item_key === attempt.items[selected]?.key && navigation.can_go_next);
+                  return canReviewNext || canAdvance ? <button type="button" className="lc-btn lc-btn-outline" onClick={goNext} disabled={submitting}>{t("assessmentNext")}</button> : null;
+                })()}
                 <button type="button" className="lc-btn lc-btn-primary" onClick={() => setConfirming(true)} disabled={submitting}>{t("assessmentSubmit")}</button>
               </div>
           {confirming ? <section className="lc-card lc-assessment-submit-confirm" role="dialog" aria-modal="false" aria-labelledby="assessment-submit-heading"><h2 id="assessment-submit-heading">{t("assessmentConfirmSubmit")}</h2><p>{t("assessmentConfirmSubmitDetails")}</p><div className="lc-actions"><button type="button" className="lc-btn lc-btn-primary" onClick={() => void submit()} disabled={submitting}>{submitting ? t("assessmentSubmitting") : t("assessmentSubmitNow")}</button><button type="button" className="lc-btn lc-btn-outline" onClick={() => setConfirming(false)} disabled={submitting}>{t("cancel")}</button></div></section> : null}
           {leavePending ? <section className="lc-card lc-assessment-submit-confirm" role="dialog" aria-modal="true" aria-labelledby="assessment-leave-heading"><h2 id="assessment-leave-heading">{locale.startsWith("zh") ? "答案尚未保存" : "Answers have not been saved"}</h2><p>{locale.startsWith("zh") ? "无法保存最新答案。您可以重试、离开并放弃未保存答案，或留在此页面。" : "The latest answers could not be saved. Retry, leave with unsaved answers, or stay on this page."}</p><div className="lc-actions"><button type="button" className="lc-btn lc-btn-primary" disabled={leaving} onClick={() => flushBeforeLeaving(leavePending)}>{leaving ? (locale.startsWith("zh") ? "正在保存…" : "Saving…") : (locale.startsWith("zh") ? "重试保存" : "Retry save")}</button><button type="button" className="lc-btn lc-btn-danger" disabled={leaving} onClick={() => { const navigate = leavePending; setLeavePending(null); navigate(); }}>{locale.startsWith("zh") ? "离开并放弃未保存答案" : "Leave with unsaved answers"}</button><button type="button" className="lc-btn lc-btn-outline" disabled={leaving} onClick={() => setLeavePending(null)}>{locale.startsWith("zh") ? "留在此页面" : "Stay"}</button></div></section> : null}
             </section>
+            <aside className="lc-card lc-attempt-status" aria-label={locale.startsWith("zh") ? "作答状态" : "Attempt status"}>
+              <h2>{locale.startsWith("zh") ? "作答状态" : "Attempt status"}</h2>
+              <p>{locale.startsWith("zh") ? "作答次数" : "Attempt"}: {attempt.attempt_number}</p>
+              <p>{locale.startsWith("zh") ? "题目" : "Question"}: {selected + 1} / {attempt.items.length}</p>
+              {attempt.deadline_at ? <><p>{locale.startsWith("zh") ? "结束时间" : "Deadline"}: <time dateTime={attempt.deadline_at}>{new Date(attempt.deadline_at).toLocaleString(locale)}</time></p><p>{locale.startsWith("zh") ? "离开或返回页面不会暂停计时。" : "The timer keeps running when you leave or return."}</p></> : null}
+              <p>{attempt.navigation?.mode === "forward_only" ? (locale.startsWith("zh") ? "仅向前作答；已锁定的题目不能修改。" : "Forward-only attempt; locked answers cannot be changed.") : (locale.startsWith("zh") ? "可以自由选择题目。" : "You can move freely between questions.")}</p>
+            </aside>
           </div>
         </>
       )}
