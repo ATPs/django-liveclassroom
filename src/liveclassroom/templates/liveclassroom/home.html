@@ -7,7 +7,7 @@
       <p class="lc-kicker">{% translate "Reusable Django app" %}</p>
       <h1>LiveClassroom</h1>
       <p>{% translate "Live classroom foundations are installed and ready for authoring." %}</p>
-      <p><a href="{% url 'liveclassroom:teacher-dashboard' %}?lang={{ active_lang|urlencode }}">{% translate "Teacher console" %}</a> · <a href="{% url 'liveclassroom:join' %}?lang={{ active_lang|urlencode }}">{% translate "Join a session" %}</a> · {% include "liveclassroom/_help_link.html" %}</p>
+      <p><a href="{% url 'liveclassroom:teacher-dashboard' %}?lang={{ active_lang|urlencode }}">{% translate "Teacher console" %}</a> · <a href="{% url 'liveclassroom:learning-home' %}?lang={{ active_lang|urlencode }}">{% translate "My courses" %}</a> · <a href="{% url 'liveclassroom:join' %}?lang={{ active_lang|urlencode }}">{% translate "Join a session" %}</a> · {% include "liveclassroom/_help_link.html" %}</p>
     </section>
   </div>
 {% endblock %}

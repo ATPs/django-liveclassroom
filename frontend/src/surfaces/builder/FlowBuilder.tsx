@@ -1,6 +1,6 @@
 import { ActivityEditor } from "../../activities/ActivityEditor.js";
 import * as React from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { deleteJson, getJson, postJson, putJson } from "../../protocol.js";
 import { getLocale, type Locale, type TranslationKey } from "../../locales.js";
@@ -8,6 +8,7 @@ import { LanguageSwitcher, LocaleProvider, useLocale, useT } from "../../i18n.js
 import { mountAiChat } from "../../ai_chat.js";
 import { FilePicker } from "../FilePicker.js";
 import { QuestionBankWorkspace } from "../questions/QuestionBankWorkspace.js";
+import { Breadcrumbs, routeUrl, updateLocation, useLocationPath, useNavigationHeading, useQuerySelection } from "../../navigation.js";
 
 export type FlowSummary = {
   id: number;
@@ -678,17 +679,28 @@ function FlowBuilder({
   flowsUrl,
   sessionId,
   initialFlowId,
+  flowUrlTemplate,
+  libraryUrl,
   isSuperuser,
 }: {
   flowsUrl: string;
   sessionId: number | null;
   initialFlowId: number | null;
+  flowUrlTemplate: string;
+  libraryUrl: string;
   isSuperuser: boolean;
 }) {
   const t = useT();
   const locale = useLocale();
   const apiRoot = new URL("../", new URL(flowsUrl, window.location.href)).toString();
   const apiUrl = useCallback((path: string) => new URL(path.replace(/^\/+/, ""), new URL(apiRoot, window.location.href)).toString(), [apiRoot]);
+  const locationPath = useLocationPath();
+  const [stepSelection, selectStepUrl] = useQuerySelection("step");
+  useNavigationHeading("lc-flow-heading");
+  const routeFlowId = useMemo(() => {
+    const match = new URL(locationPath, window.location.href).pathname.match(/\/flows\/(\d+)\/builder\/?$/);
+    return match ? Number(match[1]) : initialFlowId;
+  }, [initialFlowId, locationPath]);
 
   const [flows, setFlows] = useState<FlowSummary[]>([]);
   const [currentFlow, setCurrentFlow] = useState<FlowDetail | null>(null);
@@ -736,9 +748,17 @@ function FlowBuilder({
   }, [apiUrl, loadFlow, showStatus]);
 
   useEffect(() => {
-    if (initialFlowId) void loadFlow(initialFlowId);
+    if (routeFlowId) void loadFlow(routeFlowId);
     else void loadFlows();
-  }, [initialFlowId, loadFlow, loadFlows]);
+  }, [routeFlowId, loadFlow, loadFlows]);
+
+  useEffect(() => {
+    if (!currentFlow || !stepSelection) return;
+    const step = currentFlow.steps.find((item) => String(item.id) === stepSelection);
+    if (!step) return;
+    setPreviewOpen(new Set([step.id]));
+    window.requestAnimationFrame(() => document.getElementById(`step-card-${step.id}`)?.scrollIntoView({ block: "nearest" }));
+  }, [currentFlow, stepSelection]);
 
   useEffect(() => {
     if (!sidebarRef.current) return;
@@ -764,7 +784,7 @@ function FlowBuilder({
       const created = await postJson<FlowSummary>(apiUrl("flows/"), { title: title.trim() });
       showStatus(t("flowUpdated"));
       await loadFlows();
-      await loadFlow(created.id);
+      openFlow(created.id);
     } catch (err) {
       showStatus(err instanceof Error ? err.message : t("failedCreateFlow"), true);
     }
@@ -780,7 +800,7 @@ function FlowBuilder({
       const duplicated = await postJson<FlowDetail>(apiUrl(`flows/${currentFlow.id}/duplicate/`), payload);
       showStatus(t("flowUpdated"));
       await loadFlows();
-      await loadFlow(duplicated.id);
+      openFlow(duplicated.id);
     } catch (err) {
       showStatus(err instanceof Error ? err.message : t("failedDuplicateFlow"), true);
     }
@@ -794,7 +814,7 @@ function FlowBuilder({
       const flow = await postJson<FlowDetail>(apiUrl(`sessions/${sessionId}/save-flow/`), { title: title.trim() });
       showStatus(t("flowUpdated"));
       await loadFlows();
-      await loadFlow(flow.id);
+      openFlow(flow.id);
     } catch (err) {
       showStatus(err instanceof Error ? err.message : t("failedSaveSessionFlow"), true);
     }
@@ -856,12 +876,18 @@ function FlowBuilder({
   };
 
   const togglePreview = (id: number) => {
+    selectStepUrl(String(id));
     setPreviewOpen((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
+  };
+
+  const openFlow = (flowId: number, { replace = false }: { replace?: boolean } = {}) => {
+    const url = routeUrl(flowUrlTemplate.replace(/\/0\//, `/${flowId}/`), { flow_id: null, flow: null, step: null });
+    updateLocation(url, { replace, focusId: "lc-flow-heading" });
   };
 
   const activeFlowId = currentFlow?.id ?? initialFlowId;
@@ -871,18 +897,19 @@ function FlowBuilder({
     <>
       <LanguageSwitcher />
       <div className="lc-builder-root">
+        <Breadcrumbs items={[{ href: libraryUrl, label: locale.startsWith("zh") ? "资料库" : "Library" }, { label: currentFlow?.title ?? t("builderTitle") }]} />
         <div className="lc-builder-layout">
           <div className="lc-builder-main">
             <div className="lc-builder-topbar">
               <div className="lc-builder-title-group">
-                <h2>{t("builderTitle")}</h2>
+                <h1 id="lc-flow-heading" tabIndex={-1}>{t("builderTitle")}</h1>
                 <label className="lc-builder-flow-select-label">
                   {t("flows")}:{" "}
                   <select
                     className="lc-builder-flow-select"
                     ref={flowSelectRef}
                     value={activeFlowId ? String(activeFlowId) : ""}
-                    onChange={(e) => void loadFlow(Number(e.target.value))}
+                    onChange={(e) => openFlow(Number(e.target.value))}
                   >
                     {flows.length === 0 ? (
                       <option value="">{t("noStepsYet")}</option>
@@ -979,7 +1006,7 @@ function FlowBuilder({
                       onTogglePreview={togglePreview}
                       onDelete={(s) => void deleteStep(s)}
                       onLaunch={(s) => void launchStep(s)}
-                      onEdit={setEditingStep}
+                      onEdit={(step) => { selectStepUrl(String(step.id)); setEditingStep(step); }}
                     />
                   ))
                 )}
@@ -1012,6 +1039,9 @@ export function mountBuilder(container: HTMLElement): void {
     if (param) flowId = parseInt(param, 10) || null;
   }
   const isSuperuser = dataset.isSuperuser === "true";
+  const flowUrlTemplate = dataset.flowUrlTemplate;
+  const libraryUrl = dataset.libraryUrl;
+  if (!flowUrlTemplate || !libraryUrl) return;
 
   const root = createRoot(container);
   root.render(
@@ -1020,6 +1050,8 @@ export function mountBuilder(container: HTMLElement): void {
         flowsUrl={flowsUrl}
         sessionId={sessionId}
         initialFlowId={flowId}
+        flowUrlTemplate={flowUrlTemplate}
+        libraryUrl={libraryUrl}
         isSuperuser={isSuperuser}
       />
     </LocaleProvider>,

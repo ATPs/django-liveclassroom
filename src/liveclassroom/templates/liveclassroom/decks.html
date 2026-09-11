@@ -6,6 +6,9 @@
  data-api-root="{% url 'liveclassroom:api-v1-decks' %}"
  data-assets-url="{% url 'liveclassroom:api-v1-assets' %}"
  data-preview-template="{% url 'liveclassroom:deck-preview' 0 %}"
+ data-deck-url-template="{% url 'liveclassroom:deck-workspace-detail' 0 %}"
+ data-library-url="{% url 'liveclassroom:teacher-library-decks' %}"
+ data-deck-id="{{ deck_id|default:'' }}"
  data-locale="{{ active_lang|default:'en' }}">
   <h1>{% translate "Slide decks" %}</h1>
 </section>

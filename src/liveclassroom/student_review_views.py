@@ -3,9 +3,11 @@
 from uuid import UUID
 
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.http import Http404
 from django.urls import reverse
 from django.views.generic import TemplateView
 
+from .models import AssessmentAttempt
 from .views import LocaleContextMixin
 
 _URL_MARKER = "__id__"
@@ -29,6 +31,9 @@ class StudentReviewView(LoginRequiredMixin, LocaleContextMixin, TemplateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+        attempt_id = kwargs.get("attempt_id")
+        if attempt_id and not AssessmentAttempt.objects.filter(public_id=attempt_id, user=self.request.user).exists():
+            raise Http404
         context.update(
             {
                 "history_url": reverse("liveclassroom:api-v1-assessment-history"),
@@ -37,6 +42,9 @@ class StudentReviewView(LoginRequiredMixin, LocaleContextMixin, TemplateView):
                 "available_url_template": _url_template("liveclassroom:api-v1-available-assessment-run"),
                 "assessment_url_template": _url_template("liveclassroom:assessment-attempt"),
                 "export_url_template": _url_template("liveclassroom:api-v1-attempt-result-export"),
+                "review_page_url_template": _url_template("liveclassroom:learn-attempt-review"),
+                "history_page_url": reverse("liveclassroom:assessment-history"),
+                "initial_attempt_id": str(attempt_id) if attempt_id else "",
             }
         )
         return context

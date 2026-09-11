@@ -1,9 +1,11 @@
 import * as React from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { createRoot } from "react-dom/client";
 import { ActivityEditor, type EditableSnapshot } from "../../activities/ActivityEditor.js";
 import { MarkdownView } from "../../activities/MarkdownView.js";
 import { deleteJson, getJson, patchJson, postJson } from "../../protocol.js";
-import { useLocale } from "../../i18n.js";
+import { LocaleProvider, useLocale } from "../../i18n.js";
+import { queryValue, updateQuery, useLocationPath, useNavigationHeading, useQuerySelection } from "../../navigation.js";
 
 type QuestionBank = {
   id: number;
@@ -38,12 +40,14 @@ type QuestionBankWorkspaceProps = {
   picker?: boolean;
   onPick?: (definitionId: number, currentRevisionId?: number | null, question?: QuestionPickerSelection) => void | Promise<void>;
   pickerLabel?: { en: string; zh: string };
+  urlState?: boolean;
 };
 
 type Panel = "bank" | "question" | "edit" | null;
 
 function endpoint(apiRoot: string, path: string): string {
   const base = new URL(apiRoot, window.location.href);
+  base.pathname = base.pathname.replace(/\/(?:workspace|flows)\/?$/, "/");
   if (!base.pathname.endsWith("/")) base.pathname += "/";
   return new URL(path.replace(/^\/+/, ""), base).toString();
 }
@@ -149,7 +153,7 @@ function metadataFrom(question?: QuestionDetail | null): { topic: string; diffic
   };
 }
 
-export function QuestionBankWorkspace({ apiRoot, picker = false, onPick, pickerLabel }: QuestionBankWorkspaceProps) {
+export function QuestionBankWorkspace({ apiRoot, picker = false, onPick, pickerLabel, urlState = false }: QuestionBankWorkspaceProps) {
   const locale = useLocale();
   const tr = useCallback((en: string, zh: string) => localText(locale, en, zh), [locale]);
   const [banks, setBanks] = useState<QuestionBank[]>([]);
@@ -157,27 +161,61 @@ export function QuestionBankWorkspace({ apiRoot, picker = false, onPick, pickerL
   const [questions, setQuestions] = useState<QuestionSummary[]>([]);
   const [selectedQuestion, setSelectedQuestion] = useState<QuestionDetail | null>(null);
   const [panel, setPanel] = useState<Panel>(null);
-  const [query, setQuery] = useState("");
-  const [tag, setTag] = useState("");
-  const [topic, setTopic] = useState("");
-  const [difficulty, setDifficulty] = useState("");
-  const [typeKey, setTypeKey] = useState("");
+  const [query, setQuery] = useState(() => urlState ? queryValue("q") ?? "" : "");
+  const [tag, setTag] = useState(() => urlState ? queryValue("tag") ?? "" : "");
+  const [topic, setTopic] = useState(() => urlState ? queryValue("topic") ?? "" : "");
+  const [difficulty, setDifficulty] = useState(() => urlState ? queryValue("difficulty") ?? "" : "");
+  const [typeKey, setTypeKey] = useState(() => urlState ? queryValue("type") ?? "" : "");
   const [bankTitle, setBankTitle] = useState("");
   const [metadata, setMetadata] = useState(metadataFrom());
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [bankSelection, selectBankUrl] = useQuerySelection("bank");
+  const [questionSelection, selectQuestionUrl] = useQuerySelection("question");
+  const [panelSelection, selectPanelUrl] = useQuerySelection("panel");
+  const locationPath = useLocationPath();
+  useNavigationHeading("lc-question-bank-heading");
 
   const loadBanks = useCallback(async (preferredId?: number) => {
     const data = await getJson<{ question_banks: QuestionBank[] }>(endpoint(apiRoot, "question-banks/"));
     const nextBanks = data.question_banks ?? [];
     setBanks(nextBanks);
     setSelectedBankId((previous) => {
-      const candidate = preferredId ?? previous;
+      const urlBank = urlState && bankSelection ? Number(bankSelection) : null;
+      const candidate = preferredId ?? urlBank ?? previous;
       return candidate && nextBanks.some((bank) => bank.id === candidate) ? candidate : nextBanks[0]?.id ?? null;
     });
-  }, [apiRoot]);
+  }, [apiRoot, bankSelection, urlState]);
+
+  useEffect(() => {
+    if (!urlState) return;
+    const setFromUrl = () => {
+      setQuery(queryValue("q") ?? ""); setTag(queryValue("tag") ?? ""); setTopic(queryValue("topic") ?? "");
+      setDifficulty(queryValue("difficulty") ?? ""); setTypeKey(queryValue("type") ?? "");
+      const panelValue = queryValue("panel");
+      setPanel(panelValue === "bank" || panelValue === "question" || panelValue === "edit" ? panelValue : null);
+    };
+    setFromUrl();
+  }, [locationPath, urlState]);
+
+  useEffect(() => {
+    if (!urlState) return;
+    const timer = window.setTimeout(() => updateQuery({ q: query || null, tag: tag || null, topic: topic || null, difficulty: difficulty || null, type: typeKey || null }, { replace: true }), 250);
+    return () => window.clearTimeout(timer);
+  }, [difficulty, query, tag, topic, typeKey, urlState]);
+
+  const selectBank = (bankId: number | null) => {
+    setSelectedBankId(bankId); setSelectedQuestion(null);
+    if (urlState) selectBankUrl(bankId ? String(bankId) : "");
+    if (urlState) selectQuestionUrl("", { replace: true });
+  };
+
+  const openPanel = (next: Panel) => {
+    setPanel(next);
+    if (urlState) selectPanelUrl(next ?? "");
+  };
 
   const loadQuestions = useCallback(async () => {
     if (!selectedBankId) {
@@ -216,10 +254,17 @@ export function QuestionBankWorkspace({ apiRoot, picker = false, onPick, pickerL
       const detail = await getJson<QuestionDetail>(endpoint(apiRoot, `question-banks/${selectedBankId}/questions/${question.id}/`));
       setSelectedQuestion(detail);
       setMetadata(metadataFrom(detail));
+      if (urlState) selectQuestionUrl(String(detail.id));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : tr("Unable to preview question.", "无法预览题目。"));
     }
   };
+
+  useEffect(() => {
+    if (!urlState || !questionSelection || selectedQuestion?.id === Number(questionSelection)) return;
+    const question = questions.find((item) => item.id === Number(questionSelection));
+    if (question) void selectQuestion(question);
+  }, [questionSelection, questions, selectedQuestion?.id, urlState]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const pickQuestion = async (question: QuestionSummary) => {
     if (!onPick) return;
@@ -243,7 +288,7 @@ export function QuestionBankWorkspace({ apiRoot, picker = false, onPick, pickerL
     setBusy(true); setError(""); setNotice("");
     try {
       const created = await postJson<QuestionBank>(endpoint(apiRoot, "question-banks/"), { title: bankTitle.trim() }, globalThis.crypto?.randomUUID?.());
-      setBankTitle(""); setPanel(null); await loadBanks(created.id); setNotice(tr("Bank created.", "题库已创建。"));
+      setBankTitle(""); openPanel(null); await loadBanks(created.id); selectBank(created.id); setNotice(tr("Bank created.", "题库已创建。"));
     } catch (reason) { setError(reason instanceof Error ? reason.message : tr("Unable to create bank.", "无法创建题库。")); }
     finally { setBusy(false); }
   };
@@ -259,7 +304,7 @@ export function QuestionBankWorkspace({ apiRoot, picker = false, onPick, pickerL
         metadata: normalizedMetadata(metadata),
       }, globalThis.crypto?.randomUUID?.());
       if (selectedBankId) await postJson(endpoint(apiRoot, `question-banks/${selectedBankId}/questions/`), { definition_id: created.id }, globalThis.crypto?.randomUUID?.());
-      setPanel(null); await loadQuestions(); await loadBanks(); setNotice(tr("Question created.", "题目已创建。"));
+      openPanel(null); await loadQuestions(); await loadBanks(); setNotice(tr("Question created.", "题目已创建。"));
     } catch (reason) { setError(reason instanceof Error ? reason.message : tr("Unable to create question.", "无法创建题目。")); }
     finally { setBusy(false); }
   };
@@ -273,7 +318,7 @@ export function QuestionBankWorkspace({ apiRoot, picker = false, onPick, pickerL
         definition: snapshot.content ?? {},
         metadata: normalizedMetadata(metadata),
       }, globalThis.crypto?.randomUUID?.());
-      setSelectedQuestion(updated); setPanel(null); await loadQuestions(); await loadBanks(); setNotice(tr("Question updated.", "题目已更新。"));
+      setSelectedQuestion(updated); openPanel(null); await loadQuestions(); await loadBanks(); setNotice(tr("Question updated.", "题目已更新。"));
     } catch (reason) { setError(reason instanceof Error ? reason.message : tr("Unable to update question.", "无法更新题目。")); }
     finally { setBusy(false); }
   };
@@ -295,7 +340,7 @@ export function QuestionBankWorkspace({ apiRoot, picker = false, onPick, pickerL
     const bank = banks.find((item) => item.id === selectedBankId);
     if (!bank || !window.confirm(tr(`Delete “${bank.title}”? Questions will remain reusable.`, `删除“${bank.title}”吗？题目仍会保留。`))) return;
     setBusy(true); setError("");
-    try { await deleteJson(endpoint(apiRoot, `question-banks/${selectedBankId}/`), globalThis.crypto?.randomUUID?.()); await loadBanks(); setSelectedQuestion(null); setNotice(tr("Bank deleted; questions remain.", "题库已删除，题目仍然保留。")); }
+    try { await deleteJson(endpoint(apiRoot, `question-banks/${selectedBankId}/`), globalThis.crypto?.randomUUID?.()); await loadBanks(); selectBank(null); setNotice(tr("Bank deleted; questions remain.", "题库已删除，题目仍然保留。")); }
     catch (reason) { setError(reason instanceof Error ? reason.message : tr("Unable to delete bank.", "无法删除题库。")); }
     finally { setBusy(false); }
   };
@@ -306,26 +351,33 @@ export function QuestionBankWorkspace({ apiRoot, picker = false, onPick, pickerL
   return (
     <section className="lc-question-bank-workspace" aria-label={tr("Question bank workspace", "题库工作区")}>
       <header className="lc-question-bank-header">
-        <div><p className="lc-kicker">{tr("Reusable questions", "可复用题目")}</p><h2>{tr("Question bank workspace", "题库工作区")}</h2></div>
-        <div className="lc-actions"><button type="button" className="lc-btn-sm lc-btn-primary" onClick={() => { setPanel("question"); setMetadata(metadataFrom()); }}>{tr("Create question", "创建题目")}</button><button type="button" className="lc-btn-sm lc-btn-outline" onClick={() => setPanel("bank")}>{tr("Create bank", "创建题库")}</button></div>
+        <div><p className="lc-kicker">{tr("Reusable questions", "可复用题目")}</p><h1 id="lc-question-bank-heading" tabIndex={-1}>{tr("Question bank workspace", "题库工作区")}</h1></div>
+        <div className="lc-actions"><button type="button" className="lc-btn-sm lc-btn-primary" onClick={() => { openPanel("question"); setMetadata(metadataFrom()); }}>{tr("Create question", "创建题目")}</button><button type="button" className="lc-btn-sm lc-btn-outline" onClick={() => openPanel("bank")}>{tr("Create bank", "创建题库")}</button></div>
       </header>
       {error ? <p className="lc-form-error" role="alert">{error}</p> : null}
       {notice ? <p className="lc-builder-status lc-builder-status-success" role="status">{notice}</p> : null}
       <div className="lc-question-bank-layout">
         <aside className="lc-card lc-question-bank-list" aria-label={tr("Question banks", "题库列表")}>
           <h3>{tr("Question banks", "题库")}</h3>
-          {loading ? <p>{tr("Loading…", "加载中…")}</p> : banks.length ? <ul>{banks.map((bank) => <li key={bank.id}><button type="button" className={bank.id === selectedBankId ? "lc-question-bank-item lc-question-bank-item-selected" : "lc-question-bank-item"} onClick={() => { setSelectedBankId(bank.id); setSelectedQuestion(null); }}>{bank.title}<span>{bank.question_count}</span></button></li>)}</ul> : <p className="lc-empty-notice">{tr("No banks yet. Create one or create an independent question.", "还没有题库。可以创建题库或独立题目。")}</p>}
+          {loading ? <p>{tr("Loading…", "加载中…")}</p> : banks.length ? <ul>{banks.map((bank) => <li key={bank.id}><button type="button" className={bank.id === selectedBankId ? "lc-question-bank-item lc-question-bank-item-selected" : "lc-question-bank-item"} onClick={() => selectBank(bank.id)}>{bank.title}<span>{bank.question_count}</span></button></li>)}</ul> : <p className="lc-empty-notice">{tr("No banks yet. Create one or create an independent question.", "还没有题库。可以创建题库或独立题目。")}</p>}
           {selectedBank ? <button type="button" className="lc-btn-sm lc-btn-danger" onClick={() => void removeBank()} disabled={busy}>{tr("Delete bank", "删除题库")}</button> : null}
         </aside>
         <div className="lc-question-bank-main">
           {selectedBankId ? <div className="lc-card lc-question-filters"><div className="lc-form-row"><label>{tr("Search", "搜索")}<input className="lc-input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={tr("Title or prompt", "标题或题干")} /></label><label>{tr("Tag", "标签")}<input className="lc-input" value={tag} onChange={(event) => setTag(event.target.value)} /></label><label>{tr("Topic", "主题")}<input className="lc-input" value={topic} onChange={(event) => setTopic(event.target.value)} /></label><label>{tr("Difficulty", "难度")}<select className="lc-select" value={difficulty} onChange={(event) => setDifficulty(event.target.value)}><option value="">{tr("Any", "不限")}</option><option value="easy">{tr("Easy", "简单")}</option><option value="medium">{tr("Medium", "中等")}</option><option value="hard">{tr("Hard", "困难")}</option></select></label><label>{tr("Type", "类型")}<input className="lc-input" value={typeKey} onChange={(event) => setTypeKey(event.target.value)} placeholder="short_text" /></label></div></div> : null}
-          {!selectedBankId ? <div className="lc-card lc-empty-notice"><p>{tr("Choose a bank to find questions, or create a question to begin.", "选择题库查找题目，或创建题目开始。")}</p></div> : questions.length ? <div className="lc-question-list">{questions.map((question) => <article className="lc-card lc-question-card" key={question.id}><div><h3>{question.title}</h3><p className="lc-workspace-meta">{question.type_key} · {metadataText(question.metadata.topic)} {tagsOf(question).map((item) => <span className="lc-badge" key={item}>{item}</span>)}</p></div><div className="lc-actions"><button type="button" className="lc-btn-sm lc-btn-outline" onClick={() => void selectQuestion(question)}>{tr("Preview", "预览")}</button>{picker && onPick ? <button type="button" className="lc-btn-sm lc-btn-primary" onClick={() => void pickQuestion(question)}>{pickerLabel ? tr(pickerLabel.en, pickerLabel.zh) : tr("Use in lesson", "用于教案")}</button> : null}<button type="button" className="lc-btn-sm lc-btn-outline" onClick={() => { void selectQuestion(question); setPanel("edit"); setMetadata(metadataFrom()); }}>{tr("Edit", "编辑")}</button><button type="button" className="lc-btn-sm lc-btn-outline" onClick={() => void copyQuestion(question)} disabled={busy}>{tr("Copy", "复制")}</button></div></article>)}</div> : <div className="lc-card lc-empty-notice"><p>{tr("No questions match these filters.", "没有符合筛选条件的题目。")}</p></div>}
+          {!selectedBankId ? <div className="lc-card lc-empty-notice"><p>{tr("Choose a bank to find questions, or create a question to begin.", "选择题库查找题目，或创建题目开始。")}</p></div> : questions.length ? <div className="lc-question-list">{questions.map((question) => <article className={`lc-card lc-question-card${questionSelection === String(question.id) ? " lc-assessment-selected" : ""}`} key={question.id}><div><h3>{question.title}</h3><p className="lc-workspace-meta">{question.type_key} · {metadataText(question.metadata.topic)} {tagsOf(question).map((item) => <span className="lc-badge" key={item}>{item}</span>)}</p></div><div className="lc-actions"><button type="button" className="lc-btn-sm lc-btn-outline" onClick={() => void selectQuestion(question)}>{tr("Preview", "预览")}</button>{picker && onPick ? <button type="button" className="lc-btn-sm lc-btn-primary" onClick={() => void pickQuestion(question)}>{pickerLabel ? tr(pickerLabel.en, pickerLabel.zh) : tr("Use in lesson", "用于教案")}</button> : null}<button type="button" className="lc-btn-sm lc-btn-outline" onClick={() => { void selectQuestion(question); openPanel("edit"); setMetadata(metadataFrom()); }}>{tr("Edit", "编辑")}</button><button type="button" className="lc-btn-sm lc-btn-outline" onClick={() => void copyQuestion(question)} disabled={busy}>{tr("Copy", "复制")}</button></div></article>)}</div> : <div className="lc-card lc-empty-notice"><p>{tr("No questions match these filters.", "没有符合筛选条件的题目。")}</p></div>}
           {selectedQuestion && panel !== "edit" ? <QuestionPreview question={selectedQuestion} /> : null}
-          {panel === "bank" ? <section className="lc-card lc-question-editor"><h3>{tr("Create question bank", "创建题库")}</h3><form className="lc-form" onSubmit={(event) => void createBank(event)}><label>{tr("Title", "标题")}<input className="lc-input" required maxLength={200} value={bankTitle} onChange={(event) => setBankTitle(event.target.value)} /></label><div className="lc-actions"><button className="lc-btn-sm lc-btn-primary" disabled={busy}>{tr("Save", "保存")}</button><button type="button" className="lc-btn-sm lc-btn-outline" onClick={() => setPanel(null)}>{tr("Cancel", "取消")}</button></div></form></section> : null}
-          {panel === "question" ? <section className="lc-card lc-question-editor"><h3>{tr("Create question", "创建题目")}</h3><MetadataFields metadata={metadata} onChange={setMetadata} /><ActivityEditor onSave={createQuestion} onCancel={() => setPanel(null)} /></section> : null}
-          {panel === "edit" && selectedQuestion ? <section className="lc-card lc-question-editor"><h3>{tr("Edit question", "编辑题目")}</h3><MetadataFields metadata={metadata} onChange={setMetadata} /><ActivityEditor key={selectedQuestion.id} initial={editorInitial} onSave={editQuestion} onCancel={() => setPanel(null)} /></section> : null}
+          {panel === "bank" ? <section className="lc-card lc-question-editor"><h3>{tr("Create question bank", "创建题库")}</h3><form className="lc-form" onSubmit={(event) => void createBank(event)}><label>{tr("Title", "标题")}<input className="lc-input" required maxLength={200} value={bankTitle} onChange={(event) => setBankTitle(event.target.value)} /></label><div className="lc-actions"><button className="lc-btn-sm lc-btn-primary" disabled={busy}>{tr("Save", "保存")}</button><button type="button" className="lc-btn-sm lc-btn-outline" onClick={() => openPanel(null)}>{tr("Cancel", "取消")}</button></div></form></section> : null}
+          {panel === "question" ? <section className="lc-card lc-question-editor"><h3>{tr("Create question", "创建题目")}</h3><MetadataFields metadata={metadata} onChange={setMetadata} /><ActivityEditor onSave={createQuestion} onCancel={() => openPanel(null)} /></section> : null}
+          {panel === "edit" && selectedQuestion ? <section className="lc-card lc-question-editor"><h3>{tr("Edit question", "编辑题目")}</h3><MetadataFields metadata={metadata} onChange={setMetadata} /><ActivityEditor key={selectedQuestion.id} initial={editorInitial} onSave={editQuestion} onCancel={() => openPanel(null)} /></section> : null}
         </div>
       </div>
     </section>
   );
+}
+
+export function mountQuestionBankWorkspace(element: HTMLElement): void {
+  const apiRoot = element.dataset.apiRoot;
+  if (!apiRoot) return;
+  const locale = element.dataset.locale?.startsWith("zh") ? "zh-Hans" : "en";
+  createRoot(element).render(<LocaleProvider initial={locale} root={element}><QuestionBankWorkspace apiRoot={apiRoot} urlState /></LocaleProvider>);
 }

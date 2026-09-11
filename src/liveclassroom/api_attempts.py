@@ -5,6 +5,7 @@ from django.views.decorators.http import require_http_methods
 
 from .api import _body, _error
 from .models import AssessmentAttempt, AssessmentRun
+from .services.assessment_navigation import AttemptNavigationConflict, navigate_attempt, save_and_advance_attempt
 from .services.attempt_submission import AttemptSubmissionConflict, submit_attempt
 from .services.attempts import (
     AttemptAnswerConflict,
@@ -115,6 +116,94 @@ def save_answer(request, public_id):
             return _error(message, 403, code="permission_denied")
         if "not found" in message.casefold():
             return _error(message, 404, code="not_found")
+        return _error(message, 400)
+
+
+def _navigation_error(exc: AttemptNavigationConflict):
+    payload = {"code": exc.code, "detail": str(exc)}
+    if exc.current is not None:
+        payload["current"] = exc.current
+    return JsonResponse(payload, status=exc.status_code)
+
+
+@require_http_methods(["POST"])
+def navigate(request, public_id):
+    """Move an attempt cursor without writing an answer.
+
+    The durable cursor is the authority for URL/history selection.  In
+    particular, a client cannot open a future forward-only exam item merely by
+    changing its query string.
+    """
+    denied = _user(request)
+    if denied is not None:
+        return denied
+    try:
+        body = _body(request)
+        if set(body) != {"item_key", "expected_navigation_version"}:
+            raise ClassroomError("item_key and expected_navigation_version are required.")
+        attempt = AssessmentAttempt.objects.get(public_id=public_id)
+        return JsonResponse(
+            navigate_attempt(
+                actor=request.user,
+                attempt=attempt,
+                item_key=body["item_key"],
+                expected_navigation_version=body["expected_navigation_version"],
+            )
+        )
+    except AssessmentAttempt.DoesNotExist:
+        return _error("Not found.", 404, code="not_found")
+    except AttemptNavigationConflict as exc:
+        return _navigation_error(exc)
+    except ClassroomError as exc:
+        message = str(exc)
+        if "authentication" in message.casefold():
+            return _error(message, 401, code="authentication_required")
+        if "permission" in message.casefold() or "access" in message.casefold():
+            return _error(message, 403, code="permission_denied")
+        return _error(message, 400)
+
+
+@require_http_methods(["POST"])
+def advance(request, public_id):
+    """Explicitly save-and-advance an assessment cursor.
+
+    URL traversal calls ``navigate`` only.  This endpoint is intentionally the
+    one path that may lock a forward-only answer and expose the next item.
+    """
+    denied = _user(request)
+    if denied is not None:
+        return denied
+    try:
+        body = _body(request)
+        required = {"item_key", "expected_navigation_version"}
+        answer_fields = {"answer", "expected_answer_version", "answer_request_id"}
+        if not required <= set(body) or set(body) - required - answer_fields:
+            raise ClassroomError("item_key and expected_navigation_version are required.")
+        present_answers = answer_fields & set(body)
+        if present_answers and present_answers != answer_fields:
+            raise ClassroomError("answer, expected_answer_version and answer_request_id must be supplied together.")
+        attempt = AssessmentAttempt.objects.get(public_id=public_id)
+        return JsonResponse(
+            save_and_advance_attempt(
+                actor=request.user,
+                attempt=attempt,
+                current_item_key=body["item_key"],
+                expected_navigation_version=body["expected_navigation_version"],
+                answer=body.get("answer"),
+                expected_answer_version=body.get("expected_answer_version"),
+                answer_request_id=body.get("answer_request_id"),
+            )
+        )
+    except AssessmentAttempt.DoesNotExist:
+        return _error("Not found.", 404, code="not_found")
+    except AttemptNavigationConflict as exc:
+        return _navigation_error(exc)
+    except ClassroomError as exc:
+        message = str(exc)
+        if "authentication" in message.casefold():
+            return _error(message, 401, code="authentication_required")
+        if "permission" in message.casefold() or "access" in message.casefold():
+            return _error(message, 403, code="permission_denied")
         return _error(message, 400)
 
 
