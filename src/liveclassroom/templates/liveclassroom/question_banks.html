@@ -1,0 +1,10 @@
+{% extends liveclassroom_base_template %}
+{% load i18n %}
+{% block title %}{% translate "Question bank" %} · LiveClassroom{% endblock %}
+{% block content %}
+  <section class="lc-card lc-wide" data-question-bank-workspace
+    data-api-root="{{ api_root }}"
+    data-locale="{{ active_lang|default:'en' }}">
+    <h1>{% translate "Question bank" %}</h1>
+  </section>
+{% endblock %}

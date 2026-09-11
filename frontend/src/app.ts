@@ -10,13 +10,23 @@ import { mountDeckWorkspace } from "./surfaces/decks/DeckWorkspace.js";
 import { mountAssessmentBuilder } from "./surfaces/assessments/AssessmentBuilder.js";
 import { mountStudentAssessment } from "./surfaces/assessments/StudentAssessment.js";
 import { mountStudentReview } from "./surfaces/assessments/StudentReview.js";
+import { mountLearningWorkspace } from "./surfaces/student/LearningWorkspace.js";
+import { mountTeachingCourses } from "./surfaces/workspace/TeachingCourses.js";
+import { mountQuestionBankWorkspace } from "./surfaces/questions/QuestionBankWorkspace.js";
+import { mountResultsWorkspace } from "./surfaces/assessments/ResultsWorkspace.js";
+import { installHistoryRestoration } from "./navigation.js";
 
 if (typeof document !== "undefined") {
+  installHistoryRestoration();
   for (const el of document.querySelectorAll<HTMLElement>("[data-teacher-workspace]")) mountTeacherWorkspace(el);
   for (const el of document.querySelectorAll<HTMLElement>("[data-deck-workspace]")) mountDeckWorkspace(el);
   for (const el of document.querySelectorAll<HTMLElement>("[data-assessment-builder]")) mountAssessmentBuilder(el);
   for (const el of document.querySelectorAll<HTMLElement>("[data-student-assessment]")) mountStudentAssessment(el);
   for (const el of document.querySelectorAll<HTMLElement>("[data-student-review]")) mountStudentReview(el);
+  for (const el of document.querySelectorAll<HTMLElement>("[data-learning-workspace]")) mountLearningWorkspace(el);
+  for (const el of document.querySelectorAll<HTMLElement>("[data-teaching-courses]")) mountTeachingCourses(el);
+  for (const el of document.querySelectorAll<HTMLElement>("[data-question-bank-workspace]")) mountQuestionBankWorkspace(el);
+  for (const el of document.querySelectorAll<HTMLElement>("[data-results-workspace]")) mountResultsWorkspace(el);
   for (const element of document.querySelectorAll<HTMLElement>("[data-liveclassroom-app]")) {
     const audience = element.dataset.audience;
     if (audience === "student" && element.dataset.stateUrl) mountStudentSession(element);
@@ -40,4 +50,8 @@ export {
   mountAssessmentBuilder,
   mountStudentAssessment,
   mountStudentReview,
+  mountLearningWorkspace,
+  mountTeachingCourses,
+  mountQuestionBankWorkspace,
+  mountResultsWorkspace,
 };

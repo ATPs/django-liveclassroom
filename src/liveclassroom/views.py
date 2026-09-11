@@ -13,9 +13,9 @@ from qrcode.image.svg import SvgPathImage
 
 from .conf import base_template, websocket_path
 from .forms import CreateSessionForm, JoinSessionForm
-from .models import AssessmentRun, LiveSession
+from .models import AssessmentAttempt, AssessmentDefinition, AssessmentRun, Course, Deck, LiveSession
 from .services.classroom import can_manage_session, can_view_display, can_view_session, session_capabilities
-from .services.permissions import can_teach
+from .services.permissions import can_author_course, can_teach
 from .services.presentation import presentation_title
 
 
@@ -95,6 +95,55 @@ class TeacherDashboardView(TeacherRequiredMixin, LocaleContextMixin, FormView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["sessions"] = LiveSession.objects.filter(teacher=self.request.user).select_related("course", "flow")
+        context["workspace_tab"] = kwargs.get("workspace_tab", "lessons")
+        context["course_id"] = kwargs.get("course_id")
+        return context
+
+
+class TeachingCoursesView(TeacherRequiredMixin, LocaleContextMixin, TemplateView):
+    """Course-first teacher navigation backed by read-only browse summaries."""
+
+    template_name = "liveclassroom/teaching_courses.html"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        if kwargs.get("course_id") is not None:
+            context["browse_url"] = reverse("liveclassroom:api-v1-browse-teaching-course", args=[kwargs["course_id"]])
+        elif kwargs.get("class_id") is not None:
+            context["browse_url"] = reverse("liveclassroom:api-v1-browse-teaching-class", args=[kwargs["class_id"]])
+        else:
+            context["browse_url"] = reverse("liveclassroom:api-v1-browse-teaching")
+        context["teacher_url"] = reverse("liveclassroom:teacher-dashboard")
+        return context
+
+
+class QuestionBankView(TeacherRequiredMixin, LocaleContextMixin, TemplateView):
+    """Standalone Library destination for reusable question banks."""
+
+    template_name = "liveclassroom/question_banks.html"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["api_root"] = reverse("liveclassroom:api-v1-workspace")
+        return context
+
+
+class ClassResultsView(TeacherRequiredMixin, LocaleContextMixin, TemplateView):
+    """Addressable class result page backed by the existing grade summary API."""
+
+    template_name = "liveclassroom/class_results.html"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        class_id = kwargs["class_id"]
+        course_id = kwargs.get("course_id")
+        course = get_object_or_404(Course, pk=class_id)
+        if course_id is not None and course.teaching_course_id != course_id:
+            raise Http404
+        if not can_author_course(self.request.user, course):
+            raise Http404
+        context["summary_url"] = reverse("liveclassroom:api-v1-class-grade-summary", args=[class_id])
+        context["parent_url"] = reverse("liveclassroom:teacher-class-detail", args=[class_id])
         return context
 
 
@@ -221,6 +270,7 @@ class FlowBuilderView(TeacherRequiredMixin, LocaleContextMixin, TemplateView):
         if flow_id:
             from .models import Flow
             from .services.permissions import can_use_flow
+
             flow = get_object_or_404(Flow, pk=flow_id)
             if not can_use_flow(self.request.user, flow):
                 raise Http404
@@ -237,11 +287,30 @@ class FlowBuilderView(TeacherRequiredMixin, LocaleContextMixin, TemplateView):
 class DeckWorkspaceView(TeacherRequiredMixin, LocaleContextMixin, TemplateView):
     template_name = "liveclassroom/decks.html"
 
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        deck_id = kwargs.get("deck_id")
+        if deck_id is not None and not Deck.objects.filter(pk=deck_id, owner=self.request.user).exists():
+            raise Http404
+        context["deck_id"] = deck_id
+        return context
+
 
 class AssessmentWorkspaceView(TeacherRequiredMixin, LocaleContextMixin, TemplateView):
     """Teacher-only workspace for reusable assessment drafts."""
 
     template_name = "liveclassroom/assessments.html"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        assessment_id = kwargs.get("assessment_id")
+        if (
+            assessment_id is not None
+            and not AssessmentDefinition.objects.filter(pk=assessment_id, owner=self.request.user).exists()
+        ):
+            raise Http404
+        context["assessment_id"] = assessment_id
+        return context
 
 
 class AssessmentAttemptView(LoginRequiredMixin, LocaleContextMixin, TemplateView):
@@ -260,6 +329,45 @@ class AssessmentAttemptView(LoginRequiredMixin, LocaleContextMixin, TemplateView
         context["run"] = run
         context["run_url"] = reverse("liveclassroom:api-v1-available-assessment-run", args=[run.public_id])
         context["start_url"] = reverse("liveclassroom:api-v1-assessment-attempts", args=[run.public_id])
+        context["initial_attempt_id"] = ""
+        return context
+
+
+class LearningWorkspaceView(LoginRequiredMixin, LocaleContextMixin, TemplateView):
+    """Course-first learner entry point; content arrives through scoped browse APIs."""
+
+    template_name = "liveclassroom/learning.html"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        if kwargs.get("course_id") is not None:
+            context["browse_url"] = reverse("liveclassroom:api-v1-browse-learning-course", args=[kwargs["course_id"]])
+        elif kwargs.get("class_id") is not None:
+            context["browse_url"] = reverse("liveclassroom:api-v1-browse-learning-class", args=[kwargs["class_id"]])
+        else:
+            context["browse_url"] = reverse("liveclassroom:api-v1-browse-learning")
+        context["join_url"] = reverse("liveclassroom:join")
+        context["teacher_url"] = reverse("liveclassroom:teacher-dashboard") if can_teach(self.request.user) else ""
+        return context
+
+
+class LearningAttemptView(LoginRequiredMixin, LocaleContextMixin, TemplateView):
+    """Address one existing attempt without creating or resuming a different one."""
+
+    template_name = "liveclassroom/assessment_attempt.html"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        try:
+            attempt = AssessmentAttempt.objects.select_related("run").get(
+                public_id=kwargs["attempt_id"], user=self.request.user
+            )
+        except AssessmentAttempt.DoesNotExist as exc:
+            raise Http404 from exc
+        context["run"] = attempt.run
+        context["run_url"] = reverse("liveclassroom:api-v1-available-assessment-run", args=[attempt.run.public_id])
+        context["start_url"] = reverse("liveclassroom:api-v1-assessment-attempts", args=[attempt.run.public_id])
+        context["initial_attempt_id"] = str(attempt.public_id)
         return context
 
 

@@ -5,6 +5,7 @@ import { createRoot } from "react-dom/client";
 import { MarkdownView } from "../../activities/MarkdownView.js";
 import { LanguageSwitcher, LocaleProvider, useLocale } from "../../i18n.js";
 import { ApiError, getJson, patchJson, postJson, putJson } from "../../protocol.js";
+import { Breadcrumbs, routeUrl, updateLocation, useLocationPath, useNavigationHeading, useQuerySelection, useUnsavedChangesWarning, useUnsavedNavigationGuard } from "../../navigation.js";
 import { QuestionBankWorkspace, type QuestionPickerSelection } from "../questions/QuestionBankWorkspace.js";
 import { ManualGradingQueue } from "./ManualGradingQueue.js";
 import { MarkdownImportPanel } from "./MarkdownImportPanel.js";
@@ -198,6 +199,8 @@ function AssessmentQuestionRow({
   onPoints,
   onRemove,
   onReplace,
+  selected,
+  onSelect,
 }: {
   item: AssessmentItem;
   index: number;
@@ -209,14 +212,16 @@ function AssessmentQuestionRow({
   onPoints: (key: string, points: string) => void;
   onRemove: (key: string) => void;
   onReplace: (key: string, question: CurrentQuestion) => void;
+  selected: boolean;
+  onSelect: (key: string) => void;
 }) {
   const prompt = promptFor(item);
   const title = current?.title || `${tr(locale, "Question", "题目")} ${index + 1}`;
   const hasNewer = Boolean(current?.current_revision_id && current.current_revision_id !== item.question_revision_id);
   return (
-    <li className="lc-card lc-assessment-item" data-assessment-item={item.key}>
+    <li className={`lc-card lc-assessment-item${selected ? " lc-assessment-selected" : ""}`} data-assessment-item={item.key}>
       <div className="lc-assessment-item-heading">
-        <span className="lc-assessment-item-number">{index + 1}</span>
+        <button type="button" className="lc-assessment-item-number" aria-label={`${tr(locale, "Select question", "选择题目")} ${index + 1}`} aria-current={selected ? "true" : undefined} onClick={() => onSelect(item.key)}>{index + 1}</button>
         <div><h3>{title}</h3><p className="lc-workspace-meta">{item.type_key} · {tr(locale, "Pinned revision", "固定版本")} {item.question_revision_id}</p></div>
       </div>
       {prompt ? <p className="lc-assessment-item-prompt">{prompt}</p> : null}
@@ -233,7 +238,7 @@ function AssessmentQuestionRow({
   );
 }
 
-function AssessmentBuilder({ apiRoot }: AssessmentBuilderProps) {
+function AssessmentBuilder({ apiRoot, initialAssessmentId = "", assessmentUrlTemplate, libraryUrl }: AssessmentBuilderProps & { initialAssessmentId?: string; assessmentUrlTemplate: string; libraryUrl: string }) {
   const locale = useLocale();
   const text = useCallback((en: string, zh: string) => tr(locale, en, zh), [locale]);
   const [assessments, setAssessments] = useState<Assessment[]>([]);
@@ -253,6 +258,14 @@ function AssessmentBuilder({ apiRoot }: AssessmentBuilderProps) {
   const [conflict, setConflict] = useState(false);
   const [presetSaving, setPresetSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
+  const [assessmentSelection] = useQuerySelection("assessment", initialAssessmentId);
+  const [itemSelection, selectItemUrl] = useQuerySelection("item");
+  const locationPath = useLocationPath();
+  useNavigationHeading("lc-assessment-heading");
+  const routeAssessmentId = useMemo(() => {
+    const match = new URL(locationPath, window.location.href).pathname.match(/\/assessments\/(\d+)\/?$/);
+    return match ? Number(match[1]) : null;
+  }, [locationPath]);
 
   const load = useCallback(async () => {
     const [assessmentData, workspaceData, questionData, bankData] = await Promise.all([
@@ -277,7 +290,7 @@ function AssessmentBuilder({ apiRoot }: AssessmentBuilderProps) {
     return () => { active = false; };
   }, [load, text]);
 
-  const open = async (assessment: Assessment) => {
+  const open = async (assessment: Assessment, updateUrl = true) => {
     setError(""); setNotice(""); setConflict(false); setShowPreview(false); setShowPicker(false);
     try {
       const detail = await getJson<Assessment>(endpoint(apiRoot, `assessments/${assessment.id}/`));
@@ -285,12 +298,27 @@ function AssessmentBuilder({ apiRoot }: AssessmentBuilderProps) {
       const sectionData = await getJson<{ sections: AssessmentSection[] }>(endpoint(apiRoot, `assessments/${assessment.id}/sections/`));
       setSections(sectionData.sections ?? []);
       setItemsDirty(false);
+      if (updateUrl) updateLocation(routeUrl(assessmentUrlTemplate.replace(/\/0\//, `/${assessment.id}/`), { assessment: null, item: null }), { focusId: "lc-assessment-heading" });
     } catch (reason) { setError(reason instanceof Error ? reason.message : text("Unable to open assessment.", "无法打开测验。")); }
   };
 
+  useEffect(() => {
+    const selectedId = routeAssessmentId ?? (assessmentSelection ? Number(assessmentSelection) : null);
+    if (!selectedId || draft?.id === selectedId) return;
+    const selected = assessments.find((item) => item.id === selectedId);
+    if (selected) void open(selected, false);
+  }, [assessmentSelection, assessments, draft?.id, routeAssessmentId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!draft || !itemSelection || !draft.items.some((item) => item.key === itemSelection)) return;
+    window.requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-assessment-item="${itemSelection}"]`)?.scrollIntoView({ block: "nearest" }));
+  }, [draft, itemSelection]);
+
+  useUnsavedChangesWarning(Boolean(draft && (itemsDirty || !draft.id)));
+
   const create = () => {
     setDraft({ id: 0, title: "", instructions: "", course_id: null, version: 1, settings: localPresetSettings("quiz", { max_attempts: 1 }), items: [], total_points: "0" });
-    setSections([]); setItemsDirty(true); setShowPreview(false); setShowPicker(false); setError(""); setNotice(""); setConflict(false);
+    setSections([]); setItemsDirty(true); setShowPreview(false); setShowPicker(false); setError(""); setNotice(""); setConflict(false); selectItemUrl("", { replace: true });
   };
 
   const savedMode = draft?.settings.mode;
@@ -315,7 +343,7 @@ function AssessmentBuilder({ apiRoot }: AssessmentBuilderProps) {
 
   const updateSetting = (key: string, value: unknown) => {
     if (!draft) return;
-    setDraft({ ...draft, settings: { ...draft.settings, [key]: value } });
+    setDraft({ ...draft, settings: { ...draft.settings, [key]: value } }); setItemsDirty(true);
   };
 
   const saveSections = async () => {
@@ -336,7 +364,7 @@ function AssessmentBuilder({ apiRoot }: AssessmentBuilderProps) {
   const addPool = () => {
     if (!sections.length || !banks.length) { setError(text("Create a question bank before adding a random pool.", "请先创建题库，再添加随机题池。")); return; }
     const first = sections[0];
-    setSections([{ ...first, entries: [...first.entries, { key: globalThis.crypto?.randomUUID?.() ?? `pool-${Date.now()}`, kind: "pool", bank_id: banks[0].id, sample_size: 1, points: "1", shuffle_options: false }] }, ...sections.slice(1)]);
+    setSections([{ ...first, entries: [...first.entries, { key: globalThis.crypto?.randomUUID?.() ?? `pool-${Date.now()}`, kind: "pool", bank_id: banks[0].id, sample_size: 1, points: "1", shuffle_options: false }] }, ...sections.slice(1)]); setItemsDirty(true);
   };
 
   const publish = async () => {
@@ -398,12 +426,11 @@ function AssessmentBuilder({ apiRoot }: AssessmentBuilderProps) {
     setItemsDirty(true); setNotice(text("The current revision will replace the pinned one after saving.", "保存后将用当前版本替换固定版本。"));
   };
 
-  const save = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!draft || saving) return;
-    if (!draft.title.trim()) { setError(text("An assessment title is required.", "请填写测验标题。")); return; }
+  const saveDraft = async (): Promise<boolean> => {
+    if (!draft || saving) return false;
+    if (!draft.title.trim()) { setError(text("An assessment title is required.", "请填写测验标题。")); return false; }
     if (draft.items.some((item) => !/^\d+(?:\.\d{1,6})?$/.test(item.points.trim()) || Number(item.points) <= 0 || Number(item.points) > 1000)) {
-      setError(text("Points must be positive numbers up to 1000 with at most six decimals.", "分值必须是大于零且不超过1000的数字，最多六位小数。")); return;
+      setError(text("Points must be positive numbers up to 1000 with at most six decimals.", "分值必须是大于零且不超过1000的数字，最多六位小数。")); return false;
     }
     setSaving(true); setError(""); setNotice(""); setConflict(false);
     let acknowledgedVersion: number | null = null;
@@ -430,7 +457,8 @@ function AssessmentBuilder({ apiRoot }: AssessmentBuilderProps) {
           }, requestKey("items"));
         }
       }
-      setDraft({ ...saved, items: normalizeItems(saved.items ?? []) }); setSections(saved.sections ?? sections); setItemsDirty(false); setShowPreview(false); setAssessments((previous) => [saved, ...previous.filter((item) => item.id !== saved.id)]); setNotice(text("Assessment saved.", "测验已保存。"));
+      setDraft({ ...saved, items: normalizeItems(saved.items ?? []) }); setSections(saved.sections ?? sections); setItemsDirty(false); setShowPreview(false); setAssessments((previous) => [saved, ...previous.filter((item) => item.id !== saved.id)]); updateLocation(routeUrl(assessmentUrlTemplate.replace(/\/0\//, `/${saved.id}/`), { assessment: null, item: itemSelection || null }), { replace: true, focusId: "lc-assessment-heading" }); setNotice(text("Assessment saved.", "测验已保存。"));
+      return true;
     } catch (reason) {
       if (acknowledgedVersion !== null) {
         setDraft({ ...draft, version: acknowledgedVersion });
@@ -440,15 +468,25 @@ function AssessmentBuilder({ apiRoot }: AssessmentBuilderProps) {
       else
       if (reason instanceof ApiError && reason.status === 409) { setConflict(true); setError(text("This assessment changed elsewhere. Reload it before saving.", "此测验已在其他地方更改。保存前请重新加载。")); }
       else setError(reason instanceof Error ? reason.message : text("Save failed; your draft is still here.", "保存失败；草稿仍然保留。"));
+      return false;
     } finally { setSaving(false); }
   };
+
+  const save = (event: React.FormEvent<HTMLFormElement>) => { event.preventDefault(); void saveDraft(); };
+  const { requestNavigation, dialog: unsavedDialog } = useUnsavedNavigationGuard({
+    dirty: Boolean(draft && itemsDirty), onSave: saveDraft, labels: {
+      title: text("Unsaved assessment changes", "未保存的测验更改"),
+      body: text("Save this assessment before opening another one?", "打开另一份测验前保存当前更改？"),
+      save: text("Save and open", "保存并打开"), discard: text("Discard and open", "放弃并打开"), stay: text("Stay", "留在此处"),
+    },
+  });
 
   const copy = async () => {
     if (!draft?.id || saving) return;
     setSaving(true); setError("");
     try {
       const copied = await postJson<Assessment>(endpoint(apiRoot, `assessments/${draft.id}/copy/`), { title: `${draft.title} (${text("Copy", "副本")})`, mode: selectedMode }, requestKey("copy"));
-      setDraft({ ...copied, items: normalizeItems(copied.items ?? []) }); setItemsDirty(false); await load(); setNotice(text("Assessment copied. The source remains unchanged.", "测验已复制，来源保持不变。"));
+      setDraft({ ...copied, items: normalizeItems(copied.items ?? []) }); setItemsDirty(false); await load(); updateLocation(routeUrl(assessmentUrlTemplate.replace(/\/0\//, `/${copied.id}/`), { assessment: null, item: null }), { focusId: "lc-assessment-heading" }); setNotice(text("Assessment copied. The source remains unchanged.", "测验已复制，来源保持不变。"));
     } catch (reason) { setError(reason instanceof Error ? reason.message : text("Copy failed.", "复制失败。")); }
     finally { setSaving(false); }
   };
@@ -458,22 +496,23 @@ function AssessmentBuilder({ apiRoot }: AssessmentBuilderProps) {
   return (
     <div className="lc-assessment-root">
       <LanguageSwitcher />
+      <Breadcrumbs items={[{ href: libraryUrl, label: text("Library", "资料库") }, { label: text("Assessment builder", "测验编辑器") }]} />
       <header className="lc-builder-topbar">
-        <div><p className="lc-kicker">{text("Independent assessment", "独立测验")}</p><h1>{text("Assessment builder", "测验编辑器")}</h1><p>{text("Build a reusable quiz, assignment, practice, or timed exam. Keep advanced delivery choices together in Settings.", "创建可复用的测验、作业、练习或限时考试。高级投递选项集中在“设置”中。")}</p></div>
-        <button type="button" className="lc-btn lc-btn-primary" onClick={create}>{text("New assessment", "新建测验")}</button>
+        <div><p className="lc-kicker">{text("Independent assessment", "独立测验")}</p><h1 id="lc-assessment-heading" tabIndex={-1}>{text("Assessment builder", "测验编辑器")}</h1><p>{text("Build a reusable quiz, assignment, practice, or timed exam. Keep advanced delivery choices together in Settings.", "创建可复用的测验、作业、练习或限时考试。高级投递选项集中在“设置”中。")}</p></div>
+        <button type="button" className="lc-btn lc-btn-primary" onClick={() => requestNavigation(create)}>{text("New assessment", "新建测验")}</button>
       </header>
       {error ? <p className="lc-form-error" role="alert">{error} {conflict ? <button type="button" className="lc-btn-sm lc-btn-outline" onClick={() => draft?.id ? void open(draft) : setConflict(false)}>{text("Reload", "重新加载")}</button> : null}</p> : null}
       {notice ? <p className="lc-builder-status lc-builder-status-success" role="status">{notice}</p> : null}
       <div className="lc-assessment-layout">
         <aside className="lc-card lc-assessment-list" aria-label={text("Assessments", "测验列表")}>
           <h2>{text("Your assessments", "我的测验")}</h2>
-          {loading ? <p>{text("Loading…", "加载中…")}</p> : assessments.length ? <ul>{assessments.map((assessment) => <li key={assessment.id}><button type="button" className={draft?.id === assessment.id ? "lc-assessment-list-item lc-assessment-selected" : "lc-assessment-list-item"} onClick={() => void open(assessment)}>{assessment.title}<span>{assessment.total_points} {text("points", "分")}</span></button></li>)}</ul> : <p className="lc-empty-notice">{text("No assessments yet. Create one to begin.", "还没有测验。创建一个开始吧。")}</p>}
+          {loading ? <p>{text("Loading…", "加载中…")}</p> : assessments.length ? <ul>{assessments.map((assessment) => <li key={assessment.id}><button type="button" className={draft?.id === assessment.id ? "lc-assessment-list-item lc-assessment-selected" : "lc-assessment-list-item"} onClick={() => requestNavigation(() => void open(assessment))}>{assessment.title}<span>{assessment.total_points} {text("points", "分")}</span></button></li>)}</ul> : <p className="lc-empty-notice">{text("No assessments yet. Create one to begin.", "还没有测验。创建一个开始吧。")}</p>}
         </aside>
         <main className="lc-assessment-main">
           {!draft ? <section className="lc-card lc-assessment-empty"><h2>{text("Create a reusable assessment", "创建可复用测验")}</h2><p>{text("Choose New assessment, then add questions from a bank.", "选择“新建测验”，然后从题库添加题目。")}</p></section> : (
             <>
               <form className="lc-card lc-assessment-form" onSubmit={save}>
-                <div className="lc-assessment-form-heading"><div><label htmlFor="assessment-title">{text("Title", "标题")}</label><input id="assessment-title" className="lc-input" value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} maxLength={200} required /></div><p className="lc-workspace-meta">{itemsDirty ? text("Unsaved changes", "有未保存的更改") : text("Saved draft", "已保存草稿")} · v{draft.version}</p></div>
+                <div className="lc-assessment-form-heading"><div><label htmlFor="assessment-title">{text("Title", "标题")}</label><input id="assessment-title" className="lc-input" value={draft.title} onChange={(event) => { setDraft({ ...draft, title: event.target.value }); setItemsDirty(true); }} maxLength={200} required /></div><p className="lc-workspace-meta">{itemsDirty ? text("Unsaved changes", "有未保存的更改") : text("Saved draft", "已保存草稿")} · v{draft.version}</p></div>
                 <label htmlFor="assessment-mode">{text("Mode", "模式")}</label>
                 <select id="assessment-mode" className="lc-select" value={selectedMode} onChange={(event) => void choosePreset(event.target.value as PresetMode)} disabled={presetSaving}>
                   {PRESET_MODES.map((mode) => <option key={mode} value={mode}>{presetLabel(locale, mode)}</option>)}
@@ -507,19 +546,19 @@ function AssessmentBuilder({ apiRoot }: AssessmentBuilderProps) {
                 {draft.id ? <details className="lc-assessment-settings"><summary>{text("Question order and random pools", "题目顺序与随机题池")}</summary>
                   <p className="lc-workspace-meta">{text("Fixed questions stay pinned. A pool samples from the selected bank independently for each learner.", "固定题目保持版本固定。题池会为每位学生从选中题库中独立抽题。")}</p>
                   {sections.map((section, sectionIndex) => <section key={section.key} className="lc-card">
-                    <label>{text("Section title", "分组标题")}<input className="lc-input" value={section.title} onChange={(event) => setSections(sections.map((row, index) => index === sectionIndex ? { ...row, title: event.target.value } : row))} /></label>
-                    <label><input type="checkbox" checked={section.shuffle_questions} onChange={(event) => setSections(sections.map((row, index) => index === sectionIndex ? { ...row, shuffle_questions: event.target.checked } : row))} /> {text("Randomize question order in this section", "随机排列本分组题目")}</label>
+                    <label>{text("Section title", "分组标题")}<input className="lc-input" value={section.title} onChange={(event) => { setSections(sections.map((row, index) => index === sectionIndex ? { ...row, title: event.target.value } : row)); setItemsDirty(true); }} /></label>
+                    <label><input type="checkbox" checked={section.shuffle_questions} onChange={(event) => { setSections(sections.map((row, index) => index === sectionIndex ? { ...row, shuffle_questions: event.target.checked } : row)); setItemsDirty(true); }} /> {text("Randomize question order in this section", "随机排列本分组题目")}</label>
                     <ul>{section.entries.map((entry, entryIndex) => <li key={entry.key}>{entry.kind === "fixed" ? <label><input type="checkbox" checked={Boolean(entry.shuffle_options)} onChange={(event) => setSections(sections.map((row, index) => index !== sectionIndex ? row : { ...row, entries: row.entries.map((candidate, candidateIndex) => candidateIndex === entryIndex ? { ...candidate, shuffle_options: event.target.checked } : candidate) }))} /> {text("Shuffle options for fixed question", "随机排列固定题的选项")}</label> : <span>{text("Random pool", "随机题池")}: <select className="lc-select" value={entry.bank_id ?? ""} onChange={(event) => setSections(sections.map((row, index) => index !== sectionIndex ? row : { ...row, entries: row.entries.map((candidate, candidateIndex) => candidateIndex === entryIndex ? { ...candidate, bank_id: Number(event.target.value) } : candidate) }))}>{banks.map((bank) => <option key={bank.id} value={bank.id}>{bank.title}</option>)}</select> <label>{text("Questions", "题数")} <input className="lc-input" type="number" min="1" value={entry.sample_size ?? 1} onChange={(event) => setSections(sections.map((row, index) => index !== sectionIndex ? row : { ...row, entries: row.entries.map((candidate, candidateIndex) => candidateIndex === entryIndex ? { ...candidate, sample_size: Number(event.target.value) } : candidate) }))} /></label> <label>{text("Points each", "每题分值")} <input className="lc-input" inputMode="decimal" value={entry.points ?? ""} onChange={(event) => setSections(sections.map((row, index) => index !== sectionIndex ? row : { ...row, entries: row.entries.map((candidate, candidateIndex) => candidateIndex === entryIndex ? { ...candidate, points: event.target.value } : candidate) }))} /></label> <button type="button" className="lc-btn-sm lc-btn-danger" onClick={() => setSections(sections.map((row, index) => index !== sectionIndex ? row : { ...row, entries: row.entries.filter((_, candidateIndex) => candidateIndex !== entryIndex) }))}>{text("Remove pool", "移除题池")}</button></span>}</li>)}</ul>
                   </section>)}
                   <div className="lc-actions"><button type="button" className="lc-btn lc-btn-outline" onClick={addPool}>{text("Add random pool", "添加随机题池")}</button><button type="button" className="lc-btn lc-btn-primary" onClick={() => void saveSections()} disabled={sectionsSaving || !sections.length}>{sectionsSaving ? text("Saving…", "保存中…") : text("Save question plan", "保存题目计划")}</button></div>
                 </details> : null}
-                <label htmlFor="assessment-instructions">{text("Instructions", "说明")}</label><textarea id="assessment-instructions" className="lc-textarea" rows={4} maxLength={20000} value={draft.instructions} onChange={(event) => setDraft({ ...draft, instructions: event.target.value })} />
-                <label htmlFor="assessment-course">{text("Class (optional)", "班级（可选）")}</label><select id="assessment-course" className="lc-select" value={draft.course_id ?? ""} onChange={(event) => setDraft({ ...draft, course_id: event.target.value ? Number(event.target.value) : null })}><option value="">{text("No class", "无班级")}</option>{courses.map((course) => <option key={course.id} value={String(course.id)}>{course.title}</option>)}</select>
+                <label htmlFor="assessment-instructions">{text("Instructions", "说明")}</label><textarea id="assessment-instructions" className="lc-textarea" rows={4} maxLength={20000} value={draft.instructions} onChange={(event) => { setDraft({ ...draft, instructions: event.target.value }); setItemsDirty(true); }} />
+                <label htmlFor="assessment-course">{text("Class (optional)", "班级（可选）")}</label><select id="assessment-course" className="lc-select" value={draft.course_id ?? ""} onChange={(event) => { setDraft({ ...draft, course_id: event.target.value ? Number(event.target.value) : null }); setItemsDirty(true); }}><option value="">{text("No class", "无班级")}</option>{courses.map((course) => <option key={course.id} value={String(course.id)}>{course.title}</option>)}</select>
                 <div className="lc-actions"><button type="submit" className="lc-btn-primary" disabled={saving || presetSaving}>{saving ? text("Saving…", "保存中…") : text("Save draft", "保存草稿")}</button><button type="button" className="lc-btn-primary" onClick={() => void publish()} disabled={saving || publishing || !draft.items.length}>{publishing ? text("Publishing…", "发布中…") : text("Publish", "发布")}</button><button type="button" className="lc-btn-outline" onClick={() => setShowPicker((value) => !value)} disabled={saving}>{showPicker ? text("Hide question picker", "隐藏题目选择器") : text("Add questions", "添加题目")}</button><button type="button" className="lc-btn-outline" onClick={() => setShowPreview((value) => !value)} disabled={!draft.items.length}>{showPreview ? text("Hide preview", "隐藏预览") : text("Preview", "预览")}</button>{draft.id ? <button type="button" className="lc-btn-outline" onClick={() => void copy()} disabled={saving}>{text("Copy", "复制")}</button> : null}</div>
                 <p className="lc-assessment-total" aria-live="polite"><strong>{text("Total", "总分")}:</strong> {Number.isInteger(total) ? total : total.toFixed(6).replace(/0+$/, "").replace(/\.$/, "")} {text("points", "分")}</p>
               </form>
               {showPicker ? <section className="lc-card lc-assessment-picker"><h2>{text("Add from question bank", "从题库添加")}</h2><p>{text("Selecting a question pins its current revision. Later edits will not change this assessment unless you choose Replace with current.", "选择题目时会固定当前版本。以后编辑题目不会改变此测验，除非选择“替换为当前版本”。")}</p><QuestionBankWorkspace apiRoot={apiRoot} picker onPick={addQuestion} pickerLabel={{ en: "Add to assessment", zh: "添加到测验" }} /></section> : null}
-              <section className="lc-assessment-items" aria-labelledby="assessment-items-heading"><div className="lc-assessment-section-heading"><h2 id="assessment-items-heading">{text("Questions", "题目")}</h2><span>{draft.items.length}</span></div>{draft.items.length ? <ol>{draft.items.map((item, index) => <AssessmentQuestionRow key={item.key} item={item} index={index} itemCount={draft.items.length} apiRoot={apiRoot} locale={locale} current={currentQuestions[item.definition_id]} onMove={move} onPoints={points} onRemove={remove} onReplace={replace} />)}</ol> : <div className="lc-card lc-empty-notice"><p>{text("No questions selected yet. Open the question picker to add one.", "还没有选择题目。打开题目选择器添加题目。")}</p></div>}</section>
+              <section className="lc-assessment-items" aria-labelledby="assessment-items-heading"><div className="lc-assessment-section-heading"><h2 id="assessment-items-heading">{text("Questions", "题目")}</h2><span>{draft.items.length}</span></div>{draft.items.length ? <ol>{draft.items.map((item, index) => <AssessmentQuestionRow key={item.key} item={item} index={index} itemCount={draft.items.length} apiRoot={apiRoot} locale={locale} current={currentQuestions[item.definition_id]} onMove={move} onPoints={points} onRemove={remove} onReplace={replace} selected={itemSelection === item.key} onSelect={(key) => selectItemUrl(key)} />)}</ol> : <div className="lc-card lc-empty-notice"><p>{text("No questions selected yet. Open the question picker to add one.", "还没有选择题目。打开题目选择器添加题目。")}</p></div>}</section>
               {showPreview ? <section className="lc-assessment-preview" aria-labelledby="assessment-preview-heading"><h2 id="assessment-preview-heading">{text("Teacher preview", "教师预览")}</h2><p className="lc-guidance-risk">{text("This private preview uses the exact pinned revisions and includes answer keys only for you.", "此私有预览使用固定版本，仅向你显示答案。")}</p>{draft.items.map((item) => <QuestionPinnedPreview key={item.key} item={item} apiRoot={apiRoot} locale={locale} />)}</section> : null}
             </>
           )}
@@ -529,16 +568,19 @@ function AssessmentBuilder({ apiRoot }: AssessmentBuilderProps) {
       <AssessmentResults apiRoot={apiRoot} assessmentId={draft?.id ?? null} />
       <ContentSharingPanel apiRoot={apiRoot} kind="assessment" objectId={draft?.id ?? null} />
       <MarkdownImportPanel apiRoot={apiRoot} onImported={() => void load()} />
+      {unsavedDialog}
     </div>
   );
 }
 
 export function mountAssessmentBuilder(el: HTMLElement): void {
   const rawApiRoot = el.dataset.apiRoot;
-  if (!rawApiRoot) return;
+  const assessmentUrlTemplate = el.dataset.assessmentUrlTemplate;
+  const libraryUrl = el.dataset.libraryUrl;
+  if (!rawApiRoot || !assessmentUrlTemplate || !libraryUrl) return;
   const apiRoot = normalizeApiRoot(rawApiRoot);
   const locale = el.dataset.locale?.startsWith("zh") ? "zh-Hans" : "en";
   const root = createRoot(el);
-  root.render(<LocaleProvider initial={locale} root={el}><AssessmentBuilder apiRoot={apiRoot} /></LocaleProvider>);
+  root.render(<LocaleProvider initial={locale} root={el}><AssessmentBuilder apiRoot={apiRoot} initialAssessmentId={el.dataset.assessmentId || ""} assessmentUrlTemplate={assessmentUrlTemplate} libraryUrl={libraryUrl} /></LocaleProvider>);
   el.addEventListener("liveclassroom:unmount", () => root.unmount(), { once: true });
 }

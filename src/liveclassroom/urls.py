@@ -9,6 +9,7 @@ from . import (
     api_assets,
     api_attempts,
     api_authoring,
+    api_browse,
     api_deck_portability,
     api_decks,
     api_flows,
@@ -37,6 +38,24 @@ from . import (
 app_name = "liveclassroom"
 
 urlpatterns = [
+    path("api/v1/browse/teaching/", api_browse.teaching_index, name="api-v1-browse-teaching"),
+    path(
+        "api/v1/browse/teaching/courses/<int:course_id>/",
+        api_browse.teaching_course,
+        name="api-v1-browse-teaching-course",
+    ),
+    path(
+        "api/v1/browse/teaching/classes/<int:class_id>/", api_browse.teaching_class, name="api-v1-browse-teaching-class"
+    ),
+    path("api/v1/browse/learning/", api_browse.learning_index, name="api-v1-browse-learning"),
+    path(
+        "api/v1/browse/learning/courses/<int:course_id>/",
+        api_browse.learning_course,
+        name="api-v1-browse-learning-course",
+    ),
+    path(
+        "api/v1/browse/learning/classes/<int:class_id>/", api_browse.learning_class, name="api-v1-browse-learning-class"
+    ),
     path("api/v1/portable/<str:kind>/<int:object_id>/", api_portable.portable_export, name="api-v1-portable-export"),
     path("api/v1/portable/import/", api_portable.portable_import, name="api-v1-portable-import"),
     path("api/v1/imports/markdown/preview/", api_markdown_import.preview, name="api-v1-markdown-import-preview"),
@@ -79,6 +98,8 @@ urlpatterns = [
         api_attempts.save_answer,
         name="api-v1-attempt-answers",
     ),
+    path("api/v1/attempts/<uuid:public_id>/navigate/", api_attempts.navigate, name="api-v1-attempt-navigate"),
+    path("api/v1/attempts/<uuid:public_id>/advance/", api_attempts.advance, name="api-v1-attempt-advance"),
     path(
         "api/v1/attempts/<uuid:public_id>/submit/",
         api_attempts.submit,
@@ -368,15 +389,64 @@ urlpatterns = [
     path("", views.HomeView.as_view(), name="home"),
     path("help/", views.HelpView.as_view(), name="help"),
     path("teacher/", views.TeacherDashboardView.as_view(), name="teacher-dashboard"),
+    path("teacher/courses/", views.TeachingCoursesView.as_view(), name="teacher-courses"),
+    path("teacher/courses/<int:course_id>/", views.TeachingCoursesView.as_view(), name="teacher-course-detail"),
+    path("teacher/classes/<int:class_id>/", views.TeachingCoursesView.as_view(), name="teacher-class-detail"),
+    path("teacher/classes/<int:class_id>/results/", views.ClassResultsView.as_view(), name="teacher-class-results"),
+    path(
+        "teacher/courses/<int:course_id>/classes/<int:class_id>/results/",
+        views.ClassResultsView.as_view(),
+        name="teacher-course-class-results",
+    ),
+    path(
+        "teacher/library/lessons/",
+        views.TeacherDashboardView.as_view(),
+        {"workspace_tab": "lessons"},
+        name="teacher-library-lessons",
+    ),
+    path(
+        "teacher/library/questions/",
+        views.QuestionBankView.as_view(),
+        name="teacher-library-questions",
+    ),
+    path("teacher/library/decks/", views.DeckWorkspaceView.as_view(), name="teacher-library-decks"),
+    path("teacher/library/assessments/", views.AssessmentWorkspaceView.as_view(), name="teacher-library-assessments"),
+    path(
+        "teacher/library/shared/",
+        views.TeacherDashboardView.as_view(),
+        {"workspace_tab": "shared"},
+        name="teacher-library-shared",
+    ),
+    path(
+        "teacher/independent-work/",
+        views.TeacherDashboardView.as_view(),
+        {"workspace_tab": "recent"},
+        name="teacher-independent-work",
+    ),
+    path("learn/", views.LearningWorkspaceView.as_view(), name="learning-home"),
+    path("learn/courses/<int:course_id>/", views.LearningWorkspaceView.as_view(), name="learn-course-detail"),
+    path("learn/classes/<int:class_id>/", views.LearningWorkspaceView.as_view(), name="learn-class-detail"),
     path("teacher/builder/", views.FlowBuilderView.as_view(), name="flow-builder"),
     path("teacher/decks/", views.DeckWorkspaceView.as_view(), name="deck-workspace"),
+    path("teacher/decks/<int:deck_id>/", views.DeckWorkspaceView.as_view(), name="deck-workspace-detail"),
     path("teacher/assessments/", views.AssessmentWorkspaceView.as_view(), name="assessment-workspace"),
+    path(
+        "teacher/assessments/<int:assessment_id>/",
+        views.AssessmentWorkspaceView.as_view(),
+        name="assessment-workspace-detail",
+    ),
     path("assessments/history/", student_review_views.StudentReviewView.as_view(), name="assessment-history"),
+    path(
+        "learn/attempts/<uuid:attempt_id>/review/",
+        student_review_views.StudentReviewView.as_view(),
+        name="learn-attempt-review",
+    ),
     path(
         "assessments/runs/<uuid:public_id>/",
         views.AssessmentAttemptView.as_view(),
         name="assessment-attempt",
     ),
+    path("learn/attempts/<uuid:attempt_id>/", views.LearningAttemptView.as_view(), name="learn-attempt-detail"),
     path("teacher/decks/<int:deck_id>/preview/", deck_views.preview, name="deck-preview"),
     path("teacher/flows/<int:flow_id>/builder/", views.FlowBuilderView.as_view(), name="flow-builder-detail"),
     path("teacher/sessions/<int:session_id>/", views.TeacherConsoleView.as_view(), name="teacher-console"),

@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { LanguageSwitcher, LocaleProvider, useLocale } from "../../i18n.js";
 import { ApiError, getJson, postJson } from "../../protocol.js";
 import { MarkdownView } from "../../activities/MarkdownView.js";
+import { routeUrl, updateLocation, useLocationPath, useNavigationHeading, useQuerySelection } from "../../navigation.js";
 
 type ReleaseDimensions = {
   scores: boolean;
@@ -256,7 +257,7 @@ function ReleasedValue({
   );
 }
 
-function ReviewCard({ item, copy, locale }: { item: ReviewItem; copy: Copy; locale: string }) {
+function ReviewCard({ item, copy, locale, selected, onSelect }: { item: ReviewItem; copy: Copy; locale: string; selected: boolean; onSelect: (key: string) => void }) {
   const content = object(item.content);
   const result = object(item.result);
   const hasScore = Object.prototype.hasOwnProperty.call(result, "score");
@@ -267,9 +268,9 @@ function ReviewCard({ item, copy, locale }: { item: ReviewItem; copy: Copy; loca
   const score = object(result.score);
   const ownAnswer = displayAnswer(item.saved_answer, content);
   return (
-    <article className="lc-card lc-student-review-item" data-review-item={item.key}>
+    <article className={`lc-card lc-student-review-item${selected ? " lc-assessment-selected" : ""}`} data-review-item={item.key}>
       <header className="lc-student-review-item-heading">
-        <span className="lc-assessment-item-number">{item.position}</span>
+        <button type="button" className="lc-assessment-item-number" aria-label={`${copy.answers} ${item.position}`} aria-current={selected ? "true" : undefined} onClick={() => onSelect(item.key)}>{item.position}</button>
         <div>
           <h2>{copy.answers} {item.position}</h2>
           <p className="lc-workspace-meta">{itemType(item.type_key)} · {item.points}</p>
@@ -309,6 +310,8 @@ function StudentReview({
   availableUrlTemplate,
   assessmentUrlTemplate,
   exportUrlTemplate,
+  reviewPageUrlTemplate,
+  historyPageUrl,
 }: {
   historyUrl: string;
   reviewUrlTemplate: string;
@@ -316,6 +319,8 @@ function StudentReview({
   availableUrlTemplate: string;
   assessmentUrlTemplate: string;
   exportUrlTemplate: string;
+  reviewPageUrlTemplate: string;
+  historyPageUrl: string;
 }) {
   const locale = useLocale();
   const copy = copyFor(locale);
@@ -326,6 +331,13 @@ function StudentReview({
   const [busy, setBusy] = React.useState<string | null>(null);
   const [error, setError] = React.useState("");
   const [notice, setNotice] = React.useState("");
+  const [itemSelection, selectItemUrl] = useQuerySelection("item");
+  const locationPath = useLocationPath();
+  useNavigationHeading("lc-student-review-heading");
+  const routeAttemptId = React.useMemo(() => {
+    const match = new URL(locationPath, window.location.href).pathname.match(/\/learn\/attempts\/([0-9a-f-]+)\/review\/?$/i);
+    return match ? match[1] : null;
+  }, [locationPath]);
 
   const assessmentUrl = React.useCallback((runId: string) => urlFor(assessmentUrlTemplate, runId), [assessmentUrlTemplate]);
   const exportUrl = React.useCallback((attemptId: string) => urlFor(exportUrlTemplate, attemptId), [exportUrlTemplate]);
@@ -364,13 +376,27 @@ function StudentReview({
     window.location.assign(assessmentUrl(row.run_id));
   };
 
-  const openReview = (row: StudentHistoryRow) => {
-    setBusy(row.id);
+  const loadReview = React.useCallback((attemptId: string) => {
+    setBusy(attemptId);
     setError("");
-    void getJson<StudentReviewPayload>(urlFor(reviewUrlTemplate, row.id))
+    void getJson<StudentReviewPayload>(urlFor(reviewUrlTemplate, attemptId))
       .then((payload) => setSelected(payload))
       .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : copy.reviewUnavailable))
       .finally(() => setBusy(null));
+  }, [copy.reviewUnavailable, reviewUrlTemplate]);
+
+  React.useEffect(() => {
+    if (!routeAttemptId) { setSelected(null); return; }
+    if (selected?.id !== routeAttemptId) loadReview(routeAttemptId);
+  }, [loadReview, routeAttemptId, selected?.id]);
+
+  React.useEffect(() => {
+    if (!selected || !itemSelection || !selected.items.some((item) => item.key === itemSelection)) return;
+    window.requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-review-item="${itemSelection}"]`)?.scrollIntoView({ block: "nearest" }));
+  }, [itemSelection, selected]);
+
+  const openReview = (row: StudentHistoryRow) => {
+    updateLocation(routeUrl(urlFor(reviewPageUrlTemplate, row.id), { item: null }), { focusId: "lc-student-review-heading" });
   };
 
   const startNewAttempt = (row: StudentHistoryRow) => {
@@ -394,12 +420,12 @@ function StudentReview({
       <div className="lc-assessment-root lc-student-review-root">
         <LanguageSwitcher />
         <div className="lc-actions lc-student-review-toolbar">
-          <button type="button" className="lc-btn lc-btn-outline" onClick={() => setSelected(null)}>{copy.back}</button>
+          <button type="button" className="lc-btn lc-btn-outline" onClick={() => updateLocation(routeUrl(historyPageUrl, { item: null }), { focusId: "lc-student-review-heading" })}>{copy.back}</button>
           <a href={assessmentUrl(selected.run_id)}>{copy.resume}</a>
         </div>
         <header className="lc-student-assessment-header">
           <p className="lc-kicker">{copy.review}</p>
-          <h1>{selected.run_title}</h1>
+          <h1 id="lc-student-review-heading" tabIndex={-1}>{selected.run_title}</h1>
           <p className="lc-workspace-meta">{copy.attempt} {selected.attempt_number} · {selected.status === "submitted" ? copy.submitted : copy.inProgress}</p>
           {selected.submitted_at ? <p className="lc-workspace-meta">{copy.submittedAt}: {displayDate(selected.submitted_at, locale)}</p> : null}
           {selected.status === "submitted" ? <a className="lc-btn lc-btn-outline" href={`${exportUrl(selected.id)}?format=csv`}>{locale.startsWith("zh") ? "下载作答记录" : "Download my result"}</a> : null}
@@ -407,7 +433,7 @@ function StudentReview({
         </header>
         <section className="lc-student-review-list" aria-label={copy.reviewTitle}>
           <h2>{copy.reviewTitle}</h2>
-          {selected.items.slice().sort((a, b) => a.position - b.position).map((item) => <ReviewCard key={item.key} item={item} copy={copy} locale={locale} />)}
+          {selected.items.slice().sort((a, b) => a.position - b.position).map((item) => <ReviewCard key={item.key} item={item} copy={copy} locale={locale} selected={itemSelection === item.key} onSelect={selectItemUrl} />)}
         </section>
       </div>
     );
@@ -418,7 +444,7 @@ function StudentReview({
       <LanguageSwitcher />
       <header className="lc-student-assessment-header">
         <p className="lc-kicker">{copy.history}</p>
-        <h1>{copy.history}</h1>
+        <h1 id="lc-student-review-heading" tabIndex={-1}>{copy.history}</h1>
         <p>{copy.historyIntro}</p>
       </header>
       {notice ? <p className="lc-builder-status lc-builder-status-success" role="status">{notice}</p> : null}
@@ -455,7 +481,9 @@ export function mountStudentReview(el: HTMLElement): void {
   const availableUrlTemplate = el.dataset.availableUrlTemplate;
   const assessmentUrlTemplate = el.dataset.assessmentUrlTemplate;
   const exportUrlTemplate = el.dataset.exportUrlTemplate;
-  if (!historyUrl || !reviewUrlTemplate || !startUrlTemplate || !availableUrlTemplate || !assessmentUrlTemplate || !exportUrlTemplate) return;
+  const reviewPageUrlTemplate = el.dataset.reviewPageUrlTemplate;
+  const historyPageUrl = el.dataset.historyPageUrl;
+  if (!historyUrl || !reviewUrlTemplate || !startUrlTemplate || !availableUrlTemplate || !assessmentUrlTemplate || !exportUrlTemplate || !reviewPageUrlTemplate || !historyPageUrl) return;
   const locale = el.dataset.locale?.startsWith("zh") ? "zh-Hans" : "en";
   const root = createRoot(el);
   root.render(
@@ -467,6 +495,8 @@ export function mountStudentReview(el: HTMLElement): void {
         availableUrlTemplate={availableUrlTemplate}
         assessmentUrlTemplate={assessmentUrlTemplate}
         exportUrlTemplate={exportUrlTemplate}
+        reviewPageUrlTemplate={reviewPageUrlTemplate}
+        historyPageUrl={historyPageUrl}
       />
     </LocaleProvider>,
   );

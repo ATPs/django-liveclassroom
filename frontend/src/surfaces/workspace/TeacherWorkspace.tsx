@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { deleteJson, getJson, patchJson, postJson } from "../../protocol.js";
 import { getLocale, type Locale } from "../../locales.js";
 import { LanguageSwitcher, LocaleProvider, useLocale } from "../../i18n.js";
+import { useQuerySelection } from "../../navigation.js";
 import { QuestionBankWorkspace } from "../questions/QuestionBankWorkspace.js";
 
 type CourseDefaults = {
@@ -1092,9 +1093,12 @@ function TeachingCoursesSection({
   );
 }
 
-function TeacherWorkspace({ apiRoot, builderUrl, assessmentUrl }: { apiRoot: string; builderUrl: string; assessmentUrl?: string }) {
+function TeacherWorkspace({ apiRoot, builderUrl, assessmentUrl, initialTab = "lessons" }: { apiRoot: string; builderUrl: string; assessmentUrl?: string; initialTab?: string }) {
   const t = useWorkspaceText();
-  const [tab, setTab] = useState<"lessons" | "questions" | "shared" | "classes" | "recent">("lessons");
+  const [tabValue, setTab] = useQuerySelection("view", initialTab);
+  const tab = (["lessons", "questions", "shared", "classes", "recent"] as const).includes(tabValue as "lessons" | "questions" | "shared" | "classes" | "recent")
+    ? tabValue as "lessons" | "questions" | "shared" | "classes" | "recent"
+    : "lessons";
   const [courses, setCourses] = useState<CourseSummary[]>([]);
   const [teachingCourses, setTeachingCourses] = useState<TeachingCourseDetail[]>([]);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
@@ -1290,7 +1294,7 @@ export function mountTeacherWorkspace(el: HTMLElement): void {
   const root = createRoot(el);
   root.render(
     <LocaleProvider initial={locale} root={el}>
-      <TeacherWorkspace apiRoot={apiRoot} builderUrl={builderUrl} assessmentUrl={assessmentUrl} />
+      <TeacherWorkspace apiRoot={apiRoot} builderUrl={builderUrl} assessmentUrl={assessmentUrl} initialTab={el.dataset.initialTab || "lessons"} />
     </LocaleProvider>,
   );
   el.addEventListener("liveclassroom:unmount", () => root.unmount(), { once: true });

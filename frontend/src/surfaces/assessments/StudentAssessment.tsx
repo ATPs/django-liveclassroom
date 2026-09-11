@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { LanguageSwitcher, LocaleProvider, useLocale, useT } from "../../i18n.js";
 import { ApiError, getJson, postJson } from "../../protocol.js";
 import { MarkdownView, markdownFragmentFor } from "../../activities/MarkdownView.js";
+import { updateQuery, useQuerySelection } from "../../navigation.js";
 
 export type AssessmentAnswer = Record<string, unknown>;
 
@@ -29,6 +30,16 @@ export type AssessmentAttempt = {
   submitted_at?: string | null;
   finalization_reason?: string | null;
   server_now?: string;
+  navigation?: {
+    mode: "free" | "forward_only";
+    current_item_key: string;
+    current_item_position: number;
+    highest_accessible_item_position: number;
+    locked_item_keys: string[];
+    navigation_version: number;
+    can_go_previous: boolean;
+    can_go_next: boolean;
+  };
   items: AssessmentAttemptItem[];
 };
 
@@ -381,7 +392,7 @@ function QuestionCard({
   );
 }
 
-function StudentAssessment({ runUrl, startUrl, historyUrl }: { runUrl: string; startUrl: string; historyUrl?: string }) {
+function StudentAssessment({ runUrl, startUrl, historyUrl, initialAttemptId = "" }: { runUrl: string; startUrl: string; historyUrl?: string; initialAttemptId?: string }) {
   const t = useT();
   const locale = useLocale();
   const [run, setRun] = React.useState<AssessmentRunEntry | null>(null);
@@ -396,6 +407,7 @@ function StudentAssessment({ runUrl, startUrl, historyUrl }: { runUrl: string; s
   const [confirming, setConfirming] = React.useState(false);
   const [error, setError] = React.useState("");
   const [notice, setNotice] = React.useState("");
+  const [itemSelection, selectItemUrl] = useQuerySelection("item");
   const attemptRef = React.useRef<AssessmentAttempt | null>(null);
   const versionsRef = React.useRef<Record<string, number>>({});
   const storageKey = React.useMemo(() => `liveclassroom-assessment-attempt:${runUrl}`, [runUrl]);
@@ -418,7 +430,11 @@ function StudentAssessment({ runUrl, startUrl, historyUrl }: { runUrl: string; s
     setAnswers(initialAnswers);
     setVersions(initialVersions);
     setStatuses(initialStatuses);
-    setSelected(0);
+    // A URL is an untrusted navigation request. Start at the persisted server
+    // cursor; the effect below asks the server before honoring ?item=.
+    const selectedKey = normalized.navigation?.current_item_key;
+    const selectedIndex = normalizedItems.findIndex((item) => item.key === selectedKey);
+    setSelected(selectedIndex >= 0 ? selectedIndex : 0);
   }, []);
 
   const saveAnswer = React.useCallback((request: AnswerSaveRequest) => {
@@ -456,7 +472,7 @@ function StudentAssessment({ runUrl, startUrl, historyUrl }: { runUrl: string; s
       // Persist only the server-issued attempt identity. Answers themselves
       // never enter browser storage, so unsaved text is not promised after a
       // browser closes and a different account cannot read another's attempt.
-      const storedAttempt = window.localStorage.getItem(storageKey);
+      const storedAttempt = initialAttemptId || window.localStorage.getItem(storageKey);
       if (!storedAttempt) return;
       return getJson<AssessmentAttempt>(assessmentAttemptUrl(startUrl, storedAttempt)).then((loadedAttempt) => {
         if (active) loadAttempt(loadedAttempt);
@@ -465,7 +481,7 @@ function StudentAssessment({ runUrl, startUrl, historyUrl }: { runUrl: string; s
       if (active) setError(reason instanceof Error ? reason.message : t("assessmentLoadFailed"));
     }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [loadAttempt, runUrl, startUrl, storageKey, t]);
+  }, [initialAttemptId, loadAttempt, runUrl, startUrl, storageKey, t]);
 
   React.useEffect(() => {
     const beforeUnload = (event: BeforeUnloadEvent) => {
@@ -497,6 +513,62 @@ function StudentAssessment({ runUrl, startUrl, historyUrl }: { runUrl: string; s
       return;
     }
     controller.queue(item.key, toSave, versionsRef.current[item.key] ?? item.answer_version ?? 0);
+  };
+
+  const applyNavigation = React.useCallback((navigation: NonNullable<AssessmentAttempt["navigation"]>) => {
+    const current = attemptRef.current;
+    if (!current) return;
+    const next = { ...current, navigation };
+    attemptRef.current = next;
+    setAttempt(next);
+    const index = next.items.findIndex((item) => item.key === navigation.current_item_key);
+    if (index >= 0) setSelected(index);
+  }, []);
+
+  const navigateTo = React.useCallback(async (itemKey: string, writeHistory: boolean) => {
+    const current = attemptRef.current;
+    if (!current?.navigation || current.status !== "in_progress") return;
+    setError("");
+    try {
+      const result = await postJson<NonNullable<AssessmentAttempt["navigation"]>>(
+        endpoint(startUrl, current.id, "navigate"),
+        { item_key: itemKey, expected_navigation_version: current.navigation.navigation_version },
+      );
+      applyNavigation(result);
+      if (writeHistory) selectItemUrl(itemKey);
+    } catch (reason) {
+      const apiError = reason as ApiError & { body?: { current?: NonNullable<AssessmentAttempt["navigation"]> } };
+      if (apiError.body?.current) {
+        applyNavigation(apiError.body.current);
+        updateQuery({ item: apiError.body.current.current_item_key }, { replace: true });
+      }
+      setError(reason instanceof Error ? reason.message : t("assessmentLoadFailed"));
+    }
+  }, [applyNavigation, selectItemUrl, startUrl, t]);
+
+  React.useEffect(() => {
+    if (!attempt || !itemSelection || itemSelection === attempt.navigation?.current_item_key) return;
+    if (attempt.items.some((item) => item.key === itemSelection)) void navigateTo(itemSelection, false);
+    else updateQuery({ item: attempt.navigation?.current_item_key ?? null }, { replace: true });
+  }, [attempt, itemSelection, navigateTo]);
+
+  const advance = async () => {
+    const current = attemptRef.current;
+    const item = current?.items[selected];
+    if (!current || !item || !current.navigation || submitting) return;
+    setSubmitting(true); setError("");
+    try {
+      const allSaved = await controller.flushAll();
+      if (!allSaved) throw new Error(t("assessmentSaveBeforeSubmit"));
+      const result = await postJson<NonNullable<AssessmentAttempt["navigation"]>>(
+        endpoint(startUrl, current.id, "advance"),
+        { item_key: item.key, expected_navigation_version: current.navigation.navigation_version },
+      );
+      applyNavigation(result);
+      selectItemUrl(result.current_item_key);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : t("assessmentLoadFailed"));
+    } finally { setSubmitting(false); }
   };
 
   const submit = async () => {
@@ -554,13 +626,13 @@ function StudentAssessment({ runUrl, startUrl, historyUrl }: { runUrl: string; s
           <div className="lc-student-assessment-layout">
             <nav className="lc-card lc-student-assessment-nav" aria-label={t("assessmentQuestionNavigation")}>
               <h2>{t("assessmentQuestions")}</h2>
-              <ol>{attempt.items.map((item, index) => <li key={item.key}><button type="button" className={selected === index ? "lc-assessment-nav-current" : ""} onClick={() => setSelected(index)}><span>{item.position}</span>{answers[item.key] && Object.keys(answers[item.key]).length ? <small aria-label={t("assessmentAnswered")}>✓</small> : null}</button></li>)}</ol>
+              <ol>{attempt.items.map((item, index) => <li key={item.key}><button type="button" className={selected === index ? "lc-assessment-nav-current" : ""} onClick={() => void navigateTo(item.key, true)} disabled={submitting || Boolean(attempt.navigation?.mode === "forward_only" && item.position > attempt.navigation.highest_accessible_item_position)}><span>{item.position}</span>{answers[item.key] && Object.keys(answers[item.key]).length ? <small aria-label={t("assessmentAnswered")}>✓</small> : null}</button></li>)}</ol>
             </nav>
             <main className="lc-student-assessment-main">
-              {attempt.items[selected] ? <QuestionCard item={attempt.items[selected]} answer={answers[attempt.items[selected].key] ?? {}} status={statuses[attempt.items[selected].key] ?? "idle"} disabled={submitting} onChange={(next) => changeAnswer(attempt.items[selected], next)} onRetry={() => controller.retry(attempt.items[selected].key)} /> : <p>{t("assessmentNoQuestions")}</p>}
+              {attempt.items[selected] ? <QuestionCard item={attempt.items[selected]} answer={answers[attempt.items[selected].key] ?? {}} status={statuses[attempt.items[selected].key] ?? "idle"} disabled={submitting || Boolean(attempt.navigation?.mode === "forward_only" && attempt.navigation.locked_item_keys.includes(attempt.items[selected].key))} onChange={(next) => changeAnswer(attempt.items[selected], next)} onRetry={() => controller.retry(attempt.items[selected].key)} /> : <p>{t("assessmentNoQuestions")}</p>}
               <div className="lc-student-assessment-actions">
-                <button type="button" className="lc-btn lc-btn-outline" onClick={() => setSelected((index) => Math.max(0, index - 1))} disabled={selected === 0 || submitting}>{t("assessmentPrevious")}</button>
-                {selected < attempt.items.length - 1 ? <button type="button" className="lc-btn lc-btn-outline" onClick={() => setSelected((index) => Math.min(attempt.items.length - 1, index + 1))} disabled={submitting}>{t("assessmentNext")}</button> : null}
+                <button type="button" className="lc-btn lc-btn-outline" onClick={() => { const prior = attempt.items[selected - 1]; if (prior) void navigateTo(prior.key, true); }} disabled={selected === 0 || submitting}>{t("assessmentPrevious")}</button>
+                {selected < attempt.items.length - 1 ? <button type="button" className="lc-btn lc-btn-outline" onClick={() => void advance()} disabled={submitting}>{t("assessmentNext")}</button> : null}
                 <button type="button" className="lc-btn lc-btn-primary" onClick={() => setConfirming(true)} disabled={submitting}>{t("assessmentSubmit")}</button>
               </div>
               {confirming ? <section className="lc-card lc-assessment-submit-confirm" role="dialog" aria-modal="false" aria-labelledby="assessment-submit-heading"><h2 id="assessment-submit-heading">{t("assessmentConfirmSubmit")}</h2><p>{t("assessmentConfirmSubmitDetails")}</p><div className="lc-actions"><button type="button" className="lc-btn lc-btn-primary" onClick={() => void submit()} disabled={submitting}>{submitting ? t("assessmentSubmitting") : t("assessmentSubmitNow")}</button><button type="button" className="lc-btn lc-btn-outline" onClick={() => setConfirming(false)} disabled={submitting}>{t("cancel")}</button></div></section> : null}
@@ -580,9 +652,10 @@ export function mountStudentAssessment(el: HTMLElement): void {
   const runUrl = el.dataset.runUrl;
   const startUrl = el.dataset.startUrl;
   const historyUrl = el.dataset.historyUrl;
+  const initialAttemptId = el.dataset.attemptId || "";
   if (!runUrl || !startUrl) return;
   const locale = el.dataset.locale?.startsWith("zh") ? "zh-Hans" : "en";
   const root = createRoot(el);
-  root.render(<LocaleProvider initial={locale} root={el}><StudentAssessment runUrl={runUrl} startUrl={startUrl} historyUrl={historyUrl} /></LocaleProvider>);
+  root.render(<LocaleProvider initial={locale} root={el}><StudentAssessment runUrl={runUrl} startUrl={startUrl} historyUrl={historyUrl} initialAttemptId={initialAttemptId} /></LocaleProvider>);
   el.addEventListener("liveclassroom:unmount", () => root.unmount(), { once: true });
 }

@@ -2,7 +2,22 @@
 {% load i18n %}
 {% block title %}{% translate "Teacher" %} · LiveClassroom{% endblock %}
 {% block content %}
-<div class="lc-page-stack">
+<div class="lc-app-shell">
+  <nav class="lc-app-nav" aria-label="Teacher navigation">
+    <details class="lc-app-nav-menu" open>
+      <summary>{% translate "Teaching" %}</summary>
+      <div class="lc-app-nav-links">
+    <a href="{% url 'liveclassroom:teacher-courses' %}?lang={{ active_lang|urlencode }}">{% translate "Courses" %}</a>
+    <a href="{% url 'liveclassroom:teacher-library-lessons' %}?lang={{ active_lang|urlencode }}">{% translate "Library" %}</a>
+    <a href="{% url 'liveclassroom:teacher-library-decks' %}?lang={{ active_lang|urlencode }}">{% translate "Slide decks" %}</a>
+    <a href="{% url 'liveclassroom:teacher-library-assessments' %}?lang={{ active_lang|urlencode }}">{% translate "Assessments" %}</a>
+    <a href="{% url 'liveclassroom:teacher-independent-work' %}?lang={{ active_lang|urlencode }}">{% translate "Independent work" %}</a>
+    <a href="{% url 'liveclassroom:assessment-workspace' %}?lang={{ active_lang|urlencode }}">{% translate "Results" %}</a>
+    <a href="{% url 'liveclassroom:learning-home' %}?lang={{ active_lang|urlencode }}">{% translate "Learning" %}</a>
+      </div>
+    </details>
+  </nav>
+  <main class="lc-app-content lc-page-stack">
   <aside class="lc-card lc-context-help" aria-labelledby="workspace-guidance-title">
     {% if active_lang == "zh-Hans" %}
       <p class="lc-context-kicker">开始之前</p>
@@ -21,6 +36,8 @@
    data-api-root="{% url 'liveclassroom:api-v1-workspace' %}"
    data-builder-url="{% url 'liveclassroom:flow-builder' %}?lang={{ active_lang|urlencode }}"
    data-assessment-url="{% url 'liveclassroom:assessment-workspace' %}?lang={{ active_lang|urlencode }}"
+   data-initial-tab="{{ workspace_tab }}"
+   data-course-id="{{ course_id|default:'' }}"
    data-locale="{{ active_lang|default:'en' }}">
    <h1>{% translate "Start a live classroom" %}</h1>
    <h2>{% translate "Your sessions" %}</h2>
@@ -28,5 +45,6 @@
    <a href="{% url 'liveclassroom:deck-workspace' %}?lang={{ active_lang|urlencode }}">{% translate "Slide decks" %}</a>
    <a href="{% url 'liveclassroom:assessment-workspace' %}?lang={{ active_lang|urlencode }}">{% translate "Assessment builder" %}</a>
   </section>
+  </main>
 </div>
 {% endblock %}
