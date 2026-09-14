@@ -1,7 +1,7 @@
 import * as React from "react";
 import { useCallback, useEffect, useState } from "react";
 
-import { ApiError, getJson, postJson } from "../../protocol.js";
+import { ApiError, getJson, idempotencyKey, postJson } from "../../protocol.js";
 import { useLocale } from "../../i18n.js";
 import { useUnsavedChangesWarning, useUnsavedNavigationGuard } from "../../navigation.js";
 
@@ -72,7 +72,7 @@ export function AssessmentResults({ apiRoot, assessmentId }: { apiRoot: string; 
     if (!run || !preview) return false;
     try {
       const config = JSON.parse(ruleConfig) as Record<string, unknown>;
-      await postJson(endpoint(apiRoot, `assessment-runs/${run.public_id}/regrade/apply/`), { rule_version: ruleVersion, rule_config: config, reason, preview_fingerprint: preview.preview_fingerprint, idempotency_key: crypto.randomUUID() });
+      await postJson(endpoint(apiRoot, `assessment-runs/${run.public_id}/regrade/apply/`), { rule_version: ruleVersion, rule_config: config, reason, preview_fingerprint: preview.preview_fingerprint, idempotency_key: idempotencyKey("apply-regrade") });
       setPreview(null);
       setSavedCorrection({ ruleVersion, ruleConfig, reason });
       const result = await getJson<Progress>(endpoint(apiRoot, `assessment-runs/${run.public_id}/progress/`));

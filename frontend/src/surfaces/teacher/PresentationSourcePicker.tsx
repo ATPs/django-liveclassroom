@@ -1,7 +1,7 @@
 import * as React from "react";
 import { useEffect, useMemo, useState } from "react";
 import { useLocale } from "../../i18n.js";
-import { apiEndpoint, deleteJson, getJson, postJson } from "../../protocol.js";
+import { apiEndpoint, deleteJson, getJson, idempotencyKey, postJson } from "../../protocol.js";
 
 type Snapshot = { id: number; title: string; slides?: unknown[] };
 type PlanStep = { key?: string; id: number; position: number; title: string };
@@ -97,11 +97,11 @@ export function PresentationSourcePicker({
           source = { type: "external", provider, url: url.trim(), slide_index: index };
         }
         if (typeof source.reference !== "object") {
-          const resolved = await postJson<{ source: Source }>(`${providerUrl}resolve/`, { provider, url: url.trim() }, crypto.randomUUID());
+          const resolved = await postJson<{ source: Source }>(`${providerUrl}resolve/`, { provider, url: url.trim() }, idempotencyKey("resolve-presentation-source"));
           source = { ...resolved.source, slide_index: index };
         }
       }
-      await postJson(cuesUrl, { step_key: stepKey, source }, crypto.randomUUID());
+      await postJson(cuesUrl, { step_key: stepKey, source }, idempotencyKey("attach-presentation-cue"));
       setStatus(tr("Cue attached.", "提示点已添加。"));
       setSelectedSource(null);
       setResults([]);
@@ -119,7 +119,7 @@ export function PresentationSourcePicker({
     setPending(true);
     setStatus("");
     try {
-      await postJson(`${cuesUrl}${cue.id}/launch/`, { channel: "display" }, crypto.randomUUID());
+      await postJson(`${cuesUrl}${cue.id}/launch/`, { channel: "display" }, idempotencyKey("launch-presentation-cue"));
       setStatus(tr("Activity launched.", "活动已启动。"));
       await onRefresh();
       await refreshCues();
@@ -134,7 +134,7 @@ export function PresentationSourcePicker({
     if (pending) return;
     setPending(true);
     try {
-      await deleteJson(`${cuesUrl}${cue.id}/`, crypto.randomUUID());
+      await deleteJson(`${cuesUrl}${cue.id}/`, idempotencyKey("remove-presentation-cue"));
       await refreshCues();
     } catch (error) {
       setStatus(error instanceof Error ? error.message : tr("Unable to remove cue.", "无法移除提示点。"));

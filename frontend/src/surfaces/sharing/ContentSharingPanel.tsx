@@ -1,7 +1,7 @@
 import * as React from "react";
 import { useCallback, useEffect, useState } from "react";
 
-import { ApiError, deleteJson, getJson, postJson } from "../../protocol.js";
+import { ApiError, deleteJson, getJson, idempotencyKey, postJson } from "../../protocol.js";
 import { useLocale } from "../../i18n.js";
 
 type Share = {
@@ -42,16 +42,16 @@ export function ContentSharingPanel({ apiRoot, kind, objectId }: { apiRoot: stri
     const parsed = Number(recipientId);
     if (!kind || !objectId || !Number.isInteger(parsed) || parsed < 1) { setError(words(locale, "Enter the recipient's account ID.", "请输入接收者账号 ID。")); return; }
     try {
-      await postJson(endpoint(apiRoot, "content-shares/"), { kind, object_id: objectId, recipient_id: parsed }, crypto.randomUUID());
+      await postJson(endpoint(apiRoot, "content-shares/"), { kind, object_id: objectId, recipient_id: parsed }, idempotencyKey("create-content-share"));
       setRecipientId(""); await load();
     } catch (cause) { setError(cause instanceof ApiError ? cause.message : words(locale, "Unable to create this share.", "无法创建此共享。")); }
   };
   const revoke = async (shareId: number) => {
-    try { await deleteJson(endpoint(apiRoot, `content-shares/${shareId}/`), crypto.randomUUID()); await load(); }
+    try { await deleteJson(endpoint(apiRoot, `content-shares/${shareId}/`), idempotencyKey("revoke-content-share")); await load(); }
     catch (cause) { setError(cause instanceof ApiError ? cause.message : words(locale, "Unable to revoke this share.", "无法撤销此共享。")); }
   };
   const copy = async (shareId: number) => {
-    try { await postJson(endpoint(apiRoot, `content-shares/${shareId}/copy/`), {}, crypto.randomUUID()); await load(); }
+    try { await postJson(endpoint(apiRoot, `content-shares/${shareId}/copy/`), {}, idempotencyKey("copy-content-share")); await load(); }
     catch (cause) { setError(cause instanceof ApiError ? cause.message : words(locale, "Unable to copy this content.", "无法复制此内容。")); }
   };
   return <section className="lc-card lc-content-sharing" aria-labelledby="content-sharing-heading">

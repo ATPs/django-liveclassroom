@@ -1,7 +1,7 @@
 import * as React from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { getJson, postJson } from "../../protocol.js";
+import { getJson, idempotencyKey, postJson } from "../../protocol.js";
 import type { SessionState } from "../../protocol.js";
 import { getLocale } from "../../locales.js";
 import { LocaleProvider, useT } from "../../i18n.js";
@@ -32,6 +32,7 @@ function StudentViewControls({
   const [testStudentActive, setTestStudentActive] = useState(false);
   const [testToken, setTestToken] = useState("");
   const [testSaved, setTestSaved] = useState(false);
+  const modeGeneration = useRef(0);
 
   useEffect(() => {
     getJson<{ participants: Participant[] }>(participantsUrl)
@@ -42,13 +43,17 @@ function StudentViewControls({
       .catch((error: unknown) => setStatus(error instanceof Error ? error.message : t("unableToLoadParticipants")));
   }, [participantsUrl]);
 
-  const inspectSelection = (token: string, active = false) => {
+  const inspectSelection = (token: string, active = false, testStudent = false) => {
     const app = document.querySelector<HTMLElement>("[data-liveclassroom-app][data-audience='student']");
     if (!app) return;
+    modeGeneration.current += 1;
     app.dispatchEvent(new Event("liveclassroom:unmount"));
     app.dataset.preview = "false";
     app.dataset.stateUrl = `${stateUrl}?act_as_token=${encodeURIComponent(token)}`;
     mountStudentSession(app);
+    setTestStudentActive(testStudent);
+    setTestToken(testStudent ? token : "");
+    setTestSaved(false);
     setStatus(active ? t("actingAsParticipant") : t("inspectingParticipant"));
   };
 
@@ -62,11 +67,9 @@ function StudentViewControls({
   const selected = participants.find((p) => String(p.id) === selectedId);
 
   const activateTestStudent = () => {
-    return postJson<{ act_as_token: string }>(testStudentUrl, {}, crypto.randomUUID())
+    return postJson<{ act_as_token: string }>(testStudentUrl, {}, idempotencyKey("test-student"))
       .then(({ act_as_token }) => {
-        inspectSelection(act_as_token, true);
-        setTestStudentActive(true);
-        setTestToken(act_as_token);
+        inspectSelection(act_as_token, true, true);
         setStatus(t("testStudentNotice"));
       })
       .catch((error: unknown) => setStatus(error instanceof Error ? error.message : t("unableToActivateActAs")));
@@ -74,11 +77,13 @@ function StudentViewControls({
 
   useEffect(() => {
     if (!testStudentActive) return undefined;
+    const generation = modeGeneration.current;
     // Test tokens last 15 minutes; renew before that limit while this panel
     // remains open so a teaching demo does not silently become read-only.
     const renew = window.setInterval(() => {
-      void postJson<{ act_as_token: string }>(renewTestStudentUrl, {}, crypto.randomUUID())
+      void postJson<{ act_as_token: string }>(renewTestStudentUrl, {}, idempotencyKey("renew-test-student"))
         .then(({ act_as_token }) => {
+          if (modeGeneration.current !== generation) return;
           setTestToken(act_as_token);
           updateActiveToken(act_as_token);
           setStatus(t("testStudentNotice"));
@@ -116,6 +121,7 @@ function StudentViewControls({
       {testStudentActive ? <button type="button" onClick={() => {
         const app = document.querySelector<HTMLElement>("[data-liveclassroom-app][data-audience='student']");
         if (!app) return;
+        modeGeneration.current += 1;
         app.dispatchEvent(new Event("liveclassroom:unmount"));
         app.dataset.preview = "true";
         app.dataset.stateUrl = `${stateUrl}?preview=1&channel=participants`;
@@ -152,7 +158,7 @@ function StudentViewControls({
               if (!Number.isInteger(participantId)) return;
               if (!window.confirm(t("confirmAnswerOnBehalf"))) return;
               void postJson<{ act_as_token: string }>(activateUrl, { participant_id: participantId, confirm: true })
-                .then(({ act_as_token }) => { setTestToken(act_as_token); inspectSelection(act_as_token, true); })
+                .then(({ act_as_token }) => inspectSelection(act_as_token, true))
                 .catch((error: unknown) => setStatus(error instanceof Error ? error.message : t("unableToActivateActAs")));
             }}
           >

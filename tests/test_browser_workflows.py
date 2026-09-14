@@ -19,6 +19,8 @@ from liveclassroom.services.classroom import (
     publish_activity_to_audiences,
     start_session,
 )
+from liveclassroom.services.flows import add_flow_step, create_flow
+from liveclassroom.services.plans import create_session, launch_plan_step
 
 
 def database_call(function):
@@ -95,7 +97,8 @@ def test_student_join_and_teacher_console_render_without_mobile_overflow(live_se
         assert teacher_page.locator(".lc-presenter").is_visible()
         teacher_page.screenshot(path="/tmp/liveclassroom-teacher-desktop.png", full_page=True)
 
-        teacher_page.goto(f"{live_server.url}{reverse('liveclassroom:student-view', args=[session.id])}")
+        teacher_page.get_by_role("link", name="Student view", exact=True).click()
+        teacher_page.wait_for_url(f"**{reverse('liveclassroom:student-view', args=[session.id])}*")
         teacher_page.locator("#student-title").wait_for()
         teacher_page.wait_for_function("document.querySelector('#student-title')?.textContent === 'Browser classroom'")
         assert teacher_page.locator("#student-title").inner_text() == "Browser classroom"
@@ -105,6 +108,59 @@ def test_student_join_and_teacher_console_render_without_mobile_overflow(live_se
     finally:
         browser.close()
         browser_manager.stop()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_presenter_next_works_without_crypto_random_uuid(live_server):
+    teacher = get_user_model().objects.create_user(username="browser-http-presenter", password="password")
+    lesson = create_flow(title="HTTP presenter lesson", creator=teacher)
+    first_definition = create_activity_definition(
+        owner=teacher,
+        title="First presenter item",
+        type_key="liveclassroom.markdown",
+        definition={"markdown": "# First presenter item"},
+    )
+    second_definition = create_activity_definition(
+        owner=teacher,
+        title="Second presenter item",
+        type_key="liveclassroom.markdown",
+        definition={"markdown": "# Second presenter item"},
+    )
+    add_flow_step(flow=lesson, actor=teacher, activity_definition=first_definition)
+    add_flow_step(flow=lesson, actor=teacher, activity_definition=second_definition)
+    session = create_session(owner=teacher, title="HTTP presenter classroom", flow=lesson)
+    start_session(session=session, actor=teacher)
+    first_step = session.plan_steps.get(position=1)
+    second_step = session.plan_steps.get(position=2)
+    launch_plan_step(session=session, step=first_step, actor=teacher, channel="display")
+    cookie_client = Client()
+    cookie_client.force_login(teacher)
+    cookie = cookie_client.cookies[settings.SESSION_COOKIE_NAME].value
+
+    manager, browser = _chromium_or_skip()
+    try:
+        page = browser.new_page(viewport={"width": 1440, "height": 900})
+        page.add_init_script("Object.defineProperty(globalThis.crypto, 'randomUUID', { value: undefined });")
+        page.context.add_cookies([{"name": settings.SESSION_COOKIE_NAME, "value": cookie, "url": live_server.url}])
+        page.goto(f"{live_server.url}{reverse('liveclassroom:teacher-console', args=[session.id])}")
+        presenter = page.locator(".lc-presenter")
+        presenter.get_by_role("button", name="First presenter item", exact=False).wait_for()
+        assert presenter.locator("details.lc-presenter-drawer").evaluate("element => element.open")
+        next_button = presenter.locator(".lc-presenter-navigation").get_by_role("button", name="Next", exact=True)
+        assert next_button.is_enabled()
+        launch_url = reverse("liveclassroom:api-v1-plan-launch", args=[session.id, second_step.id])
+        with page.expect_response(
+            lambda response: response.request.method == "POST" and response.url.endswith(launch_url)
+        ) as launch_response:
+            next_button.click()
+        assert launch_response.value.status == 201
+        presenter.locator(".lc-presenter-current > h2").filter(
+            has_text="Second presenter item"
+        ).wait_for()
+        assert not page.evaluate("typeof crypto.randomUUID === 'function'")
+    finally:
+        browser.close()
+        manager.stop()
 
 
 @pytest.mark.django_db(transaction=True)

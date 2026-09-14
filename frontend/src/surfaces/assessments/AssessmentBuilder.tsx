@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 
 import { MarkdownView } from "../../activities/MarkdownView.js";
 import { LocaleProvider, useLocale } from "../../i18n.js";
-import { ApiError, getJson, patchJson, postJson, putJson } from "../../protocol.js";
+import { ApiError, getJson, idempotencyKey, patchJson, postJson, putJson } from "../../protocol.js";
 import { Breadcrumbs, routeUrl, updateLocation, useLocationPath, useNavigationHeading, useQuerySelection, useUnsavedChangesWarning, useUnsavedNavigationGuard } from "../../navigation.js";
 import { QuestionBankWorkspace, type QuestionPickerSelection } from "../questions/QuestionBankWorkspace.js";
 import { ManualGradingQueue } from "./ManualGradingQueue.js";
@@ -479,7 +479,7 @@ function AssessmentBuilder({ apiRoot, initialAssessmentId = "", assessmentUrlTem
         const validKeys = new Set(draft.items.map(item => item.key));
         const retained = sections.map(section => ({ ...section, entries: section.entries.filter(entry => entry.kind === "pool" || Boolean(entry.item_key && validKeys.has(entry.item_key))) }));
         const included = new Set(retained.flatMap(section => section.entries.filter(entry => entry.kind === "fixed").map(entry => entry.item_key)));
-        for (const item of draft.items) if (!included.has(item.key)) retained[0].entries.push({ key: crypto.randomUUID(), kind: "fixed", item_key: item.key, shuffle_options: false });
+        for (const item of draft.items) if (!included.has(item.key)) retained[0].entries.push({ key: idempotencyKey("assessment-section-item"), kind: "fixed", item_key: item.key, shuffle_options: false });
         saved = await putJson<Assessment>(endpoint(apiRoot, `assessments/${saved.id}/sections/`), { expected_version: saved.version, sections: retained }, requestKey("sections"));
       }
       savedDraft.current = { ...saved, items: normalizeItems(saved.items ?? []), sections: saved.sections ?? sections };

@@ -1,6 +1,6 @@
 import * as React from "react";
 import { useLocale } from "../../i18n.js";
-import { postJson } from "../../protocol.js";
+import { idempotencyKey, postJson } from "../../protocol.js";
 import { useUnsavedChangesWarning, useUnsavedNavigationGuard } from "../../navigation.js";
 
 export function ResultGradeOverride({ url, fingerprint, initialPoints, possible, initialComment, onSaved }: {
@@ -24,7 +24,7 @@ export function ResultGradeOverride({ url, fingerprint, initialPoints, possible,
     }
     setBusy(true); setError("");
     try {
-      await postJson(url, { normalized_score: (awarded / maximum).toFixed(10), comment, reason, expected_grade_fingerprint: fingerprint, idempotency_key: crypto.randomUUID() });
+      await postJson(url, { normalized_score: (awarded / maximum).toFixed(10), comment, reason, expected_grade_fingerprint: fingerprint, idempotency_key: idempotencyKey("grade-override") });
       setSaved(true);
       return true;
     } catch (cause) {

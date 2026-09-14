@@ -2,7 +2,7 @@ import { ActivityEditor } from "../../activities/ActivityEditor.js";
 import * as React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { deleteJson, getJson, postJson, putJson } from "../../protocol.js";
+import { deleteJson, getJson, idempotencyKey, postJson, putJson } from "../../protocol.js";
 import { getLocale, type Locale, type TranslationKey } from "../../locales.js";
 import { LocaleProvider, useLocale, useT } from "../../i18n.js";
 import { mountAiChat } from "../../ai_chat.js";
@@ -1088,7 +1088,7 @@ function FlowBuilder({
                 onCancel={()=>requestNavigation(() => { setEditingStep(null); setEditingDirty(false); })} onSave={async(snapshot)=>{
                   setEditingSaving(true);
                   try {
-                  const updated=await postJson<FlowDetail>(apiUrl(`flows/${currentFlow.id}/steps/${editingStep.id}/edit/`),{token:currentFlow.token,snapshot},crypto.randomUUID());
+                  const updated=await postJson<FlowDetail>(apiUrl(`flows/${currentFlow.id}/steps/${editingStep.id}/edit/`),{token:currentFlow.token,snapshot},idempotencyKey("edit-flow-step"));
                   setCurrentFlow(updated);setEditingStep(null);setEditingDirty(false);
                   } finally { setEditingSaving(false); }
                 }}/></div>}

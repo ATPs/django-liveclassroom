@@ -1,7 +1,7 @@
 import * as React from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useT } from "../i18n.js";
-import { apiEndpoint, getJson, postJson, type Audience, type DeckPresentationState, type SessionState } from "../protocol.js";
+import { apiEndpoint, getJson, idempotencyKey, postJson, type Audience, type DeckPresentationState, type SessionState } from "../protocol.js";
 import { MarkdownView } from "./MarkdownView.js";
 
 type DeckPayload = DeckPresentationState & {
@@ -150,7 +150,7 @@ export function NativeDeckView({
       void postJson(
         apiEndpoint(stateUrl, "sessions/presentation"),
         { channels: ["display"], deck_action: action, expected_revision: deck.revision },
-        `deck-key-${action}-${deck.revision}-${crypto.randomUUID()}`,
+        idempotencyKey(`deck-key-${action}-${deck.revision}`),
       ).catch(() => undefined);
     };
     window.addEventListener("keydown", onKeyDown);
@@ -227,8 +227,8 @@ export function NativeDeckView({
             frame.current?.contentWindow?.postMessage({ protocol: "vaultpub.slide", version: 1, type: "handshake" }, window.location.origin);
           }} /> : slide ? <MarkdownView markdown={typeof slide.markdown === "string" ? slide.markdown : ""} /> : <p>{t("unavailable")}</p>}
           {audience === "teacher" && stateUrl ? <nav className="lc-native-deck-controls" aria-label={t("filePresentationControls")}>
-            <button type="button" disabled={deck.slide_index <= 0} onClick={() => void postJson(apiEndpoint(stateUrl, "sessions/presentation"), { channels: ["display"], deck_action: "previous", expected_revision: deck.revision }, `deck-prev-${deck.revision}-${crypto.randomUUID()}`)}>{t("filePreviousPage")}</button>
-            <button type="button" disabled={deck.slide_index >= deck.slide_count - 1} onClick={() => void postJson(apiEndpoint(stateUrl, "sessions/presentation"), { channels: ["display"], deck_action: "next", expected_revision: deck.revision }, `deck-next-${deck.revision}-${crypto.randomUUID()}`)}>{t("fileNextPage")}</button>
+            <button type="button" disabled={deck.slide_index <= 0} onClick={() => void postJson(apiEndpoint(stateUrl, "sessions/presentation"), { channels: ["display"], deck_action: "previous", expected_revision: deck.revision }, idempotencyKey(`deck-prev-${deck.revision}`))}>{t("filePreviousPage")}</button>
+            <button type="button" disabled={deck.slide_index >= deck.slide_count - 1} onClick={() => void postJson(apiEndpoint(stateUrl, "sessions/presentation"), { channels: ["display"], deck_action: "next", expected_revision: deck.revision }, idempotencyKey(`deck-next-${deck.revision}`))}>{t("fileNextPage")}</button>
           </nav> : null}
         </div>
         {audience === "teacher" && notesUrl ? <aside className="lc-native-deck-notes" data-presenter-notes>

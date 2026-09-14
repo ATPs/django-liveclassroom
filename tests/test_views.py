@@ -133,3 +133,16 @@ def test_teacher_console_exposes_mounted_surface_urls(client):
     assert f'data-display-url="/classroom/teacher/sessions/{session.id}/display/?lang=en"' in content
     assert f'data-export-url="/classroom/api/v1/sessions/{session.id}/export/"' in content
     assert f'data-student-view-url="/classroom/teacher/sessions/{session.id}/student-view/?lang=en"' in content
+
+
+@pytest.mark.django_db
+def test_student_view_return_url_keeps_the_active_locale(client):
+    user = get_user_model().objects.create_user(username="student-view-locale-teacher")
+    session = LiveSession.objects.create(teacher=user, title="Locale classroom", join_code="LOCALE1")
+    client.force_login(user)
+
+    response = client.get(f"{reverse('liveclassroom:student-view', args=[session.id])}?lang=zh-Hans")
+
+    assert response.status_code == 200
+    expected = f'{reverse("liveclassroom:teacher-console", args=[session.id])}?lang=zh-Hans'
+    assert f'data-teacher-url="{expected}"' in response.content.decode()

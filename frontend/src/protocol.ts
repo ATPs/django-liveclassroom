@@ -130,6 +130,18 @@ export class ApiError extends Error {
 
 export type ApiResponse = Record<string, unknown>;
 
+/**
+ * Generate a request key on both HTTPS and ordinary development/LAN HTTP.
+ * `crypto.randomUUID()` is unavailable for insecure IP origins, where the
+ * classroom is commonly demonstrated before TLS is configured.
+ */
+export function idempotencyKey(prefix = "request"): string {
+  const uuid = globalThis.crypto?.randomUUID?.();
+  return uuid
+    ? `${prefix}-${uuid}`
+    : `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 export function csrfToken(): string {
   const cookie = document.cookie.match(/(?:^|;)\s*csrftoken=([^;]+)/)?.[1];
   if (cookie) {

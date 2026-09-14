@@ -1,7 +1,7 @@
 import * as React from "react";
 import { useState } from "react";
 
-import { ApiError, postJson } from "../../protocol.js";
+import { ApiError, idempotencyKey, postJson } from "../../protocol.js";
 import { useLocale } from "../../i18n.js";
 
 type Preview = {
@@ -47,7 +47,7 @@ export function MarkdownImportPanel({ apiRoot, onImported }: { apiRoot: string; 
     try {
       await postJson(
         endpoint(apiRoot, "imports/markdown/commit/"),
-        { filename, content, fingerprint: preview.fingerprint, idempotency_key: crypto.randomUUID() },
+        { filename, content, fingerprint: preview.fingerprint, idempotency_key: idempotencyKey("markdown-import") },
       );
       setPreview(null); setContent(""); onImported();
     } catch (cause) {

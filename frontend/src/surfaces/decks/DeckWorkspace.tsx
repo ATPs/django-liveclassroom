@@ -5,7 +5,7 @@ import { createRoot } from "react-dom/client";
 import { MarkdownView } from "../../activities/MarkdownView.js";
 import { LocaleProvider, useLocale } from "../../i18n.js";
 import { Breadcrumbs, routeUrl, updateLocation, updateQuery, useLocationPath, useNavigationHeading, useQuerySelection, useUnsavedChangesWarning, useUnsavedNavigationGuard } from "../../navigation.js";
-import { deleteJson, getJson, patchJson, postJson, putJson } from "../../protocol.js";
+import { deleteJson, getJson, idempotencyKey, patchJson, postJson, putJson } from "../../protocol.js";
 
 type Asset = { id: string; name: string; kind: string };
 type Slide = { key: string; position: number; markdown: string; notes?: string; asset_ids: string[] };
@@ -13,7 +13,7 @@ type Deck = { id: number; title: string; theme: string; version: number; slides:
 type DeckList = { decks: Deck[] };
 type ImportPreview = { draft: Omit<Deck, "id" | "version"> & { id?: number; version?: number }; errors: { slide: number | null; message: string }[]; valid: boolean };
 
-const newKey = () => crypto.randomUUID();
+const newKey = () => idempotencyKey("deck-item");
 const newSlide = (): Slide => ({ key: newKey(), position: 1, markdown: "# New slide", notes: "", asset_ids: [] });
 const cleanSlides = (slides: Slide[]) => slides.map((slide, index) => ({ ...slide, position: index + 1 }));
 
@@ -110,11 +110,11 @@ function DeckWorkspace({ apiRoot, assetsUrl, previewTemplate, deckUrlTemplate, l
     let acknowledgedVersion: number | null = null;
     try {
       let saved: Deck;
-      if (!deck.id) saved = await postJson<Deck>(apiRoot, body, crypto.randomUUID());
+      if (!deck.id) saved = await postJson<Deck>(apiRoot, body, idempotencyKey("create-deck"));
       else {
-        const changed = await patchJson<Deck>(`${apiRoot}${deck.id}/`, { title: body.title, theme: body.theme, expected_version: deck.version }, crypto.randomUUID());
+        const changed = await patchJson<Deck>(`${apiRoot}${deck.id}/`, { title: body.title, theme: body.theme, expected_version: deck.version }, idempotencyKey("update-deck"));
         acknowledgedVersion = changed.version;
-        saved = await putJson<Deck>(`${apiRoot}${deck.id}/slides/`, { expected_version: changed.version, slides: body.slides }, crypto.randomUUID());
+        saved = await putJson<Deck>(`${apiRoot}${deck.id}/slides/`, { expected_version: changed.version, slides: body.slides }, idempotencyKey("update-deck-slides"));
       }
       await refresh(); selectDeck(saved, false); if (saved.id) updateLocation(routeUrl(deckUrlTemplate.replace(/\/0\//, `/${saved.id}/`), { deck: null, slide: slideSelection || null }), { replace: true, focusId: "lc-deck-heading" }); setStatus(tr("Deck saved.", "幻灯片已保存。"));
       return true;
@@ -141,12 +141,12 @@ function DeckWorkspace({ apiRoot, assetsUrl, previewTemplate, deckUrlTemplate, l
   } });
   const copy = async () => {
     if (!deck?.id) return;
-    try { selectDeck(await postJson<Deck>(`${apiRoot}${deck.id}/copy/`, {}, crypto.randomUUID())); await refresh(); }
+    try { selectDeck(await postJson<Deck>(`${apiRoot}${deck.id}/copy/`, {}, idempotencyKey("copy-deck"))); await refresh(); }
     catch (error) { setStatus(error instanceof Error ? error.message : tr("Copy failed.", "复制失败。")); }
   };
   const remove = async () => {
     if (!deck?.id || !window.confirm(tr("Delete this deck?", "删除这份幻灯片？"))) return;
-    try { await deleteJson(`${apiRoot}${deck.id}/`, crypto.randomUUID()); setDeck(null); setDirty(false); updateLocation(routeUrl(libraryUrl, { slide: null }), { replace: true, focusId: "lc-deck-heading" }); await refresh(); }
+    try { await deleteJson(`${apiRoot}${deck.id}/`, idempotencyKey("delete-deck")); setDeck(null); setDirty(false); updateLocation(routeUrl(libraryUrl, { slide: null }), { replace: true, focusId: "lc-deck-heading" }); await refresh(); }
     catch (error) { setStatus(error instanceof Error ? error.message : tr("Delete failed.", "删除失败。")); }
   };
   const previewImport = async () => {
@@ -155,7 +155,7 @@ function DeckWorkspace({ apiRoot, assetsUrl, previewTemplate, deckUrlTemplate, l
       const result = await postJson<ImportPreview>(`${apiRoot}import/preview/`, {
         text: importText,
         assets: assets.map((asset) => asset.id),
-      }, crypto.randomUUID());
+      }, idempotencyKey("import-deck-preview"));
       setImportPreview(result);
       setStatus(result.valid ? tr("Import is ready. Review it, then create the deck.", "导入已准备好。检查后创建幻灯片。") : tr("Review the import errors before creating a deck.", "创建幻灯片前请检查导入错误。"));
     } catch (error) {
@@ -166,7 +166,7 @@ function DeckWorkspace({ apiRoot, assetsUrl, previewTemplate, deckUrlTemplate, l
   const commitImport = async (): Promise<boolean> => {
     if (!importPreview?.valid) { setStatus(tr("Preview the import and correct its errors before saving.", "请先预览导入并修正错误，再保存。")); return false; }
     try {
-      const saved = await postJson<Deck>(`${apiRoot}import/`, { draft: importPreview.draft }, crypto.randomUUID());
+      const saved = await postJson<Deck>(`${apiRoot}import/`, { draft: importPreview.draft }, idempotencyKey("import-deck"));
       await refresh();
       selectDeck(saved);
       setImportText("");
