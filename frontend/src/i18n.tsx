@@ -49,14 +49,19 @@ export function useT(): (key: TranslationKey) => string {
 
 /** The pill that toggles between English and Simplified Chinese. */
 export function LanguageSwitcher() {
-  const locale = useContext(LocaleContext)?.locale ?? "en" as Locale;
+  const localeState = useContext(LocaleContext);
+  const locale = localeState?.locale ?? "en" as Locale;
   const isZh = locale === "zh-Hans";
   return (
     <button
       type="button"
       className="lc-lang-switch"
       aria-label="Switch language / 切换语言"
-      onClick={() => switchLocalePage(isZh ? "en" : "zh-Hans")}
+      onClick={() => {
+        const next = isZh ? "en" : "zh-Hans";
+        if (localeState) localeState.setLocale(next);
+        else switchLocalePage(next);
+      }}
     >
       <span className={isZh ? "lc-lang-opt" : "lc-lang-opt lc-lang-curr"}>EN</span>
       {" / "}

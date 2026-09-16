@@ -6,6 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}LiveClassroom{% endblock %}</title>
     <link rel="stylesheet" href="{% static 'liveclassroom/liveclassroom.css' %}">
+    <link rel="stylesheet" href="{% static 'liveclassroom/ui-refresh.css' %}">
     <script type="module" src="{% static 'liveclassroom/app.js' %}"></script>
   </head>
   <body data-liveclassroom-static-url="{% get_static_prefix %}">
@@ -16,7 +17,13 @@
         <div class="lc-shell" data-classroom-shell data-sidebar="expanded">
           <script>try{var b=JSON.parse(document.getElementById('liveclassroom-navigation-bootstrap').textContent||'{}'),k='liveclassroom:shell:'+(b.preference_namespace||'liveclassroom'),p=JSON.parse(localStorage.getItem(k)||'{}'),s=document.querySelector('[data-classroom-shell]');var c=(window.innerWidth<768)?true:(p&&p.version===2?Boolean(p.collapsed):false);if(s)s.dataset.sidebar=c?'collapsed':'expanded';}catch(e){}</script>
           <a class="lc-skip-link" href="#liveclassroom-content">Skip to content</a>
-          <header class="lc-shell-header" data-liveclassroom-shell-header></header>
+          <header class="lc-shell-header" data-liveclassroom-shell-header>
+            <div class="lc-shell-header-identity" data-liveclassroom-shell-header-content></div>
+            <div class="lc-shell-header-right">
+              <div class="lc-shell-header-utilities" data-liveclassroom-shell-header-utilities></div>
+              <div id="lc-session-action-slot" class="lc-session-action-slot" aria-live="polite"></div>
+            </div>
+          </header>
           <div class="lc-shell-body">
             <div class="lc-shell-drawer-overlay" data-liveclassroom-shell-overlay></div>
             <aside class="lc-shell-sidebar" data-liveclassroom-shell-navigation></aside>

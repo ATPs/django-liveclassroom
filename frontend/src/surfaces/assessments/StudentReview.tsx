@@ -420,7 +420,7 @@ function StudentReview({
       <div className="lc-assessment-root lc-student-review-root">
         <div className="lc-actions lc-student-review-toolbar">
           <button type="button" className="lc-btn lc-btn-outline" onClick={() => updateLocation(routeUrl(historyPageUrl, { item: null }), { focusId: "lc-student-review-heading" })}>{copy.back}</button>
-          <a href={assessmentUrl(selected.run_id)}>{copy.resume}</a>
+          <a className="lc-btn lc-btn-outline" href={assessmentUrl(selected.run_id)}>{copy.resume}</a>
         </div>
         <header className="lc-student-assessment-header">
           <p className="lc-kicker">{copy.review}</p>

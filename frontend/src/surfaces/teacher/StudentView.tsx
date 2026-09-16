@@ -48,7 +48,7 @@ function StudentViewControls({
     if (!app) return;
     modeGeneration.current += 1;
     app.dispatchEvent(new Event("liveclassroom:unmount"));
-    app.dataset.preview = "false";
+        app.dataset.preview = "false";
     app.dataset.stateUrl = `${stateUrl}?act_as_token=${encodeURIComponent(token)}`;
     mountStudentSession(app);
     setTestStudentActive(testStudent);
@@ -107,68 +107,61 @@ function StudentViewControls({
   }, [stateUrl, testStudentActive, testToken]);
 
   return (
-    <>
-      <p>{t("testStudentNotice")}</p>
-      <button
-        type="button"
-        className="lc-btn-primary"
-        onClick={() => {
-          void activateTestStudent();
-        }}
-      >
-        {t("tryTestStudent")}
-      </button>
-      {testStudentActive ? <button type="button" onClick={() => {
-        const app = document.querySelector<HTMLElement>("[data-liveclassroom-app][data-audience='student']");
-        if (!app) return;
-        modeGeneration.current += 1;
-        app.dispatchEvent(new Event("liveclassroom:unmount"));
-        app.dataset.preview = "true";
-        app.dataset.stateUrl = `${stateUrl}?preview=1&channel=participants`;
-        mountStudentSession(app);
-        setTestStudentActive(false);
-        setTestToken("");
-        setTestSaved(false);
-        setStatus(t("participantPreview"));
-      }}>{t("backToPreview")}</button> : null}
-      {testStudentActive ? <section data-liveclassroom-test-results><h2>{t("testStudentResults")}</h2><p>{testSaved ? t("saved") : t("testStudentNoAnswer")}</p></section> : null}
-      {!loaded ? <p aria-live="polite">{t("loading")}</p> : null}
-      {loaded ? <details className="lc-console-panel">
-        <summary>{t("participants")}</summary>
-        {!participants.length ? <p aria-live="polite">{t("noParticipantsYet")}</p> : <>
-          <label>
-            {t("participants")} {" "}
+    <div className="lc-student-inspector-controls">
+      <section className="lc-student-inspector-section">
+        <p>{t("testStudentNotice")}</p>
+        <div className="lc-actions lc-student-inspector-actions">
+          <button type="button" className="lc-btn lc-btn-primary" onClick={() => { void activateTestStudent(); }}>
+            {t("tryTestStudent")}
+          </button>
+          {testStudentActive ? <button type="button" className="lc-btn lc-btn-outline" onClick={() => {
+            const app = document.querySelector<HTMLElement>("[data-liveclassroom-app][data-audience='student']");
+            if (!app) return;
+            modeGeneration.current += 1;
+            app.dispatchEvent(new Event("liveclassroom:unmount"));
+            app.dataset.preview = "true";
+            app.dataset.stateUrl = `${stateUrl}?preview=1&channel=participants`;
+            mountStudentSession(app);
+            setTestStudentActive(false);
+            setTestToken("");
+            setTestSaved(false);
+            setStatus(t("participantPreview"));
+          }}>{t("backToPreview")}</button> : null}
+        </div>
+        {testStudentActive ? <div className="lc-student-inspector-result" data-liveclassroom-test-results><h2>{t("testStudentResults")}</h2><p>{testSaved ? t("saved") : t("testStudentNoAnswer")}</p></div> : null}
+      </section>
+      <section className="lc-student-inspector-section" aria-labelledby="student-inspector-participants">
+        <h2 id="student-inspector-participants">{t("participants")}</h2>
+        {!loaded ? <p aria-live="polite">{t("loading")}</p> : !participants.length ? <p aria-live="polite">{t("noParticipantsYet")}</p> : <>
+          <label className="lc-field">
+            {t("participants")}
             <select value={selectedId} onChange={(e) => setSelectedId(e.target.value)}>
               <option value="">—</option>
-              {participants.map((participant) => (
-                <option key={participant.id} value={String(participant.id)}>
-                  {participant.display_name} ({participant.admission_state})
-                </option>
-              ))}
+              {participants.map((participant) => <option key={participant.id} value={String(participant.id)}>{participant.display_name} ({participant.admission_state})</option>)}
             </select>
           </label>
-          <button type="button" disabled={!selected} onClick={() => selected && inspectSelection(selected.inspection_token)}>
-            {t("inspect")}
-          </button>
-          <button
-            type="button"
-            disabled={!selected}
-            onClick={() => {
-              const participantId = Number(selectedId);
-              if (!Number.isInteger(participantId)) return;
-              if (!window.confirm(t("confirmAnswerOnBehalf"))) return;
-              void postJson<{ act_as_token: string }>(activateUrl, { participant_id: participantId, confirm: true })
-                .then(({ act_as_token }) => inspectSelection(act_as_token, true))
-                .catch((error: unknown) => setStatus(error instanceof Error ? error.message : t("unableToActivateActAs")));
-            }}
-          >
-            {t("answerOnBehalf")}
-          </button>
+          <div className="lc-actions lc-student-inspector-actions">
+            <button type="button" className="lc-btn lc-btn-outline" disabled={!selected} onClick={() => selected && inspectSelection(selected.inspection_token)}>{t("inspect")}</button>
+            <button
+              type="button"
+              className="lc-btn lc-btn-primary"
+              disabled={!selected}
+              onClick={() => {
+                const participantId = Number(selectedId);
+                if (!Number.isInteger(participantId) || !window.confirm(t("confirmAnswerOnBehalf"))) return;
+                void postJson<{ act_as_token: string }>(activateUrl, { participant_id: participantId, confirm: true })
+                  .then(({ act_as_token }) => inspectSelection(act_as_token, true))
+                  .catch((error: unknown) => setStatus(error instanceof Error ? error.message : t("unableToActivateActAs")));
+              }}
+            >{t("answerOnBehalf")}</button>
+          </div>
         </>}
-      </details> : null}
-      <button type="button" onClick={() => window.location.assign(teacherUrl)}>{t("backToTeaching")}</button>
-      <p aria-live="polite">{status}</p>
-    </>
+      </section>
+      <div className="lc-actions lc-student-inspector-actions">
+        <button type="button" className="lc-btn lc-btn-outline" onClick={() => window.location.assign(teacherUrl)}>{t("backToTeaching")}</button>
+      </div>
+      {status ? <p className="lc-student-inspector-status" aria-live="polite">{status}</p> : null}
+    </div>
   );
 }
 

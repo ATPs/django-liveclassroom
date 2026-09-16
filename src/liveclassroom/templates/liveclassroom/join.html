@@ -2,13 +2,15 @@
 {% load i18n %}
 {% block title %}{% translate "Join" %} · LiveClassroom{% endblock %}
 {% block content %}
-  <section class="lc-card">
-    <p class="lc-kicker">{% translate "Student" %}</p>
-    <h1>{% translate "Join a classroom" %}</h1>
+  <section class="lc-card lc-join-page">
+    <header class="lc-join-heading"><p class="lc-kicker">{% translate "Student" %}</p><h1>{% translate "Join a classroom" %}</h1><p>{% translate "Enter the classroom code and the name you want classmates to see." %}</p></header>
     <form method="post" class="lc-form">
       {% csrf_token %}
-      {{ form.as_p }}
-      <button type="submit">{% translate "Join" %}</button>
+      {% for field in form %}
+        <label class="lc-field" for="{{ field.id_for_label }}"><span>{{ field.label }}</span>{{ field }}{% if field.errors %}<span class="lc-form-error">{{ field.errors|striptags }}</span>{% endif %}</label>
+      {% endfor %}
+      {% if form.non_field_errors %}<p class="lc-form-error" role="alert">{{ form.non_field_errors|striptags }}</p>{% endif %}
+      <div class="lc-actions"><button type="submit" class="lc-btn lc-btn-primary">{% translate "Join" %}</button></div>
     </form>
   </section>
 {% endblock %}

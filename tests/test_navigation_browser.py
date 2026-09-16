@@ -298,9 +298,9 @@ def test_teacher_console_inspection_history_does_not_replay_live_commands(live_s
             "(id) => new URL(window.location.href).searchParams.get('activity') === String(id)",
             arg=second.id,
         )
-        results_panel = page.locator('[data-console-panel="results"]')
-        results_panel.locator("summary").click()
+        page.get_by_role("tab", name="Results", exact=True).click()
         page.wait_for_function("new URL(window.location.href).searchParams.get('panel') === 'results'")
+        results_panel = page.locator("#console-panel-results")
         results_panel.locator("select").select_option(str(first.id))
         page.wait_for_function(
             "(id) => new URL(window.location.href).searchParams.get('activity') === String(id)",
@@ -316,6 +316,7 @@ def test_teacher_console_inspection_history_does_not_replay_live_commands(live_s
         page.wait_for_function("new URL(window.location.href).searchParams.get('panel') === null")
         assert page.evaluate("new URL(window.location.href).searchParams.get('activity')") == str(second.id)
         assert not results_panel.locator("select").is_visible()
+        assert page.locator("#console-panel-responses").is_visible()
         assert command_posts == []
     finally:
         browser.close()

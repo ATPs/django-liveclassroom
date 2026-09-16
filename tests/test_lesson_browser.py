@@ -132,7 +132,7 @@ def test_student_can_submit_revise_and_resubmit_after_teacher_activity_edit(live
             teacher_page.goto(f"{live_server.url}{reverse('liveclassroom:teacher-console', args=[session.id])}")
         assert plan_response.value.status == 200
 
-        teacher_page.get_by_text("Edit lesson", exact=True).click()
+        teacher_page.get_by_role("tab", name="Edit lesson", exact=True).click()
         plan = teacher_page.locator("[data-session-plan]")
         edit_button = plan.get_by_role("button", name="Edit this classroom", exact=True)
         edit_button.wait_for()
@@ -186,7 +186,7 @@ def test_student_can_submit_revise_and_resubmit_after_teacher_activity_edit(live
 
         database_call(assert_submission_saved)
 
-        teacher_page.get_by_text("More", exact=True).click()
+        teacher_page.get_by_role("tab", name="Settings", exact=True).click()
         review_fieldset = teacher_page.get_by_role("group", name="Student review access")
         allow_review = review_fieldset.get_by_label("Allow review", exact=True)
         allow_review.wait_for()
@@ -204,7 +204,6 @@ def test_student_can_submit_revise_and_resubmit_after_teacher_activity_edit(live
         with teacher_page.expect_response(
             lambda response: response.request.method == "POST" and response.url.endswith(end_url)
         ) as end_response:
-            teacher_page.get_by_text("Class menu", exact=True).click()
             teacher_page.get_by_role("button", name="End class", exact=True).click()
         assert end_response.value.status == 200
 
@@ -383,7 +382,7 @@ def test_teacher_workspace_tabs_create_class_and_start_instant_session(live_serv
             page.get_by_role("button", name="Create classroom", exact=True).click()
         assert session_response.value.status == 201
         page.wait_for_url(re.compile(rf"^{re.escape(live_server.url)}/teacher/sessions/\d+/$"))
-        page.get_by_role("heading", name="Instant session", exact=True).wait_for()
+        page.get_by_role("heading", name="Workspace instant class", exact=True).wait_for()
     finally:
         browser.close()
         browser_manager.stop()

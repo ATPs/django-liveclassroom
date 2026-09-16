@@ -2,7 +2,7 @@ import * as React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { readBootstrap, type Bootstrap } from "../../bootstrap.js";
-import { LocaleProvider, useT } from "../../i18n.js";
+import { LanguageSwitcher, LocaleProvider, useT } from "../../i18n.js";
 import {
   ApiError,
   apiEndpoint,
@@ -457,8 +457,16 @@ function StudentSession({ bootstrap }: { bootstrap: Bootstrap }) {
       ? t("classEnded")
       : "";
 
+  useEffect(() => {
+    const root = document.getElementById("liveclassroom-root");
+    if (bootstrap.preview || !root?.querySelector("[data-classroom-shell]")) return undefined;
+    root.dataset.studentLocaleControl = "local";
+    return () => { delete root.dataset.studentLocaleControl; };
+  }, [bootstrap.preview]);
+
   return (
     <>
+      {!bootstrap.preview ? <LanguageSwitcher /> : null}
       <h1 id="student-title">{title}</h1>
       <div id="student-content" data-liveclassroom-content>
         {joined ? (

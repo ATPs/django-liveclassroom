@@ -75,12 +75,13 @@ def test_student_join_and_teacher_console_render_without_mobile_overflow(live_se
         student.wait_for_function("document.querySelector('#student-title')?.textContent === 'Browser classroom'")
         assert student.locator("#student-title").inner_text() == "Browser classroom"
         assert student.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
-        language_box = student.locator(".lc-lang-switch").bounding_box()
+        language_switch = student.locator(".lc-lang-switch")
+        language_box = language_switch.bounding_box()
         title_box = student.locator("#student-title").bounding_box()
         assert language_box and title_box
         assert language_box["y"] + language_box["height"] <= title_box["y"]
         student.screenshot(path="/tmp/liveclassroom-student-mobile.png", full_page=True)
-        student.locator(".lc-lang-switch").click()
+        language_switch.click()
         student.wait_for_function("document.querySelector('[data-liveclassroom-app]')?.dataset.locale === 'zh-Hans'")
         assert student.locator("#student-title").inner_text() == "Browser classroom"
         assert student.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
@@ -91,20 +92,24 @@ def test_student_join_and_teacher_console_render_without_mobile_overflow(live_se
             [{"name": settings.SESSION_COOKIE_NAME, "value": teacher_cookie, "url": live_server.url}]
         )
         teacher_page.goto(f"{live_server.url}{reverse('liveclassroom:teacher-console', args=[session.id])}")
-        assert teacher_page.locator("[data-audience='teacher']").is_visible()
-        teacher_page.get_by_text("Invite students", exact=True).click()
+        teacher_page.locator("[data-audience='teacher']").wait_for()
+        teacher_page.locator("#lc-session-action-slot").get_by_role("button", name="Invite students").wait_for()
+        teacher_page.locator("#lc-session-action-slot").get_by_role("button", name="Invite students").click()
+        assert teacher_page.get_by_role("dialog", name="Invite students").is_visible()
         assert teacher_page.locator(".lc-join-qr img").is_visible()
         assert teacher_page.locator(".lc-presenter").is_visible()
         teacher_page.screenshot(path="/tmp/liveclassroom-teacher-desktop.png", full_page=True)
 
-        teacher_page.get_by_role("link", name="Student view", exact=True).click()
-        teacher_page.wait_for_url(f"**{reverse('liveclassroom:student-view', args=[session.id])}*")
-        teacher_page.locator("#student-title").wait_for()
-        teacher_page.wait_for_function("document.querySelector('#student-title')?.textContent === 'Browser classroom'")
-        assert teacher_page.locator("#student-title").inner_text() == "Browser classroom"
-        teacher_page.get_by_text("Participants", exact=True).click()
-        teacher_page.locator("select").select_option(label="Ada (admitted)")
-        assert teacher_page.get_by_role("button", name="Inspect").is_enabled()
+        with teacher_page.expect_popup() as student_view_popup:
+            teacher_page.get_by_role("link", name="Student view", exact=True).click()
+        student_view = student_view_popup.value
+        student_view.wait_for_url(f"**{reverse('liveclassroom:student-view', args=[session.id])}*")
+        student_view.locator("#student-title").wait_for()
+        student_view.wait_for_function("document.querySelector('#student-title')?.textContent === 'Browser classroom'")
+        assert student_view.locator("#student-title").inner_text() == "Browser classroom"
+        participant_select = student_view.locator(".lc-student-inspector-section select")
+        participant_select.select_option(label="Ada (admitted)")
+        assert student_view.get_by_role("button", name="Inspect").is_enabled()
     finally:
         browser.close()
         browser_manager.stop()
@@ -145,7 +150,7 @@ def test_presenter_next_works_without_crypto_random_uuid(live_server):
         page.goto(f"{live_server.url}{reverse('liveclassroom:teacher-console', args=[session.id])}")
         presenter = page.locator(".lc-presenter")
         presenter.get_by_role("button", name="First presenter item", exact=False).wait_for()
-        assert presenter.locator("details.lc-presenter-drawer").evaluate("element => element.open")
+        assert presenter.locator(".lc-presenter-drawer").is_visible()
         next_button = presenter.locator(".lc-presenter-navigation").get_by_role("button", name="Next", exact=True)
         assert next_button.is_enabled()
         launch_url = reverse("liveclassroom:api-v1-plan-launch", args=[session.id, second_step.id])

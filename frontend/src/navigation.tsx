@@ -437,7 +437,7 @@ export function installHistoryRestoration(): void {
 }
 
 /** Keep a deliberate selection addressable and restore it on Back/Forward. */
-export function useQuerySelection(name: string, fallback = ""): [string, (value: string, options?: { replace?: boolean }) => void] {
+export function useQuerySelection(name: string, fallback = ""): [string, (value: string, options?: { replace?: boolean; guard?: boolean }) => void] {
   const [value, setValue] = useState(() => queryValue(name) ?? fallback);
 
   useEffect(() => {
@@ -448,9 +448,14 @@ export function useQuerySelection(name: string, fallback = ""): [string, (value:
     };
   }, [fallback, name]);
 
-  const select = useCallback((next: string, options?: { replace?: boolean }) => {
+  const select = useCallback((next: string, options?: { replace?: boolean; guard?: boolean }) => {
+    // A panel switch that has already been accepted by its owner must update
+    // immediately. The history event remains the source of truth for Back and
+    // Forward, but it is dispatched outside React and can otherwise arrive
+    // before a newly mounted embedded surface has subscribed.
+    if (options?.guard === false) setValue(next || fallback);
     updateQuery({ [name]: next || null }, options);
-  }, [name]);
+  }, [fallback, name]);
   return [value, select];
 }
 

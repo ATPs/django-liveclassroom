@@ -41,15 +41,14 @@ export function ResultGradeOverride({ url, fingerprint, initialPoints, possible,
     onBeforeLeave: () => { setPoints(initialPoints); setComment(initialComment); setReason(""); },
     labels: zh ? { title: "未保存的评分", body: "离开前保存评分？", save: "保存并离开", discard: "放弃并离开", stay: "留在此页" } : {},
   });
-  return <section className="lc-result-grade-override"><h3>{zh ? "更正评分" : "Correct grade"}</h3>
+  return <section className="lc-result-grade-override"><header><h3>{zh ? "更正评分" : "Correct grade"}</h3><p className="lc-workspace-meta">{zh ? "满分" : "Possible points"}: {possible}</p></header>
     {guard.dialog}
     <form className="lc-form" onSubmit={event => { event.preventDefault(); void saveAndRefresh(); }}>
-      <label>{zh ? "得分" : "Awarded points"}<input className="lc-input" value={points} onChange={event => { setSaved(false); setPoints(event.target.value); }} inputMode="decimal" disabled={busy || saved} required /></label>
-      <p>{zh ? "满分" : "Possible points"}: {possible}</p>
-      <label>{zh ? "评语" : "Comment"}<textarea className="lc-textarea" value={comment} onChange={event => { setSaved(false); setComment(event.target.value); }} maxLength={4000} disabled={busy || saved} /></label>
-      <label>{zh ? "更正理由" : "Correction reason"}<input className="lc-input" value={reason} onChange={event => { setSaved(false); setReason(event.target.value); }} maxLength={255} disabled={busy || saved} required /></label>
+      <label className="lc-field">{zh ? "得分" : "Awarded points"}<input className="lc-input" value={points} onChange={event => { setSaved(false); setPoints(event.target.value); }} inputMode="decimal" disabled={busy || saved} required /></label>
+      <label className="lc-field">{zh ? "评语" : "Comment"}<textarea className="lc-textarea" value={comment} onChange={event => { setSaved(false); setComment(event.target.value); }} maxLength={4000} disabled={busy || saved} /></label>
+      <label className="lc-field">{zh ? "更正理由" : "Correction reason"}<input className="lc-input" value={reason} onChange={event => { setSaved(false); setReason(event.target.value); }} maxLength={255} disabled={busy || saved} required /></label>
       {error ? <p className="lc-form-error" role="alert">{error}</p> : null}
-      <button className="lc-btn lc-btn-primary" type="submit" disabled={busy || saved}>{zh ? "保存更正" : "Save correction"}</button>
+      <div className="lc-actions"><button className="lc-btn lc-btn-primary" type="submit" disabled={busy || saved}>{zh ? "保存更正" : "Save correction"}</button></div>
     </form>
   </section>;
 }

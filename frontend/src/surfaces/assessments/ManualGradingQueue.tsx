@@ -180,18 +180,20 @@ function ManualGradingCard({
         </div>
         <span className="lc-badge">{text(locale, "Pending", "待评分")}</span>
       </header>
-      <section className="lc-manual-grade-prompt" aria-label={text(locale, "Retained prompt", "保留题干")}>
-        <h4>{text(locale, "Prompt", "题干")}</h4>
-        <MarkdownView markdown={item.prompt} />
-      </section>
-      <section className="lc-manual-grade-answer" aria-label={text(locale, "Student answer", "学生答案")}>
-        <h4>{text(locale, "Student answer", "学生答案")}</h4>
-        <pre>{answerText(item.answer) || text(locale, "No answer submitted.", "未提交答案。")}</pre>
-      </section>
+      <div className="lc-manual-grade-content">
+        <section className="lc-manual-grade-prompt" aria-label={text(locale, "Retained prompt", "保留题干")}>
+          <h4>{text(locale, "Prompt", "题干")}</h4>
+          <MarkdownView markdown={item.prompt} />
+        </section>
+        <section className="lc-manual-grade-answer" aria-label={text(locale, "Student answer", "学生答案")}>
+          <h4>{text(locale, "Student answer", "学生答案")}</h4>
+          <pre>{answerText(item.answer) || text(locale, "No answer submitted.", "未提交答案。")}</pre>
+        </section>
+      </div>
       <form className="lc-manual-grade-form" onSubmit={(event) => { event.preventDefault(); void save(); }}>
         <div className="lc-manual-grade-points">
-          <label>
-            {text(locale, "Awarded points", "得分")}
+          <label className="lc-field">
+            <span>{text(locale, "Awarded points", "得分")}</span>
             <input
               aria-label={text(locale, "Awarded points", "得分")}
               className="lc-input"
@@ -207,18 +209,16 @@ function ManualGradingCard({
             <span>{text(locale, `of ${item.possible_points}`, `满分 ${item.possible_points}`)}</span>
           </label>
         </div>
-        <label>
-          {text(locale, "Comment", "评语")}
+        <label className="lc-field">
+          <span>{text(locale, "Comment", "评语")}</span>
           <textarea className="lc-textarea" rows={3} maxLength={4000} value={comment} onChange={(event) => setComment(event.currentTarget.value)} disabled={saving} />
         </label>
-        <label>
-          {text(locale, "Reason", "评分理由")}
+        <label className="lc-field">
+          <span>{text(locale, "Reason", "评分理由")}</span>
           <input className="lc-input" maxLength={255} value={reason} onChange={(event) => setReason(event.currentTarget.value)} disabled={saving} required />
         </label>
         {error ? <p className="lc-form-error" role="alert">{error}</p> : null}
-        <button type="submit" className="lc-btn lc-btn-primary" disabled={saving}>
-          {saving ? text(locale, "Saving…", "保存中…") : text(locale, "Save grade", "保存评分")}
-        </button>
+        <div className="lc-actions lc-manual-grade-actions"><button type="submit" className="lc-btn lc-btn-primary" disabled={saving}>{saving ? text(locale, "Saving…", "保存中…") : text(locale, "Save grade", "保存评分")}</button></div>
       </form>
     </article>
   );

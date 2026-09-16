@@ -82,6 +82,9 @@ def test_student_starts_saves_resumes_and_submits_assessment(live_server):
         page.get_by_text("What is the capital of France?", exact=True).wait_for()
         page.get_by_label("Paris", exact=False).check()
         page.get_by_role("status").filter(has_text="Saved").wait_for()
+        answered_marker = page.locator(".lc-student-assessment-nav button small")
+        assert answered_marker.count() == 1
+        assert answered_marker.evaluate("element => getComputedStyle(element).display") != "none"
         page.reload()
         page.get_by_text("What is the capital of France?", exact=True).wait_for()
         assert page.get_by_label("Paris", exact=False).is_checked()
@@ -93,7 +96,13 @@ def test_student_starts_saves_resumes_and_submits_assessment(live_server):
         page.goto(f"{live_server.url}{reverse('liveclassroom:assessment-attempt', args=[run.public_id])}")
         page.get_by_text("What is the capital of France?", exact=True).wait_for()
         page.get_by_role("button", name="Submit assessment", exact=True).click()
-        page.get_by_role("heading", name="Submit this assessment?", exact=True).wait_for()
+        dialog = page.get_by_role("dialog", name="Submit this assessment?")
+        dialog.wait_for()
+        assert dialog.get_attribute("aria-modal") == "true"
+        page.keyboard.press("Escape")
+        dialog.wait_for(state="detached")
+        page.get_by_role("button", name="Submit assessment", exact=True).click()
+        dialog.wait_for()
         page.get_by_role("button", name="Submit now", exact=True).click()
         page.get_by_role("heading", name="Assessment submitted", exact=True).wait_for()
         assert page.get_by_text("Scores and feedback are not released yet.", exact=True).is_visible()

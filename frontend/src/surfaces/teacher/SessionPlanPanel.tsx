@@ -66,47 +66,46 @@ export function SessionPlanPanel({stateUrl, state, onRefresh}: {stateUrl:string;
     const data=await getJson<Comparison>(`${endpoint("plan/compare")}?direction=${direction}`);
     setComparison(data);setSelected(data.changes.filter(c=>!c.conflict).map(c=>c.key));
   });
-  return <section className="lc-plan-section" data-session-plan>
-    <h2>{tr("This classroom's lesson","本次课堂教案")}</h2>
-    {error && <p role="alert">{error}</p>}
+  return <section className="lc-plan-section" data-session-plan aria-label={tr("This classroom's lesson", "本次课堂教案")}>
+    <p className="lc-plan-description">{tr("Edit the activities used in this classroom.", "编辑本次课堂使用的活动。")}</p>
+    {error && <p className="lc-builder-status-error" role="alert">{error}</p>}
     {editor && <section className="lc-editor-workspace" aria-label={tr("Edit this classroom", "编辑本次课堂")}>
-      <aside className="lc-editor-outline"><p>{tr("Lesson outline", "教案目录")}</p>{plan?.steps.map(step => <button type="button" key={step.key} className={editor !== "new" && editor.id === step.id ? "lc-editor-outline-current" : ""} onClick={() => setEditor(step)}>{step.position}. {step.title}</button>)}</aside>
+      <aside className="lc-editor-outline"><p>{tr("Lesson outline", "教案目录")}</p>{plan?.steps.map(step => <button type="button" key={step.key} className={`lc-btn lc-btn-sm lc-btn-outline ${editor !== "new" && editor.id === step.id ? "lc-editor-outline-current" : ""}`} onClick={() => setEditor(step)}>{step.position}. {step.title}</button>)}</aside>
       <div className="lc-editor-form"><h3>{editor === "new" ? tr("Add activity", "添加活动") : tr("Edit this classroom", "编辑本次内容")}</h3><ActivityEditor key={editor === "new" ? "new" : editor.id} initial={editor === "new" ? undefined : editor.snapshot} onSave={save} onCancel={()=>setEditor(null)}/></div>
       <aside className="lc-editor-preview"><p>{tr("Preview", "预览")}</p>{editor === "new" ? <p>{tr("Choose an activity type and enter content to preview it after saving.", "选择活动类型并填写内容；保存后可预览。")}</p> : <ChangeContent value={{snapshot: editor.snapshot}} />}</aside>
     </section>}
-    {plan?.steps.map((step,index)=><div key={step.key} className="lc-plan-step">
-      <strong>{index+1}. {step.title}</strong> {step.launched && <small>{tr("Used in class","已开展")}</small>}
-      {manage && <div className="lc-actions">
-        {(["display","participants"] as const).map(channel=><button key={channel} disabled={busy||state?.session.status!=="live"} onClick={()=>void execute(()=>post(endpoint(`plan/${step.id}/launch`),{channel}))}>{channel==="display"?tr("Show on display","投屏"):tr("Send to students","发给学生")}</button>)}
-        <button disabled={ended||busy||(step.launched&&step.activity_state!=="open")} onClick={()=>setEditor(step)}>{tr("Edit this classroom","编辑本次内容")}</button>
-        {step.launched && <details><summary>{tr("Run again with fresh answers", "重新开展并收集新答案")}</summary>{(["display","participants"] as const).map(channel=><button key={channel} disabled={busy||state?.session.status!=="live"} onClick={()=>void execute(()=>post(endpoint(`plan/${step.id}/launch`),{channel,restart:true}))}>{channel==="display"?tr("Start again on display","重新开展并投屏"):tr("Start again for students","重新开展并发给学生")}</button>)}</details>}
-        {!step.launched && <button disabled={ended||busy} onClick={()=>void execute(()=>post(endpoint(`plan/${step.id}`),{remove:true,plan_version:plan.session.plan_version}))}>{tr("Remove","移除")}</button>}
-        <button aria-label={tr("Move up","上移")} disabled={ended||busy||index===0} onClick={()=>move(index,-1)}>↑</button>
-        <button aria-label={tr("Move down","下移")} disabled={ended||busy||index===plan.steps.length-1} onClick={()=>move(index,1)}>↓</button>
+    {plan?.steps.map((step,index)=><section key={step.key} className="lc-plan-step">
+      <div className="lc-plan-step-header"><strong>{index+1}. {step.title}</strong>{step.launched && <small className="lc-badge">{tr("Used in class","已开展")}</small>}</div>
+      {manage && <div className="lc-plan-step-actions">
+        {(["display","participants"] as const).map(channel=><button type="button" className="lc-btn lc-btn-sm lc-btn-secondary" key={channel} disabled={busy||state?.session.status!=="live"} onClick={()=>void execute(()=>post(endpoint(`plan/${step.id}/launch`),{channel}))}>{channel==="display"?tr("Show on display","投屏"):tr("Send to students","发给学生")}</button>)}
+        <button type="button" className="lc-btn lc-btn-sm lc-btn-outline" disabled={ended||busy||(step.launched&&step.activity_state!=="open")} onClick={()=>setEditor(step)}>{tr("Edit this classroom","编辑本次内容")}</button>
+        {step.launched && <details className="lc-plan-restart"><summary>{tr("Run again with fresh answers", "重新开展并收集新答案")}</summary><div className="lc-plan-step-actions">{(["display","participants"] as const).map(channel=><button type="button" className="lc-btn lc-btn-sm lc-btn-outline" key={channel} disabled={busy||state?.session.status!=="live"} onClick={()=>void execute(()=>post(endpoint(`plan/${step.id}/launch`),{channel,restart:true}))}>{channel==="display"?tr("Start again on display","重新开展并投屏"):tr("Start again for students","重新开展并发给学生")}</button>)}</div></details>}
+        {!step.launched && <button type="button" className="lc-btn lc-btn-sm lc-btn-danger" disabled={ended||busy} onClick={()=>void execute(()=>post(endpoint(`plan/${step.id}`),{remove:true,plan_version:plan.session.plan_version}))}>{tr("Remove","移除")}</button>}
+        <button type="button" className="lc-btn-icon" title={tr("Move up", "上移")} aria-label={tr("Move up","上移")} disabled={ended||busy||index===0} onClick={()=>move(index,-1)}>↑</button>
+        <button type="button" className="lc-btn-icon" title={tr("Move down", "下移")} aria-label={tr("Move down","下移")} disabled={ended||busy||index===plan.steps.length-1} onClick={()=>move(index,1)}>↓</button>
       </div>}
-    </div>)}
+    </section>)}
     {manage && <>
-      <div className="lc-actions">
-        <button disabled={ended||busy} onClick={()=>setEditor("new")}>{tr("Add activity","添加活动")}</button>
-        <button disabled={ended||busy} onClick={()=>void execute(async()=>{
+      <div className="lc-plan-toolbar">
+        <button type="button" className="lc-btn lc-btn-primary" disabled={ended||busy} onClick={()=>setEditor("new")}>{tr("Add activity","添加活动")}</button>
+        <button type="button" className="lc-btn lc-btn-outline" disabled={ended||busy} onClick={()=>void execute(async()=>{
           const url=endpoint("plan").replace(/sessions\/\d+\/plan\/?$/, "activity-definitions/");
           const data=await getJson<{activities:Array<{id:number;title:string}>}>(url);setLibrary(data.activities);
         })}>{tr("Choose from library","从资料库选择")}</button>
-        {plan?.can_pull_lesson && <button disabled={ended||busy} onClick={()=>compare("to_session")}>{tr("Update unused steps from lesson","从教案更新未讲内容")}</button>}
-        {plan?.can_update_lesson && <button disabled={busy} onClick={()=>compare("to_lesson")}>{tr("Save improvements to lesson","保存改进到教案")}</button>}
+        {plan?.can_pull_lesson && <button type="button" className="lc-btn lc-btn-outline" disabled={ended||busy} onClick={()=>compare("to_session")}>{tr("Update unused steps from lesson","从教案更新未讲内容")}</button>}
+        {plan?.can_update_lesson && <button type="button" className="lc-btn lc-btn-outline" disabled={busy} onClick={()=>compare("to_lesson")}>{tr("Save improvements to lesson","保存改进到教案")}</button>}
       </div>
-      {!!library.length && <form className="lc-form" onSubmit={e=>{e.preventDefault();void execute(()=>post(endpoint("plan"),{activity_definition_id:Number(libraryId),plan_version:plan?.session.plan_version}));}}>
-        <label>{tr("Library activity or material","资料库活动或材料")}<select required value={libraryId} onChange={e=>setLibraryId(e.target.value)}><option value="">—</option>{library.map(a=><option key={a.id} value={a.id}>{a.title}</option>)}</select></label><button disabled={busy||!libraryId}>{tr("Add","添加")}</button>
+      {!!library.length && <form className="lc-plan-form" onSubmit={e=>{e.preventDefault();void execute(()=>post(endpoint("plan"),{activity_definition_id:Number(libraryId),plan_version:plan?.session.plan_version}));}}>
+        <label>{tr("Library activity or material","资料库活动或材料")}<select required value={libraryId} onChange={e=>setLibraryId(e.target.value)}><option value="">—</option>{library.map(a=><option key={a.id} value={a.id}>{a.title}</option>)}</select></label><div className="lc-actions"><button className="lc-btn lc-btn-primary" disabled={busy||!libraryId}>{tr("Add","添加")}</button></div>
       </form>}
-      <form className="lc-form" onSubmit={e=>{e.preventDefault();void execute(async()=>{await post(endpoint("save-flow"),{title:saveTitle});setSaveTitle("");});}}>
-        <label>{tr("Save a personal lesson copy","另存为个人教案")}<input required maxLength={200} value={saveTitle} onChange={e=>setSaveTitle(e.target.value)}/></label><button disabled={busy}>{tr("Save lesson copy","保存教案副本")}</button>
+      <form className="lc-plan-form" onSubmit={e=>{e.preventDefault();void execute(async()=>{await post(endpoint("save-flow"),{title:saveTitle});setSaveTitle("");});}}>
+        <label>{tr("Save a personal lesson copy","另存为个人教案")}<input required maxLength={200} value={saveTitle} onChange={e=>setSaveTitle(e.target.value)}/></label><div className="lc-actions"><button className="lc-btn lc-btn-outline" disabled={busy}>{tr("Save lesson copy","保存教案副本")}</button></div>
       </form>
-      {comparison && <section aria-label={tr("Review changes","检查变更")}>
+      {comparison && <section className="lc-plan-comparison" aria-label={tr("Review changes","检查变更")}>
         <h3>{tr("Choose changes to apply","选择要应用的变更")}</h3>
         {!comparison.changes.length && <p>{tr("No changes","没有变更")}</p>}
-        {comparison.changes.map(change=><label key={change.key} style={{display:"block"}}><input type="checkbox" checked={selected.includes(change.key)} onChange={e=>setSelected(old=>e.target.checked?[...old,change.key]:old.filter(k=>k!==change.key))}/>{change.title} · {({added:tr("Added","新增"),removed:tr("Removed","移除"),modified:tr("Modified","修改"),order:tr("Order","顺序")} as Record<string,string>)[change.kind]}{change.conflict && <strong> · {tr("Conflict: selecting replaces the target change","存在冲突：勾选将覆盖目标的修改")}</strong>}<details><summary>{tr("View changes", "查看修改内容")}</summary><p>{tr("Current", "当前内容")}</p><ChangeContent value={change.before} labels={change.before_labels}/><p>{tr("Proposed", "拟应用内容")}</p><ChangeContent value={change.after} labels={change.after_labels}/></details></label>)}
-        <button disabled={busy||!selected.length} onClick={()=>void execute(async()=>{await post(endpoint("plan/compare"),{direction:comparison.direction,token:comparison.token,keys:selected,confirmed_conflicts:comparison.changes.filter(c=>c.conflict&&selected.includes(c.key)).map(c=>c.key)});setComparison(null);})}>{tr("Apply selected changes","应用所选变更")}</button>
-        <button onClick={()=>setComparison(null)}>{tr("Cancel","取消")}</button>
+        {comparison.changes.map(change=><label className="lc-plan-change" key={change.key}><input type="checkbox" checked={selected.includes(change.key)} onChange={e=>setSelected(old=>e.target.checked?[...old,change.key]:old.filter(k=>k!==change.key))}/><span>{change.title} · {({added:tr("Added","新增"),removed:tr("Removed","移除"),modified:tr("Modified","修改"),order:tr("Order","顺序")} as Record<string,string>)[change.kind]}{change.conflict && <strong> · {tr("Conflict: selecting replaces the target change","存在冲突：勾选将覆盖目标的修改")}</strong>}<details className="lc-plan-change-details"><summary>{tr("View changes", "查看修改内容")}</summary><p>{tr("Current", "当前内容")}</p><ChangeContent value={change.before} labels={change.before_labels}/><p>{tr("Proposed", "拟应用内容")}</p><ChangeContent value={change.after} labels={change.after_labels}/></details></span></label>)}
+        <div className="lc-actions"><button type="button" className="lc-btn lc-btn-primary" disabled={busy||!selected.length} onClick={()=>void execute(async()=>{await post(endpoint("plan/compare"),{direction:comparison.direction,token:comparison.token,keys:selected,confirmed_conflicts:comparison.changes.filter(c=>c.conflict&&selected.includes(c.key)).map(c=>c.key)});setComparison(null);})}>{tr("Apply selected changes","应用所选变更")}</button><button type="button" className="lc-btn lc-btn-outline" onClick={()=>setComparison(null)}>{tr("Cancel","取消")}</button></div>
       </section>}
     </>}
   </section>;

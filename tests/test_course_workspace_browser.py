@@ -132,7 +132,7 @@ def test_teacher_groups_classes_without_changing_class_data(live_server):
         assert page.get_by_role("heading", name="Create class", exact=True).is_visible()
         page.screenshot(path=str(screenshots / "2026-09-09-course-workspace-mobile.png"), full_page=True)
         with page.expect_navigation():
-            page.locator(".lc-lang-switch").first.click()
+            page.get_by_role("button", name="Switch language / 切换语言", exact=True).click()
         page.get_by_role("button", name="班级", exact=True).click()
         page.get_by_role("heading", name="课程", exact=True).wait_for()
         assert page.get_by_role("heading", name="创建班级", exact=True).is_visible()

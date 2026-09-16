@@ -8,6 +8,7 @@ import { LocaleProvider, useLocale, useT } from "../../i18n.js";
 import { mountAiChat } from "../../ai_chat.js";
 import { FilePicker } from "../FilePicker.js";
 import { QuestionBankWorkspace } from "../questions/QuestionBankWorkspace.js";
+import { Icon } from "../navigation/AppShell.js";
 import {
   Breadcrumbs,
   routeUrl,
@@ -112,9 +113,9 @@ function StepPreview({ step }: { step: FlowStep }) {
   const answerText = Array.isArray(definition.answer) ? (definition.answer as string[]).join(", ") : String(definition.answer ?? "");
 
   return (
-    <div className="lc-builder-step-preview">
-      <div className="lc-preview-header">
-        <small>👁 {t("previewHeading")}</small>
+      <div className="lc-builder-step-preview">
+        <div className="lc-preview-header">
+        <small><Icon name="overview" size={14} />{t("previewHeading")}</small>
       </div>
       {promptText ? <h4 className="lc-preview-prompt">{promptText}</h4> : null}
       {choiceKinds.includes(typeKey) ? (
@@ -251,7 +252,7 @@ function StepCard({
           </button>
           {sessionId && editable ? (
             <button type="button" className="lc-btn-sm lc-btn-secondary" onClick={() => onLaunch(step)}>
-              🚀 {t("launchToClassroom")}
+              <Icon name="session" size={15} />{t("launchToClassroom")}
             </button>
           ) : null}
           {editable ? <button type="button" className="lc-btn-sm lc-btn-danger" onClick={() => onDelete(step)}>
@@ -667,6 +668,19 @@ function ImportModal({ apiUrl, onImported, onClose }: { apiUrl: (p: string) => s
   const [source, setSource] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const sourceRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    window.requestAnimationFrame(() => sourceRef.current?.focus());
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !busy) {
+        event.preventDefault();
+        onClose();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [busy, onClose]);
 
   const doImport = async () => {
     const text = source.trim();
@@ -687,30 +701,31 @@ function ImportModal({ apiUrl, onImported, onClose }: { apiUrl: (p: string) => s
   };
 
   return (
-    <div className="lc-modal-overlay" id="lc-import-modal" onClick={onClose}>
-      <div className="lc-modal" onClick={(e) => e.stopPropagation()}>
-        <h3>{t("importContent")}</h3>
+    <div className="lc-modal-overlay" id="lc-import-modal" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
+      <section className="lc-modal" role="dialog" aria-modal="true" aria-labelledby="lc-import-heading" tabIndex={-1}>
+        <h2 id="lc-import-heading">{t("importContent")}</h2>
         {error ? <div className="lc-form-error">{error}</div> : null}
         <div className="lc-form-group">
-          <label>{t("formatLabel")}: </label>
-          <select className="lc-select" value={format} onChange={(e) => setFormat(e.target.value)}>
+          <label htmlFor="lc-import-format">{t("formatLabel")}: </label>
+          <select id="lc-import-format" className="lc-select" value={format} onChange={(e) => setFormat(e.target.value)}>
             <option value="">{t("autoDetect")}</option>
             <option value="json">JSON</option>
             <option value="markdown">Markdown / YAML</option>
           </select>
         </div>
         <div className="lc-form-group">
-          <textarea className="lc-textarea" rows={8} placeholder={t("importPlaceholder")} value={source} onChange={(e) => setSource(e.target.value)} />
+          <label htmlFor="lc-import-source">{t("importContent")}</label>
+          <textarea ref={sourceRef} id="lc-import-source" className="lc-textarea" rows={8} placeholder={t("importPlaceholder")} value={source} onChange={(e) => setSource(e.target.value)} />
         </div>
         <div className="lc-modal-actions">
-          <button type="button" className="lc-btn-sm lc-btn-primary" disabled={busy} onClick={() => void doImport()}>
+          <button type="button" className="lc-btn lc-btn-primary" disabled={busy} onClick={() => void doImport()}>
             {t("importButton")}
           </button>
-          <button type="button" className="lc-btn-sm lc-btn-outline" onClick={onClose}>
+          <button type="button" className="lc-btn lc-btn-outline" onClick={onClose} disabled={busy}>
             {t("cancel")}
           </button>
         </div>
-      </div>
+      </section>
     </div>
   );
 }
@@ -745,6 +760,7 @@ function FlowBuilder({
   const [flows, setFlows] = useState<FlowSummary[]>([]);
   const [currentFlow, setCurrentFlow] = useState<FlowDetail | null>(null);
   const [previewOpen, setPreviewOpen] = useState<Set<number>>(new Set());
+  const [editorView, setEditorView] = useState<"outline" | "edit" | "preview">("edit");
   const [editingStep, setEditingStep] = useState<FlowStep | null>(null);
   const [editingDirty, setEditingDirty] = useState(false);
   const [editingSaving, setEditingSaving] = useState(false);
@@ -969,6 +985,7 @@ function FlowBuilder({
   const togglePreview = (id: number) => {
     requestNavigation(() => {
       selectStepUrl(String(id));
+      setEditorView("preview");
       setPreviewOpen((prev) => {
         const next = new Set(prev);
         if (next.has(id)) next.delete(id);
@@ -985,13 +1002,15 @@ function FlowBuilder({
 
   const activeFlowId = currentFlow?.id ?? initialFlowId;
   const editable = currentFlow?.can_edit !== false;
+  const selectedStep = currentFlow?.steps.find((step) => String(step.id) === stepSelection) ?? currentFlow?.steps[0] ?? null;
 
   return (
     <>
       <div className="lc-builder-root">
         <Breadcrumbs items={[{ href: libraryUrl, label: locale.startsWith("zh") ? "资料库" : "Library" }, { label: currentFlow?.title ?? t("builderTitle") }]} />
-        <div className="lc-builder-layout">
-          {currentFlow ? <nav className="lc-builder-outline" aria-label={locale.startsWith("zh") ? "教案大纲" : "Lesson outline"}><h2>{locale.startsWith("zh") ? "活动" : "Activities"}</h2>{currentFlow.steps.map((step, index) => <button type="button" key={step.id} className="lc-btn lc-btn-outline" aria-current={String(step.id) === stepSelection ? "true" : undefined} onClick={() => requestNavigation(() => selectStepUrl(String(step.id)))}>{index + 1}. {step.activity_definition?.title || (locale.startsWith("zh") ? "活动" : "Activity")}</button>)}</nav> : null}
+        {currentFlow ? <div className="lc-editor-view-tabs lc-builder-view-tabs" aria-label={locale.startsWith("zh") ? "编辑器区域" : "Editor regions"}><button type="button" className="lc-builder-outline-view" aria-pressed={editorView === "outline"} onClick={() => setEditorView("outline")}>{locale.startsWith("zh") ? "大纲" : "Outline"}</button><button type="button" aria-pressed={editorView === "edit"} onClick={() => setEditorView("edit")}>{locale.startsWith("zh") ? "编辑" : "Edit"}</button><button type="button" aria-pressed={editorView === "preview"} onClick={() => setEditorView("preview")}>{locale.startsWith("zh") ? "预览" : "Preview"}</button></div> : null}
+        <div className="lc-builder-layout" data-editor-view={editorView}>
+          {currentFlow ? <nav className="lc-builder-outline" aria-label={locale.startsWith("zh") ? "教案大纲" : "Lesson outline"}><h2>{locale.startsWith("zh") ? "活动" : "Activities"}</h2>{currentFlow.steps.map((step, index) => <button type="button" key={step.id} className="lc-btn lc-btn-outline" aria-current={String(step.id) === stepSelection ? "true" : undefined} onClick={() => requestNavigation(() => { selectStepUrl(String(step.id)); setEditorView("edit"); })}>{index + 1}. {step.activity_definition?.title || (locale.startsWith("zh") ? "活动" : "Activity")}</button>)}</nav> : null}
           <div className="lc-builder-main">
             <div className="lc-builder-topbar">
               <div className="lc-builder-title-group">
@@ -1024,7 +1043,7 @@ function FlowBuilder({
                   <button type="button" className="lc-btn-sm lc-btn-outline" onClick={() => requestNavigation(() => { void saveSessionAsFlow(); })}>{t("saveSessionAsFlow")}</button>
                 ) : null}
                 <button type="button" className="lc-btn-sm lc-btn-subtle" onClick={() => setAiSidebarOpen((v) => !v)}>
-                  🤖 {t("aiAssistant")}
+                  <Icon name="sparkles" size={15} />{t("aiAssistant")}
                 </button>
               </div>
             </div>
@@ -1095,30 +1114,29 @@ function FlowBuilder({
               <div className="lc-builder-step-list">
                 {currentFlow && currentFlow.steps.length === 0 ? (
                   <p className="lc-empty-notice">{t("noStepsYet")}</p>
-                ) : (
-                  currentFlow?.steps.map((step, index) => ((stepSelection ? String(step.id) === stepSelection : index === 0) ? (
-                    <StepCard
-                      key={step.id}
-                      step={step}
-                      index={index}
-                      total={currentFlow.steps.length}
-                      previewOpen={previewOpen.has(step.id)}
-                      sessionId={sessionId}
-                      editable={editable}
-                      onMove={(i, d) => void moveStep(i, d)}
-                      onTogglePreview={togglePreview}
-                      onDelete={(s) => void deleteStep(s)}
-                      onLaunch={(s) => void launchStep(s)}
-                      onEdit={(step) => requestNavigation(() => { selectStepUrl(String(step.id)); setEditingStep(step); })}
-                    />
-                  ) : null))
-                )}
+                ) : currentFlow?.steps.map((step, index) => (
+                  <StepCard
+                    key={step.id}
+                    step={step}
+                    index={index}
+                    total={currentFlow.steps.length}
+                    previewOpen={previewOpen.has(step.id)}
+                    sessionId={sessionId}
+                    editable={editable}
+                    onMove={(i, d) => void moveStep(i, d)}
+                    onTogglePreview={togglePreview}
+                    onDelete={(s) => void deleteStep(s)}
+                    onLaunch={(s) => void launchStep(s)}
+                    onEdit={(step) => requestNavigation(() => { selectStepUrl(String(step.id)); setEditingStep(step); })}
+                  />
+                ))}
               </div>
             </section>
           </div>
-          <div className="lc-builder-sidebar" style={{ display: aiSidebarOpen ? "block" : "none" }}>
-            <div ref={sidebarRef} />
-          </div>
+          <aside className={`lc-builder-sidebar ${currentFlow ? "is-open" : ""}`} aria-label={locale.startsWith("zh") ? "预览和助手" : "Preview and assistant"}>
+            {selectedStep ? <section className="lc-builder-preview-region" aria-label={locale.startsWith("zh") ? "活动预览" : "Activity preview"}><h2>{locale.startsWith("zh") ? "预览" : "Preview"}</h2><StepPreview step={selectedStep} /></section> : <p className="lc-empty-notice">{locale.startsWith("zh") ? "选择一个活动查看预览。" : "Choose an activity to preview it."}</p>}
+            <div ref={sidebarRef} hidden={!aiSidebarOpen} />
+          </aside>
         </div>
       </div>
       {importOpen ? <ImportModal apiUrl={apiUrl} onImported={() => { setImportOpen(false); showStatus(t("importSuccess")); void loadFlows(); }} onClose={() => setImportOpen(false)} /> : null}

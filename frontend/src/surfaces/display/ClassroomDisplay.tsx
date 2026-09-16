@@ -152,13 +152,13 @@ function ClassroomDisplay({ bootstrap }: { bootstrap: Bootstrap }) {
 
   return (
     <>
-      <LanguageSwitcher />
-      <div className="lc-display-toolbar">
-        <button type="button" onClick={toggleFullscreen}>
+      <div className="lc-display-toolbar" aria-label={t("fullscreen")}>
+        <LanguageSwitcher />
+        <button type="button" className="lc-btn lc-btn-outline" aria-pressed={fullscreen} onClick={toggleFullscreen}>
           {fullscreen ? t("exitFullscreen") : t("fullscreen")}
         </button>
       </div>
-      <h1 id="display-title">{state?.session.title ?? "…"}</h1>
+      <h1 id="display-title" title={state?.session.title ?? ""}>{state?.session.title ?? "…"}</h1>
       <div id="display-content" data-liveclassroom-content>
         {state?.current_deck && !activity ? <NativeDeckView deck={state.current_deck} state={state} audience="display" /> : <DisplayActivity activity={activity} aggregate={state?.aggregate ?? null} state={state} stateUrl={stateUrl} />}
       </div>

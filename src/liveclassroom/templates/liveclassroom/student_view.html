@@ -1,10 +1,11 @@
 {% extends liveclassroom_base_template %}
+{% load i18n %}
 {% block title %}Student view · {{ session.title }}{% endblock %}
 {% block content %}
-  <section class="lc-card lc-wide" data-student-view data-participants-url="{% url 'liveclassroom:api-v1-participants' session.id %}" data-activate-url="{% url 'liveclassroom:api-v1-student-view-activate' session.id %}" data-test-student-url="{% url 'liveclassroom:api-v1-test-student' session.id %}" data-renew-test-student-url="{% url 'liveclassroom:api-v1-renew-test-student' session.id %}" data-teacher-url="{% url 'liveclassroom:teacher-console' session.id %}?lang={{ active_lang|urlencode }}" data-state-url="{% url 'liveclassroom:api-v1-state' session.id %}">
-    <label>Participant <select data-student-view-participant></select></label>
-    <button type="button" data-student-view-inspect>Inspect</button>
-    <button type="button" data-student-view-activate>Act as participant</button>
+  <section class="lc-card lc-wide lc-student-inspector" data-student-view data-participants-url="{% url 'liveclassroom:api-v1-participants' session.id %}" data-activate-url="{% url 'liveclassroom:api-v1-student-view-activate' session.id %}" data-test-student-url="{% url 'liveclassroom:api-v1-test-student' session.id %}" data-renew-test-student-url="{% url 'liveclassroom:api-v1-renew-test-student' session.id %}" data-teacher-url="{% url 'liveclassroom:teacher-console' session.id %}?lang={{ active_lang|urlencode }}" data-state-url="{% url 'liveclassroom:api-v1-state' session.id %}">
+    <label class="lc-field"><span>{% translate "Participant" %}</span><select data-student-view-participant></select></label>
+    <div class="lc-actions"><button type="button" class="lc-btn lc-btn-outline" data-student-view-inspect>{% translate "Inspect" %}</button>
+    <button type="button" class="lc-btn lc-btn-primary" data-student-view-activate>{% translate "Act as participant" %}</button></div>
     <p data-student-view-status aria-live="polite"></p>
   </section>
   <section class="lc-card lc-wide" data-liveclassroom-app data-audience="student" data-preview="true" data-state-url="{% url 'liveclassroom:api-v1-state' session.id %}?preview=1" data-websocket-url="{{ websocket_url }}" data-locale="{{ active_lang|default:'en' }}">

@@ -178,9 +178,12 @@ export function QuestionBankWorkspace({ apiRoot, picker = false, onPick, pickerL
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [bankSelection, selectBankUrl] = useQuerySelection("bank");
-  const [questionSelection, selectQuestionUrl] = useQuerySelection("question");
-  const [panelSelection, selectPanelUrl] = useQuerySelection("panel");
+  // Pickers are embedded in builders that own the URL.  Give their dormant
+  // selection hooks private keys so an outer `panel=picker` never becomes
+  // internal question-bank state.
+  const [bankSelection, selectBankUrl] = useQuerySelection(urlState ? "bank" : "question-bank-bank");
+  const [questionSelection, selectQuestionUrl] = useQuerySelection(urlState ? "question" : "question-bank-question");
+  const [panelSelection, selectPanelUrl] = useQuerySelection(urlState ? "panel" : "question-bank-panel");
   const locationPath = useLocationPath();
   const editorRef = useRef<HTMLElement | null>(null);
   const saveResolver = useRef<((saved: boolean) => void) | null>(null);
@@ -279,11 +282,15 @@ export function QuestionBankWorkspace({ apiRoot, picker = false, onPick, pickerL
   }, [difficulty, query, tag, topic, typeKey, urlState]);
 
   const selectBank = (bankId: number | null) => {
-    requestNavigation(() => {
+    const select = () => {
       setSelectedBankId(bankId); setSelectedQuestion(null);
       if (urlState) selectBankUrl(bankId ? String(bankId) : "");
       if (urlState) selectQuestionUrl("", { replace: true });
-    });
+    };
+    // Choosing a bank in an embedded picker refines the current assessment;
+    // it is not a departure from the unsaved assessment draft.
+    if (picker) select();
+    else requestNavigation(select);
   };
 
   const openPanel = (next: Panel) => {

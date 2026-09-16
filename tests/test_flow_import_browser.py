@@ -37,6 +37,7 @@ def test_teacher_imports_markdown_and_sees_a_recoverable_import_error(live_serve
 
         page.get_by_role("button", name="Import content", exact=True).click()
         modal = page.locator("#lc-import-modal")
+        assert modal.get_by_role("dialog", name="Import content").get_attribute("aria-modal") == "true"
         modal.get_by_role("combobox").select_option("markdown")
         modal.locator("textarea").fill(
             "---\ntitle: Imported Markdown lesson\ndescription: Browser-created portable lesson\n---\n\n"
@@ -67,10 +68,10 @@ def test_teacher_imports_markdown_and_sees_a_recoverable_import_error(live_serve
         assert rejected.value.status == 400
         modal.locator(".lc-form-error").wait_for()
         assert modal.locator("textarea").input_value() == "{"
+        page.keyboard.press("Escape")
+        modal.wait_for(state="detached")
         assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
         page.screenshot(path=str(screenshots / "2026-09-10-flow-import-error-mobile.png"), full_page=True)
-        modal.get_by_role("button", name="Cancel", exact=True).click()
-        modal.wait_for(state="detached")
 
     finally:
         browser.close()

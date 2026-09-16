@@ -414,6 +414,8 @@ function StudentAssessment({ runUrl, startUrl, historyUrl, initialAttemptId = ""
   const versionsRef = React.useRef<Record<string, number>>({});
   const storageKey = React.useMemo(() => `liveclassroom-assessment-attempt:${runUrl}`, [runUrl]);
   const controllerRef = React.useRef<SerializedAutosaveController | null>(null);
+  const dialogRef = React.useRef<HTMLElement>(null);
+  const dialogTriggerRef = React.useRef<HTMLElement | null>(null);
 
   const loadAttempt = React.useCallback((loaded: AssessmentAttempt) => {
     const normalizedItems = Array.isArray(loaded.items) ? [...loaded.items].sort((a, b) => a.position - b.position) : [];
@@ -519,6 +521,25 @@ function StudentAssessment({ runUrl, startUrl, historyUrl, initialAttemptId = ""
     window.addEventListener("liveclassroom:request-navigation", guard);
     return () => window.removeEventListener("liveclassroom:request-navigation", guard);
   }, [controller, flushBeforeLeaving]);
+
+  React.useEffect(() => {
+    if (!confirming && !leavePending) return undefined;
+    dialogTriggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const focusDialog = () => dialogRef.current?.focus();
+    window.requestAnimationFrame(focusDialog);
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || submitting || leaving) return;
+      event.preventDefault();
+      if (confirming) setConfirming(false);
+      else setLeavePending(null);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      dialogTriggerRef.current?.focus();
+      dialogTriggerRef.current = null;
+    };
+  }, [confirming, leavePending, leaving, submitting]);
 
   const start = async () => {
     if (starting) return;
@@ -707,10 +728,8 @@ function StudentAssessment({ runUrl, startUrl, historyUrl, initialAttemptId = ""
                   const canAdvance = Boolean(navigation?.mode === "forward_only" && navigation.current_item_key === attempt.items[selected]?.key && navigation.can_go_next);
                   return canReviewNext || canAdvance ? <button type="button" className="lc-btn lc-btn-outline" onClick={goNext} disabled={submitting}>{t("assessmentNext")}</button> : null;
                 })()}
-                <button type="button" className="lc-btn lc-btn-primary" onClick={() => setConfirming(true)} disabled={submitting}>{t("assessmentSubmit")}</button>
+                <button type="button" className="lc-btn lc-btn-primary" onClick={(event) => { dialogTriggerRef.current = event.currentTarget; setConfirming(true); }} disabled={submitting}>{t("assessmentSubmit")}</button>
               </div>
-          {confirming ? <section className="lc-card lc-assessment-submit-confirm" role="dialog" aria-modal="false" aria-labelledby="assessment-submit-heading"><h2 id="assessment-submit-heading">{t("assessmentConfirmSubmit")}</h2><p>{t("assessmentConfirmSubmitDetails")}</p><div className="lc-actions"><button type="button" className="lc-btn lc-btn-primary" onClick={() => void submit()} disabled={submitting}>{submitting ? t("assessmentSubmitting") : t("assessmentSubmitNow")}</button><button type="button" className="lc-btn lc-btn-outline" onClick={() => setConfirming(false)} disabled={submitting}>{t("cancel")}</button></div></section> : null}
-          {leavePending ? <section className="lc-card lc-assessment-submit-confirm" role="dialog" aria-modal="true" aria-labelledby="assessment-leave-heading"><h2 id="assessment-leave-heading">{locale.startsWith("zh") ? "答案尚未保存" : "Answers have not been saved"}</h2><p>{locale.startsWith("zh") ? "无法保存最新答案。您可以重试、离开并放弃未保存答案，或留在此页面。" : "The latest answers could not be saved. Retry, leave with unsaved answers, or stay on this page."}</p><div className="lc-actions"><button type="button" className="lc-btn lc-btn-primary" disabled={leaving} onClick={() => flushBeforeLeaving(leavePending)}>{leaving ? (locale.startsWith("zh") ? "正在保存…" : "Saving…") : (locale.startsWith("zh") ? "重试保存" : "Retry save")}</button><button type="button" className="lc-btn lc-btn-danger" disabled={leaving} onClick={() => { const navigate = leavePending; setLeavePending(null); navigate(); }}>{locale.startsWith("zh") ? "离开并放弃未保存答案" : "Leave with unsaved answers"}</button><button type="button" className="lc-btn lc-btn-outline" disabled={leaving} onClick={() => setLeavePending(null)}>{locale.startsWith("zh") ? "留在此页面" : "Stay"}</button></div></section> : null}
             </section>
             <aside className="lc-card lc-attempt-status" aria-label={locale.startsWith("zh") ? "作答状态" : "Attempt status"}>
               <h2>{locale.startsWith("zh") ? "作答状态" : "Attempt status"}</h2>
@@ -720,6 +739,8 @@ function StudentAssessment({ runUrl, startUrl, historyUrl, initialAttemptId = ""
               <p>{attempt.navigation?.mode === "forward_only" ? (locale.startsWith("zh") ? "仅向前作答；已锁定的题目不能修改。" : "Forward-only attempt; locked answers cannot be changed.") : (locale.startsWith("zh") ? "可以自由选择题目。" : "You can move freely between questions.")}</p>
             </aside>
           </div>
+          {confirming ? <div className="lc-modal-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !submitting) setConfirming(false); }}><section ref={dialogRef} className="lc-modal lc-assessment-submit-confirm" role="dialog" aria-modal="true" aria-labelledby="assessment-submit-heading" tabIndex={-1}><h2 id="assessment-submit-heading">{t("assessmentConfirmSubmit")}</h2><p>{t("assessmentConfirmSubmitDetails")}</p><div className="lc-actions"><button type="button" className="lc-btn lc-btn-primary" onClick={() => void submit()} disabled={submitting}>{submitting ? t("assessmentSubmitting") : t("assessmentSubmitNow")}</button><button type="button" className="lc-btn lc-btn-outline" onClick={() => setConfirming(false)} disabled={submitting}>{t("cancel")}</button></div></section></div> : null}
+          {leavePending ? <div className="lc-modal-overlay" role="presentation"><section ref={dialogRef} className="lc-modal lc-assessment-submit-confirm" role="dialog" aria-modal="true" aria-labelledby="assessment-leave-heading" tabIndex={-1}><h2 id="assessment-leave-heading">{locale.startsWith("zh") ? "答案尚未保存" : "Answers have not been saved"}</h2><p>{locale.startsWith("zh") ? "无法保存最新答案。您可以重试、离开并放弃未保存答案，或留在此页面。" : "The latest answers could not be saved. Retry, leave with unsaved answers, or stay on this page."}</p><div className="lc-actions"><button type="button" className="lc-btn lc-btn-primary" disabled={leaving} onClick={() => flushBeforeLeaving(leavePending)}>{leaving ? (locale.startsWith("zh") ? "正在保存…" : "Saving…") : (locale.startsWith("zh") ? "重试保存" : "Retry save")}</button><button type="button" className="lc-btn lc-btn-danger" disabled={leaving} onClick={() => { const navigate = leavePending; setLeavePending(null); navigate(); }}>{locale.startsWith("zh") ? "离开并放弃未保存答案" : "Leave with unsaved answers"}</button><button type="button" className="lc-btn lc-btn-outline" disabled={leaving} onClick={() => setLeavePending(null)}>{locale.startsWith("zh") ? "留在此页面" : "Stay"}</button></div></section></div> : null}
         </>
       )}
     </div>

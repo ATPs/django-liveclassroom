@@ -1,9 +1,11 @@
 import * as React from "react";
+import { createPortal } from "react-dom";
 import { createRoot } from "react-dom/client";
 
 import { preserveLocale, requestApplicationNavigation } from "../../navigation.js";
 import { switchLocalePage } from "../../locales.js";
 import { getJson } from "../../protocol.js";
+import { clearSessionActionSlot, setSessionActionSlot } from "./sessionActionSlot.js";
 
 type Context = {
   kind: "course" | "class";
@@ -49,10 +51,9 @@ const DRAWER_EVENT = "liveclassroom:shell-drawer";
 const CURRENT_EVENT = "liveclassroom:shell-current";
 const FILTER_EVENT = "liveclassroom:shell-filter";
 const RESOLVED_EVENT = "liveclassroom:shell-resolved";
-const SESSION_EVENT = "liveclassroom:session-state";
 const PENDING_RECENT_KEY = "liveclassroom:shell-pending-recent";
 
-function Icon({ name, size = 18 }: { name: string; size?: number }): React.ReactElement {
+export function Icon({ name, size = 18 }: { name: string; size?: number }): React.ReactElement {
   const common = { fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
   let content: React.ReactNode;
   switch (name) {
@@ -83,6 +84,9 @@ function Icon({ name, size = 18 }: { name: string; size?: number }): React.React
     case "logout": content = <><path {...common} d="M14 4H5v16h9M10 12h10M17 8l4 4-4 4" /></>; break;
     case "overview": content = <><path {...common} d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z" /></>; break;
     case "students": content = <><circle {...common} cx="9" cy="8" r="3" /><path {...common} d="M3 20a6 6 0 0 1 12 0M16 11a3 3 0 1 1 2.5-1.3M17 14a5 5 0 0 1 4 6" /></>; break;
+    case "settings": content = <><circle {...common} cx="12" cy="12" r="3" /><path {...common} d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.12 2.12-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56v.08h-3v-.08A1.7 1.7 0 0 0 10.68 18.7a1.7 1.7 0 0 0-1.88.34l-.06.06-2.12-2.12.06-.06A1.7 1.7 0 0 0 7.02 15a1.7 1.7 0 0 0-1.56-1.03h-.08v-3h.08A1.7 1.7 0 0 0 7.02 9.94a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.12-2.12.06.06a1.7 1.7 0 0 0 1.88.34 1.7 1.7 0 0 0 1.03-1.56v-.08h3v.08a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.88-.34l.06-.06L19.8 8l-.06.06a1.7 1.7 0 0 0-.34 1.88 1.7 1.7 0 0 0 1.56 1.03h.08v3h-.08A1.7 1.7 0 0 0 19.4 15Z" /></>; break;
+    case "download": content = <><path {...common} d="M12 3v12M7 10l5 5 5-5M5 20h14" /></>; break;
+    case "sparkles": content = <><path {...common} d="m12 3 .9 3.1L16 7l-3.1.9L12 11l-.9-3.1L8 7l3.1-.9L12 3ZM19 14l.5 1.5L21 16l-1.5.5L19 18l-.5-1.5L17 16l1.5-.5L19 14ZM6 14l.65 2.35L9 17l-2.35.65L6 20l-.65-2.35L3 17l2.35-.65L6 14Z" /></>; break;
     case "site": content = <><circle {...common} cx="12" cy="12" r="9" /><path {...common} d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18" /></>; break;
     default: content = <circle {...common} cx="12" cy="12" r="8" />;
   }
@@ -190,6 +194,16 @@ function savePreferences(bootstrap: Bootstrap, preferences: Preferences): void {
 
 function publishPreferences(preferences: Preferences): void {
   window.dispatchEvent(new CustomEvent<Preferences>("liveclassroom:shell-preferences", { detail: preferences }));
+}
+
+function samePreferences(left: Preferences, right: Preferences): boolean {
+  return left.version === right.version
+    && left.collapsed === right.collapsed
+    && left.rememberedMode === right.rememberedMode
+    && left.pins.length === right.pins.length
+    && left.recent.length === right.recent.length
+    && left.pins.every((value, index) => value === right.pins[index])
+    && left.recent.every((value, index) => value === right.recent[index]);
 }
 
 function groups(bootstrap: Bootstrap): Group[] {
@@ -312,7 +326,7 @@ function iconForRef(ref: string, kind?: string): string {
   return "recent";
 }
 
-function ShellHeader({ bootstrap }: { bootstrap: Bootstrap }) {
+function ShellHeader({ bootstrap, utilitiesSlot }: { bootstrap: Bootstrap; utilitiesSlot: HTMLElement | null }) {
   const [preferences, setPreferences] = React.useState(() => loadPreferences(bootstrap));
   const [current, setCurrent] = React.useState<CurrentShellEvent>({ path: bootstrap.path, reference: bootstrap.current_ref, context: bootstrap.current_context });
   const [mobile, setMobile] = React.useState(isMobileViewport);
@@ -321,8 +335,6 @@ function ShellHeader({ bootstrap }: { bootstrap: Bootstrap }) {
   const [searchOpen, setSearchOpen] = React.useState(false);
   const [recentOpen, setRecentOpen] = React.useState(false);
   const [pinnedOpen, setPinnedOpen] = React.useState(false);
-  const [sessionLive, setSessionLive] = React.useState(false);
-  const [sessionInfo, setSessionInfo] = React.useState<{ status: string; joinCode?: string; title?: string } | null>(null);
   const [resolved, setResolved] = React.useState<ResolvedDestination[]>([]);
   const root = document.querySelector<HTMLElement>("[data-classroom-shell]");
   const searchRef = React.useRef<HTMLDivElement>(null);
@@ -358,24 +370,22 @@ function ShellHeader({ bootstrap }: { bootstrap: Bootstrap }) {
   }, []);
 
   React.useEffect(() => {
-    const syncSession = (event: Event) => {
-      const detail = (event as CustomEvent<{ status: string; joinCode?: string; title?: string }>).detail;
-      if (detail?.status) {
-        setSessionLive(detail.status === "live");
-        setSessionInfo(detail);
-      }
-    };
-    window.addEventListener(SESSION_EVENT, syncSession);
-    return () => window.removeEventListener(SESSION_EVENT, syncSession);
-  }, []);
-
-  React.useEffect(() => {
     const syncResolved = (event: Event) => {
       const detail = (event as CustomEvent<ResolvedDestination[]>).detail;
       if (Array.isArray(detail)) setResolved(detail);
     };
     window.addEventListener(RESOLVED_EVENT, syncResolved);
     return () => window.removeEventListener(RESOLVED_EVENT, syncResolved);
+  }, []);
+
+  React.useEffect(() => {
+    const sync = (event: Event) => {
+      const next = (event as CustomEvent<Preferences>).detail;
+      if (!next) return;
+      setPreferences((current) => samePreferences(current, next) ? current : next);
+    };
+    window.addEventListener("liveclassroom:shell-preferences", sync);
+    return () => window.removeEventListener("liveclassroom:shell-preferences", sync);
   }, []);
 
   React.useEffect(() => {
@@ -431,6 +441,17 @@ function ShellHeader({ bootstrap }: { bootstrap: Bootstrap }) {
     if (root) root.dataset.drawer = drawerOpen ? "open" : "closed";
     publishDrawer(drawerOpen);
   }, [drawerOpen, root]);
+
+  React.useEffect(() => {
+    const header = document.querySelector<HTMLElement>("[data-liveclassroom-shell-header]");
+    if (!header || typeof ResizeObserver === "undefined") return;
+    const root = header.closest<HTMLElement>("#liveclassroom-root");
+    const update = () => root?.style.setProperty("--lc-shell-header-height", `${header.offsetHeight}px`);
+    const observer = new ResizeObserver(update);
+    observer.observe(header);
+    update();
+    return () => observer.disconnect();
+  }, []);
 
   const availableModes = activeBootstrap.allowed_modes ?? [
     ...(activeBootstrap.teacher_allowed ? ["teaching" as const] : []),
@@ -489,53 +510,7 @@ function ShellHeader({ bootstrap }: { bootstrap: Bootstrap }) {
     ? searchCandidates.filter((item) => item.label.toLocaleLowerCase().includes(queryTrimmed)).slice(0, 8)
     : [];
 
-  return <>
-    <div className="lc-shell-brand">
-      <a
-        href={preserveLocale(bootstrap.links.home)}
-        title={tr(bootstrap, "Home · Return to LiveClassroom homepage", "首页 · 返回 LiveClassroom 首页")}
-        onClick={(event) => navigateFromShell(event, bootstrap, bootstrap.links.home, "page:home", () => setDrawerOpen(false))}
-      >
-        LiveClassroom
-      </a>
-    </div>
-    <button
-      type="button"
-      className="lc-shell-toggle"
-      aria-label={tr(bootstrap, "Toggle navigation menu", "切换导航菜单")}
-      title={tr(bootstrap, "Toggle navigation menu", "切换导航菜单")}
-      aria-expanded={mobile ? drawerOpen : !preferences.collapsed}
-      onClick={() => {
-        if (mobile) setDrawerOpen((open) => !open);
-        else setPreferences((value) => ({ ...value, collapsed: !value.collapsed }));
-      }}
-    ><Icon name="menu" /></button>
-    {activeBootstrap.current_context?.title ? <span className="lc-shell-context-tag" title={activeBootstrap.current_context.title}>{activeBootstrap.current_context.title}</span> : null}
-
-    <div className="lc-shell-header-actions">
-      {sessionInfo?.joinCode ? (
-        <button
-          type="button"
-          className="lc-join-code-chip lc-shell-join-chip"
-          title={tr(bootstrap, "Click to copy join code", "点击复制加入口令")}
-          onClick={() => {
-            if (sessionInfo.joinCode && navigator.clipboard?.writeText) {
-              void navigator.clipboard.writeText(sessionInfo.joinCode);
-            }
-          }}
-        >
-          <span className="lc-join-code-label">{tr(bootstrap, "Code:", "口令:")}</span>
-          <strong className="lc-join-code-val">{sessionInfo.joinCode}</strong>
-        </button>
-      ) : null}
-
-      {sessionLive ? (
-        <div className="lc-live-pill" role="status" title={tr(bootstrap, "Class is live", "课堂进行中")}>
-          <span className="lc-live-dot" aria-hidden="true" />
-          <span>{tr(bootstrap, "Class is live", "课堂进行中")}</span>
-        </div>
-      ) : null}
-
+  const utilities = <div className="lc-shell-header-actions">
       <div className="lc-shell-search-wrapper" ref={searchRef}>
         <button
           type="button"
@@ -792,7 +767,29 @@ function ShellHeader({ bootstrap }: { bootstrap: Bootstrap }) {
         {bootstrap.authenticated && bootstrap.host_links.logout_url ? <form method="post" action={logoutUrl(bootstrap.host_links.logout_url)} className="lc-shell-logout"><input type="hidden" name="csrfmiddlewaretoken" value={csrfToken()} /><button type="submit" className="lc-shell-icon-button" title={tr(bootstrap, "Sign out", "退出登录")} aria-label={tr(bootstrap, "Sign out", "退出登录")}><Icon name="logout" /></button></form> : null}
         {!bootstrap.authenticated && bootstrap.host_links.login_url ? <a className="lc-shell-user" href={bootstrap.host_links.login_url}>{tr(bootstrap, "Sign in", "登录")}</a> : null}
       </div>
+    </div>;
+
+  return <>
+    <div className="lc-shell-brand">
+      <a
+        href={preserveLocale(bootstrap.links.home)}
+        aria-label={tr(bootstrap, "Home", "首页")}
+        title={tr(bootstrap, "Home · Return to LiveClassroom homepage", "首页 · 返回 LiveClassroom 首页")}
+        onClick={(event) => navigateFromShell(event, bootstrap, bootstrap.links.home, "page:home", () => setDrawerOpen(false))}
+      >
+        LiveClassroom
+      </a>
     </div>
+    {mobile ? <button
+      type="button"
+      className="lc-shell-toggle"
+      aria-label={tr(bootstrap, "Toggle navigation", "切换导航")}
+      title={tr(bootstrap, "Toggle navigation", "切换导航")}
+      aria-expanded={drawerOpen}
+      onClick={() => setDrawerOpen((open) => !open)}
+    ><Icon name="menu" /></button> : null}
+    {activeBootstrap.current_context?.title ? <span className="lc-shell-context-tag" title={activeBootstrap.current_context.title}>{activeBootstrap.current_context.title}</span> : null}
+    {utilitiesSlot ? createPortal(utilities, utilitiesSlot) : utilities}
   </>;
 }
 
@@ -811,6 +808,7 @@ function AppNavigation({ bootstrap }: { bootstrap: Bootstrap }) {
   const [preferences, setPreferences] = React.useState(() => loadPreferences(bootstrap));
   const [resolved, setResolved] = React.useState<ResolvedDestination[]>([]);
   const [openGroup, setOpenGroup] = React.useState<string | null>(null);
+  const [tooltip, setTooltip] = React.useState<{ label: string; left: number; top: number } | null>(null);
   const [drawerOpen, setDrawerOpen] = React.useState(false);
   const [currentPath, setCurrentPath] = React.useState(() => window.location.pathname);
   const [currentRef, setCurrentRef] = React.useState(bootstrap.current_ref);
@@ -825,13 +823,21 @@ function AppNavigation({ bootstrap }: { bootstrap: Bootstrap }) {
     destinations: group.destinations.filter((item) => !filterValue || item.label.toLocaleLowerCase().includes(filterValue)),
   })).filter((group) => group.destinations.length);
   const closeDrawer = React.useCallback(() => publishDrawer(false), []);
-  const link = (item: Destination) => <a key={item.key} className="lc-shell-link" href={preserveLocale(item.href || "")} data-current={activeBootstrap.path === item.href ? "true" : undefined} title={item.label} onClick={(event) => item.href && navigateFromShell(event, activeBootstrap, item.href, item.ref, closeDrawer)}><span aria-hidden="true" className="lc-shell-link-icon"><Icon name={item.icon} /></span><span className="lc-shell-link-label">{item.label}</span></a>;
+  const showTooltip = (event: React.SyntheticEvent<HTMLElement>, label: string) => {
+    if (!preferences.collapsed || isMobileViewport()) return;
+    const box = event.currentTarget.getBoundingClientRect();
+    setTooltip({ label, left: box.right + 8, top: Math.max(8, Math.min(box.top + box.height / 2, window.innerHeight - 8)) });
+  };
+  const link = (item: Destination) => <a key={item.key} className="lc-shell-link" href={preserveLocale(item.href || "")} data-current={activeBootstrap.path === item.href ? "true" : undefined} aria-label={item.label} title={item.label} onMouseEnter={(event) => showTooltip(event, item.label)} onMouseLeave={() => setTooltip(null)} onFocus={(event) => showTooltip(event, item.label)} onBlur={() => setTooltip(null)} onClick={(event) => item.href && navigateFromShell(event, activeBootstrap, item.href, item.ref, closeDrawer)}><span aria-hidden="true" className="lc-shell-link-icon"><Icon name={item.icon} /></span><span className="lc-shell-link-label">{item.label}</span></a>;
   const removeReference = (reference: string) => setPreferences((current) => ({
     ...current,
     pins: current.pins.filter((item) => item !== reference),
     recent: current.recent.filter((item) => item !== reference),
   }));
-  React.useEffect(() => savePreferences(bootstrap, preferences), [bootstrap, preferences]);
+  React.useEffect(() => {
+    savePreferences(bootstrap, preferences);
+    publishPreferences(preferences);
+  }, [bootstrap, preferences]);
   React.useEffect(() => {
     const sync = () => {
       const path = window.location.pathname;
@@ -846,7 +852,11 @@ function AppNavigation({ bootstrap }: { bootstrap: Bootstrap }) {
     };
   }, [bootstrap]);
   React.useEffect(() => {
-    const sync = (event: Event) => setPreferences((event as CustomEvent<Preferences>).detail);
+    const sync = (event: Event) => {
+      const next = (event as CustomEvent<Preferences>).detail;
+      if (!next) return;
+      setPreferences((current) => samePreferences(current, next) ? current : next);
+    };
     window.addEventListener("liveclassroom:shell-preferences", sync);
     return () => window.removeEventListener("liveclassroom:shell-preferences", sync);
   }, []);
@@ -859,6 +869,11 @@ function AppNavigation({ bootstrap }: { bootstrap: Bootstrap }) {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       setFilter("");
+      if (tooltip) {
+        event.preventDefault();
+        setTooltip(null);
+        return;
+      }
       if (drawerOpen) {
         event.preventDefault();
         closeDrawer();
@@ -873,7 +888,7 @@ function AppNavigation({ bootstrap }: { bootstrap: Bootstrap }) {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [closeDrawer, drawerOpen, openGroup]);
+  }, [closeDrawer, drawerOpen, openGroup, tooltip]);
   React.useEffect(() => {
     if (!drawerOpen) return;
     const navigation = navigationRef.current;
@@ -976,6 +991,9 @@ function AppNavigation({ bootstrap }: { bootstrap: Bootstrap }) {
     </div>;
   };
   const renderGroup = (group: Group, contents: React.ReactNode = group.destinations.map(link)) => {
+    if (preferences.collapsed && !isMobileViewport()) {
+      return <div className="lc-shell-group lc-shell-compact-group" key={group.key} aria-label={group.label}>{contents}</div>;
+    }
     const expanded = isMobileViewport() || !preferences.collapsed || openGroup === group.key;
     const closeIfLeaving = (event: React.FocusEvent<HTMLDivElement>) => {
       if (!preferences.collapsed || !openGroup || event.currentTarget.contains(event.relatedTarget as Node | null)) return;
@@ -998,11 +1016,13 @@ function AppNavigation({ bootstrap }: { bootstrap: Bootstrap }) {
   };
   return <nav ref={navigationRef} className="lc-shell-navigation" aria-label={tr(bootstrap, "Classroom navigation", "课堂导航")}>
     <div className="lc-shell-drawer-title"><span>{tr(bootstrap, "Navigation", "导航")}</span><button type="button" className="lc-shell-icon-button" aria-label={tr(bootstrap, "Close navigation", "关闭导航")} onClick={closeDrawer}><Icon name="close" /></button></div>
+    <button type="button" className="lc-shell-sidebar-toggle" aria-label={preferences.collapsed ? tr(bootstrap, "Expand navigation", "展开导航") : tr(bootstrap, "Collapse navigation", "收起导航")} title={preferences.collapsed ? tr(bootstrap, "Expand navigation", "展开导航") : tr(bootstrap, "Collapse navigation", "收起导航")} onClick={() => setPreferences((value) => { const next = { ...value, collapsed: !value.collapsed }; const shell = document.querySelector<HTMLElement>("[data-classroom-shell]"); if (shell) shell.dataset.sidebar = next.collapsed ? "collapsed" : "expanded"; return next; })}><Icon name={preferences.collapsed ? "menu" : "back"} /></button>
     {visibleGroups.map((group) => renderGroup(group))}
     <div className="lc-shell-utility-links">
       {link({ key: "join", label: tr(bootstrap, "Join a session", "加入课堂"), href: bootstrap.links.join, icon: "join", ref: "page:join" })}
       {link({ key: "help", label: tr(bootstrap, "Help", "帮助"), href: bootstrap.links.help, icon: "help", ref: "page:help" })}
     </div>
+    {tooltip ? <div className="lc-shell-tooltip" role="tooltip" style={{ left: tooltip.left, top: tooltip.top }}>{tooltip.label}</div> : null}
   </nav>;
 }
 
@@ -1040,6 +1060,11 @@ export function mountAppShell(): void {
   const header = document.querySelector<HTMLElement>("[data-liveclassroom-shell-header]");
   const navigation = document.querySelector<HTMLElement>("[data-liveclassroom-shell-navigation]");
   if (!bootstrap || !header || !navigation) return;
+  const headerContent = header.querySelector<HTMLElement>("[data-liveclassroom-shell-header-content]") ?? header;
+  const sessionActionSlot = header.querySelector<HTMLElement>("#lc-session-action-slot");
+  const utilitiesSlot = header.querySelector<HTMLElement>("[data-liveclassroom-shell-header-utilities]");
+  setSessionActionSlot(sessionActionSlot);
+  window.addEventListener("pagehide", () => clearSessionActionSlot(sessionActionSlot), { once: true });
   const current = new URL(window.location.href);
   const home = new URL(bootstrap.links.home, window.location.href);
   if (bootstrap.authenticated && current.pathname === home.pathname) {
@@ -1060,7 +1085,7 @@ export function mountAppShell(): void {
     overlay.className = "lc-shell-drawer-overlay";
     navigation.parentElement?.insertBefore(overlay, navigation);
   }
-  createRoot(header).render(<ShellHeader bootstrap={bootstrap} />);
+  createRoot(headerContent).render(<ShellHeader bootstrap={bootstrap} utilitiesSlot={utilitiesSlot} />);
   createRoot(navigation).render(<AppNavigation bootstrap={bootstrap} />);
   createRoot(overlay).render(<ShellDrawerOverlay bootstrap={bootstrap} />);
 }

@@ -34,5 +34,5 @@ export function FilePicker({
     return () => container.replaceChildren();
   }, [endpoint, includeChannels, isSuperuser, locale]);
 
-  return <div className="lc-file-picker" ref={host} />;
+  return <div className="lc-file-picker-host" ref={host} />;
 }
