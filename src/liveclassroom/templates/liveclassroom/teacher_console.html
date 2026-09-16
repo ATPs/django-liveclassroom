@@ -4,7 +4,7 @@
   <div class="lc-page-stack">
     <section class="lc-card lc-wide"
       data-liveclassroom-app data-audience="teacher"
-      data-capabilities='{{ capabilities_json }}'
+      data-capabilities='{{ capabilities_json|default:"[]" }}'
       data-workspace-url="{% url 'liveclassroom:teacher-dashboard' %}?lang={{ active_lang|urlencode }}"
       data-session-id="{{ session.id }}"
       data-is-superuser="{{ request.user.is_superuser|yesno:'true,false' }}"
@@ -21,7 +21,7 @@
       data-builder-url="{% url 'liveclassroom:flow-builder' %}?session_id={{ session.id }}&amp;lang={{ active_lang|urlencode }}"
       data-student-view-url="{% url 'liveclassroom:student-view' session.id %}?lang={{ active_lang|urlencode }}"
       data-decks-url="{% url 'liveclassroom:api-v1-decks' %}"
-      data-flow-steps='{{ flow_steps_json }}'>
+      data-flow-steps='{{ flow_steps_json|default:"[]" }}'>
       <noscript><p>The live console needs JavaScript.</p></noscript>
     </section>
   </div>

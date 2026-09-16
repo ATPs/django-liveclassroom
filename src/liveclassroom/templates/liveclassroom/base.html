@@ -13,7 +13,8 @@
     <main id="liveclassroom-root">
       {% if classroom_shell %}
         {{ navigation_bootstrap|json_script:"liveclassroom-navigation-bootstrap" }}
-        <div class="lc-shell" data-classroom-shell data-sidebar="collapsed">
+        <div class="lc-shell" data-classroom-shell data-sidebar="expanded">
+          <script>try{var b=JSON.parse(document.getElementById('liveclassroom-navigation-bootstrap').textContent||'{}'),k='liveclassroom:shell:'+(b.preference_namespace||'liveclassroom'),p=JSON.parse(localStorage.getItem(k)||'{}'),s=document.querySelector('[data-classroom-shell]');var c=(window.innerWidth<768)?true:(p&&p.version===2?Boolean(p.collapsed):false);if(s)s.dataset.sidebar=c?'collapsed':'expanded';}catch(e){}</script>
           <a class="lc-skip-link" href="#liveclassroom-content">Skip to content</a>
           <header class="lc-shell-header" data-liveclassroom-shell-header></header>
           <div class="lc-shell-body">

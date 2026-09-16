@@ -47,6 +47,9 @@ const MAX_PINS = 12;
 const MAX_RECENT = 10;
 const DRAWER_EVENT = "liveclassroom:shell-drawer";
 const CURRENT_EVENT = "liveclassroom:shell-current";
+const FILTER_EVENT = "liveclassroom:shell-filter";
+const RESOLVED_EVENT = "liveclassroom:shell-resolved";
+const SESSION_EVENT = "liveclassroom:session-state";
 const PENDING_RECENT_KEY = "liveclassroom:shell-pending-recent";
 
 function Icon({ name, size = 18 }: { name: string; size?: number }): React.ReactElement {
@@ -54,6 +57,7 @@ function Icon({ name, size = 18 }: { name: string; size?: number }): React.React
   let content: React.ReactNode;
   switch (name) {
     case "menu": content = <><path {...common} d="M3 5h18M3 12h18M3 19h18" /></>; break;
+    case "search": content = <><circle {...common} cx="11" cy="11" r="7" /><path {...common} d="m20 20-3.5-3.5" /></>; break;
     case "home": content = <><path {...common} d="m3 11 9-8 9 8v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z" /><path {...common} d="M9 21v-6h6v6" /></>; break;
     case "teacher": content = <><path {...common} d="M4 19V5h16v14M2 19h20" /><path {...common} d="m7 9 3 2 3-2 3 2-3 2-3-2-3 2z" /></>; break;
     case "course": content = <><path {...common} d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5z" /><path {...common} d="M4 5.5v15M8 7h8M8 11h8" /></>; break;
@@ -158,13 +162,14 @@ function storageKey(bootstrap: Bootstrap): string {
 const memoryPreferences = new Map<string, Preferences>();
 
 function loadPreferences(bootstrap: Bootstrap): Preferences {
-  const fallback: Preferences = { version: 2, collapsed: window.matchMedia("(max-width: 1199px)").matches, pins: [], recent: [] };
+  const isDesktop = typeof window !== "undefined" && !window.matchMedia("(max-width: 767px)").matches;
+  const fallback: Preferences = { version: 2, collapsed: isDesktop ? false : true, pins: [], recent: [] };
   try {
     const parsed = JSON.parse(window.localStorage.getItem(storageKey(bootstrap)) || "{}") as Partial<Preferences>;
     if (parsed.version !== 2) return fallback;
     return {
       version: 2,
-      collapsed: Boolean(parsed.collapsed),
+      collapsed: isDesktop ? Boolean(parsed.collapsed) : true,
       rememberedMode: parsed.rememberedMode === "teaching" || parsed.rememberedMode === "learning" ? parsed.rememberedMode : undefined,
       pins: Array.isArray(parsed.pins) ? parsed.pins.filter((value): value is string => typeof value === "string").slice(0, MAX_PINS) : [],
       recent: Array.isArray(parsed.recent) ? parsed.recent.filter((value): value is string => typeof value === "string").slice(0, MAX_RECENT) : [],
@@ -296,12 +301,35 @@ function navigateFromShell(
   });
 }
 
+function iconForRef(ref: string, kind?: string): string {
+  if (kind === "session" || ref.startsWith("session:")) return "session";
+  if (kind === "course" || ref.startsWith("course:")) return "course";
+  if (kind === "class" || ref.startsWith("class:")) return "class";
+  if (kind === "deck" || ref.startsWith("deck:")) return "deck";
+  if (kind === "assessment" || ref.startsWith("assessment:")) return "assessment";
+  if (kind === "lesson" || ref.startsWith("lesson:") || ref.startsWith("flow:")) return "lesson";
+  if (kind === "results" || ref.startsWith("results:")) return "results";
+  return "recent";
+}
+
 function ShellHeader({ bootstrap }: { bootstrap: Bootstrap }) {
   const [preferences, setPreferences] = React.useState(() => loadPreferences(bootstrap));
   const [current, setCurrent] = React.useState<CurrentShellEvent>({ path: bootstrap.path, reference: bootstrap.current_ref, context: bootstrap.current_context });
   const [mobile, setMobile] = React.useState(isMobileViewport);
   const [drawerOpen, setDrawerOpen] = React.useState(false);
+  const [searchQuery, setSearchQuery] = React.useState("");
+  const [searchOpen, setSearchOpen] = React.useState(false);
+  const [recentOpen, setRecentOpen] = React.useState(false);
+  const [pinnedOpen, setPinnedOpen] = React.useState(false);
+  const [sessionLive, setSessionLive] = React.useState(false);
+  const [sessionInfo, setSessionInfo] = React.useState<{ status: string; joinCode?: string; title?: string } | null>(null);
+  const [resolved, setResolved] = React.useState<ResolvedDestination[]>([]);
   const root = document.querySelector<HTMLElement>("[data-classroom-shell]");
+  const searchRef = React.useRef<HTMLDivElement>(null);
+  const searchInputRef = React.useRef<HTMLInputElement>(null);
+  const recentRef = React.useRef<HTMLDivElement>(null);
+  const pinnedRef = React.useRef<HTMLDivElement>(null);
+
   React.useEffect(() => {
     const media = window.matchMedia("(max-width: 767px)");
     const update = () => {
@@ -311,6 +339,7 @@ function ShellHeader({ bootstrap }: { bootstrap: Bootstrap }) {
     media.addEventListener("change", update);
     return () => media.removeEventListener("change", update);
   }, []);
+
   React.useEffect(() => {
     const sync = (event: Event) => {
       const detail = (event as CustomEvent<CurrentShellEvent>).detail;
@@ -319,21 +348,90 @@ function ShellHeader({ bootstrap }: { bootstrap: Bootstrap }) {
     window.addEventListener(CURRENT_EVENT, sync);
     return () => window.removeEventListener(CURRENT_EVENT, sync);
   }, []);
+
   const activeBootstrap = { ...bootstrap, path: current.path, current_ref: current.reference, current_context: current.context };
+
   React.useEffect(() => {
     const sync = (event: Event) => setDrawerOpen((event as CustomEvent<{ open: boolean }>).detail.open);
     window.addEventListener(DRAWER_EVENT, sync);
     return () => window.removeEventListener(DRAWER_EVENT, sync);
   }, []);
+
+  React.useEffect(() => {
+    const syncSession = (event: Event) => {
+      const detail = (event as CustomEvent<{ status: string; joinCode?: string; title?: string }>).detail;
+      if (detail?.status) {
+        setSessionLive(detail.status === "live");
+        setSessionInfo(detail);
+      }
+    };
+    window.addEventListener(SESSION_EVENT, syncSession);
+    return () => window.removeEventListener(SESSION_EVENT, syncSession);
+  }, []);
+
+  React.useEffect(() => {
+    const syncResolved = (event: Event) => {
+      const detail = (event as CustomEvent<ResolvedDestination[]>).detail;
+      if (Array.isArray(detail)) setResolved(detail);
+    };
+    window.addEventListener(RESOLVED_EVENT, syncResolved);
+    return () => window.removeEventListener(RESOLVED_EVENT, syncResolved);
+  }, []);
+
+  React.useEffect(() => {
+    const references = [...preferences.pins, ...preferences.recent].slice(0, MAX_PINS + MAX_RECENT);
+    if (current.reference && !references.includes(current.reference)) references.push(current.reference);
+    if (!bootstrap.authenticated || !bootstrap.links.navigation || !references.length) return;
+    const controller = new AbortController();
+    const url = new URL(bootstrap.links.navigation, window.location.href);
+    references.forEach((ref) => url.searchParams.append("ref", ref));
+    void getJson<NavigationPayload>(url.toString(), { signal: controller.signal }).then((payload) => {
+      if (controller.signal.aborted) return;
+      setResolved(payload.resolved);
+      window.dispatchEvent(new CustomEvent<ResolvedDestination[]>(RESOLVED_EVENT, { detail: payload.resolved }));
+    }).catch(() => {});
+    return () => controller.abort();
+  }, [bootstrap.authenticated, bootstrap.links.navigation, preferences.pins, preferences.recent, current.reference]);
+
+  React.useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (searchRef.current && !searchRef.current.contains(target)) setSearchOpen(false);
+      if (recentRef.current && !recentRef.current.contains(target)) setRecentOpen(false);
+      if (pinnedRef.current && !pinnedRef.current.contains(target)) setPinnedOpen(false);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setSearchOpen(false);
+        setRecentOpen(false);
+        setPinnedOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, []);
+
+  React.useEffect(() => {
+    if (searchOpen) {
+      window.requestAnimationFrame(() => searchInputRef.current?.focus());
+    }
+  }, [searchOpen]);
+
   React.useEffect(() => {
     if (root) root.dataset.sidebar = !mobile && preferences.collapsed ? "collapsed" : "expanded";
     savePreferences(bootstrap, preferences);
     publishPreferences(preferences);
   }, [bootstrap, preferences, root, mobile]);
+
   React.useEffect(() => {
     if (root) root.dataset.drawer = drawerOpen ? "open" : "closed";
     publishDrawer(drawerOpen);
   }, [drawerOpen, root]);
+
   const availableModes = activeBootstrap.allowed_modes ?? [
     ...(activeBootstrap.teacher_allowed ? ["teaching" as const] : []),
     ...(activeBootstrap.authenticated ? ["learning" as const] : []),
@@ -346,25 +444,338 @@ function ShellHeader({ bootstrap }: { bootstrap: Bootstrap }) {
   const selectedMode = availableModes.includes(activeBootstrap.mode as "teaching" | "learning" | "student_preview")
     ? activeBootstrap.mode
     : (preferences.rememberedMode && availableModes.includes(preferences.rememberedMode) ? preferences.rememberedMode : availableModes[0]);
+
   const pinCurrent = () => {
     const reference = activeBootstrap.current_ref;
     if (!reference) return;
-    setPreferences((current) => {
-      const pins = current.pins.includes(reference)
-        ? current.pins.filter((item) => item !== reference)
-        : [reference, ...current.pins].slice(0, MAX_PINS);
-      return { ...current, pins };
+    setPreferences((cur) => {
+      const pins = cur.pins.includes(reference)
+        ? cur.pins.filter((item) => item !== reference)
+        : [reference, ...cur.pins].slice(0, MAX_PINS);
+      return { ...cur, pins };
     });
   };
   const pinned = Boolean(activeBootstrap.current_ref && preferences.pins.includes(activeBootstrap.current_ref));
+
+  const resolvedByReference = new Map(resolved.map((item) => [item.ref, item]));
+
+  const allGroups = groups(activeBootstrap);
+  const searchCandidates: Array<{ label: string; href: string; icon: string; group: string; ref?: string }> = [];
+  const seenHrefs = new Set<string>();
+
+  for (const grp of allGroups) {
+    for (const dest of grp.destinations) {
+      if (dest.href && !seenHrefs.has(dest.href)) {
+        seenHrefs.add(dest.href);
+        searchCandidates.push({ label: dest.label, href: dest.href, icon: dest.icon, group: grp.label, ref: dest.ref });
+      }
+    }
+  }
+  for (const item of resolved) {
+    if (item.url && !seenHrefs.has(item.url)) {
+      seenHrefs.add(item.url);
+      searchCandidates.push({
+        label: item.label,
+        href: item.url,
+        icon: iconForRef(item.ref, item.kind),
+        group: tr(bootstrap, "Recent & Pinned", "最近与固定"),
+        ref: item.ref,
+      });
+    }
+  }
+
+  const queryTrimmed = searchQuery.trim().toLocaleLowerCase();
+  const searchResults = queryTrimmed
+    ? searchCandidates.filter((item) => item.label.toLocaleLowerCase().includes(queryTrimmed)).slice(0, 8)
+    : [];
+
   return <>
-    <div className="lc-shell-brand"><a href={preserveLocale(bootstrap.links.home)} onClick={(event) => navigateFromShell(event, bootstrap, bootstrap.links.home, "page:home", () => setDrawerOpen(false))}>LiveClassroom</a></div>
-    <button type="button" className="lc-shell-toggle" aria-label={tr(bootstrap, "Toggle navigation", "切换导航")} aria-expanded={mobile ? drawerOpen : !preferences.collapsed} onClick={() => {
-      if (mobile) setDrawerOpen((open) => !open);
-      else setPreferences((value) => ({ ...value, collapsed: !value.collapsed }));
-    }}><Icon name="menu" /></button>
-    <div className="lc-shell-header-context">{activeBootstrap.current_context?.title || tr(activeBootstrap, "Workspace", "工作区")}</div>
+    <div className="lc-shell-brand">
+      <a
+        href={preserveLocale(bootstrap.links.home)}
+        title={tr(bootstrap, "Home · Return to LiveClassroom homepage", "首页 · 返回 LiveClassroom 首页")}
+        onClick={(event) => navigateFromShell(event, bootstrap, bootstrap.links.home, "page:home", () => setDrawerOpen(false))}
+      >
+        LiveClassroom
+      </a>
+    </div>
+    <button
+      type="button"
+      className="lc-shell-toggle"
+      aria-label={tr(bootstrap, "Toggle navigation menu", "切换导航菜单")}
+      title={tr(bootstrap, "Toggle navigation menu", "切换导航菜单")}
+      aria-expanded={mobile ? drawerOpen : !preferences.collapsed}
+      onClick={() => {
+        if (mobile) setDrawerOpen((open) => !open);
+        else setPreferences((value) => ({ ...value, collapsed: !value.collapsed }));
+      }}
+    ><Icon name="menu" /></button>
+    {activeBootstrap.current_context?.title ? <span className="lc-shell-context-tag" title={activeBootstrap.current_context.title}>{activeBootstrap.current_context.title}</span> : null}
+
     <div className="lc-shell-header-actions">
+      {sessionInfo?.joinCode ? (
+        <button
+          type="button"
+          className="lc-join-code-chip lc-shell-join-chip"
+          title={tr(bootstrap, "Click to copy join code", "点击复制加入口令")}
+          onClick={() => {
+            if (sessionInfo.joinCode && navigator.clipboard?.writeText) {
+              void navigator.clipboard.writeText(sessionInfo.joinCode);
+            }
+          }}
+        >
+          <span className="lc-join-code-label">{tr(bootstrap, "Code:", "口令:")}</span>
+          <strong className="lc-join-code-val">{sessionInfo.joinCode}</strong>
+        </button>
+      ) : null}
+
+      {sessionLive ? (
+        <div className="lc-live-pill" role="status" title={tr(bootstrap, "Class is live", "课堂进行中")}>
+          <span className="lc-live-dot" aria-hidden="true" />
+          <span>{tr(bootstrap, "Class is live", "课堂进行中")}</span>
+        </div>
+      ) : null}
+
+      <div className="lc-shell-search-wrapper" ref={searchRef}>
+        <button
+          type="button"
+          className={`lc-shell-icon-button lc-shell-search-btn ${searchOpen ? "active" : ""}`}
+          aria-expanded={searchOpen}
+          aria-label={tr(bootstrap, "Search", "搜索")}
+          title={tr(bootstrap, "Search pages, courses, sessions", "搜索页面、课程、课堂")}
+          onClick={() => setSearchOpen((open) => !open)}
+        >
+          <Icon name="search" />
+        </button>
+        {searchOpen ? (
+          <div className="lc-shell-search-flyout" role="dialog" aria-modal="false" aria-label={tr(bootstrap, "Search", "搜索")}>
+            <div className="lc-shell-search-bar">
+              <span className="lc-shell-search-icon" aria-hidden="true"><Icon name="search" size={15} /></span>
+              <input
+                ref={searchInputRef}
+                type="search"
+                className="lc-shell-search-input"
+                value={searchQuery}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setSearchQuery(val);
+                  window.dispatchEvent(new CustomEvent(FILTER_EVENT, { detail: { filter: val } }));
+                }}
+                placeholder={tr(bootstrap, "Search pages, courses, sessions...", "搜索页面、课程、课堂...")}
+                aria-label={tr(bootstrap, "Search pages, courses, sessions", "搜索页面、课程、课堂")}
+              />
+              {searchQuery ? (
+                <button
+                  type="button"
+                  className="lc-shell-search-clear"
+                  aria-label={tr(bootstrap, "Clear search", "清空搜索")}
+                  onClick={() => {
+                    setSearchQuery("");
+                    window.dispatchEvent(new CustomEvent(FILTER_EVENT, { detail: { filter: "" } }));
+                    searchInputRef.current?.focus();
+                  }}
+                >
+                  <Icon name="close" size={13} />
+                </button>
+              ) : null}
+            </div>
+            {searchResults.length > 0 ? (
+              <div className="lc-shell-search-popover" role="listbox">
+                {searchResults.map((item, idx) => (
+                  <a
+                    key={`${item.href}-${idx}`}
+                    href={preserveLocale(item.href)}
+                    className="lc-shell-search-item"
+                    onClick={(e) => {
+                      navigateFromShell(e, activeBootstrap, item.href, item.ref, () => {
+                        setSearchOpen(false);
+                        setSearchQuery("");
+                        window.dispatchEvent(new CustomEvent(FILTER_EVENT, { detail: { filter: "" } }));
+                      });
+                    }}
+                  >
+                    <span className="lc-shell-search-item-icon" aria-hidden="true"><Icon name={item.icon} size={15} /></span>
+                    <span className="lc-shell-search-item-label">{item.label}</span>
+                    <span className="lc-shell-search-item-group">{item.group}</span>
+                  </a>
+                ))}
+              </div>
+            ) : queryTrimmed ? (
+              <p className="lc-shell-search-empty">{tr(bootstrap, "No matching pages found", "未找到匹配页面")}</p>
+            ) : (
+              <div className="lc-shell-search-hints">
+                <span className="lc-shell-search-hint-title">{tr(bootstrap, "Quick jump", "快速直达")}</span>
+                {searchCandidates.slice(0, 5).map((item, idx) => (
+                  <a
+                    key={`hint-${item.href}-${idx}`}
+                    href={preserveLocale(item.href)}
+                    className="lc-shell-search-item"
+                    onClick={(e) => {
+                      navigateFromShell(e, activeBootstrap, item.href, item.ref, () => {
+                        setSearchOpen(false);
+                      });
+                    }}
+                  >
+                    <span className="lc-shell-search-item-icon" aria-hidden="true"><Icon name={item.icon} size={15} /></span>
+                    <span className="lc-shell-search-item-label">{item.label}</span>
+                  </a>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : null}
+      </div>
+
+      {bootstrap.links.help ? (
+        <a
+          className="lc-shell-icon-button lc-shell-help-btn"
+          href={preserveLocale(bootstrap.links.help)}
+          title={tr(bootstrap, "Help", "帮助")}
+          aria-label={tr(bootstrap, "Help", "帮助")}
+          onClick={(event) => navigateFromShell(event, activeBootstrap, bootstrap.links.help, "page:help")}
+        >
+          <Icon name="help" />
+        </a>
+      ) : null}
+
+      <div className="lc-shell-pinned-wrapper" ref={pinnedRef}>
+        <button
+          type="button"
+          className={`lc-shell-icon-button lc-shell-pin-button ${pinnedOpen ? "active" : ""}`}
+          aria-expanded={pinnedOpen}
+          aria-label={tr(bootstrap, "Pinned pages", "固定页面")}
+          title={tr(bootstrap, "Pinned pages", "固定页面")}
+          onClick={() => setPinnedOpen((open) => !open)}
+        >
+          <Icon name="pin" />
+        </button>
+        {pinnedOpen ? (
+          <div className="lc-shell-recent-menu lc-shell-pinned-menu" role="menu">
+            <div className="lc-shell-recent-menu-header">
+              <span className="lc-shell-recent-menu-title">{tr(bootstrap, "Pinned Pages", "固定页面")}</span>
+              {activeBootstrap.current_ref ? (
+                <button
+                  type="button"
+                  className="lc-shell-pin-toggle-btn"
+                  onClick={pinCurrent}
+                >
+                  {pinned ? tr(activeBootstrap, "★ Unpin page", "★ 取消固定") : tr(activeBootstrap, "☆ Pin page", "☆ 固定当前页")}
+                </button>
+              ) : null}
+            </div>
+            <div className="lc-shell-recent-menu-body">
+              {preferences.pins.length === 0 ? (
+                <p className="lc-shell-recent-empty">{tr(bootstrap, "No pinned pages yet", "暂无固定页面")}</p>
+              ) : (
+                preferences.pins.map((ref) => {
+                  const item = resolvedByReference.get(ref);
+                  if (!item) return null;
+                  return (
+                    <div key={ref} className="lc-shell-recent-item">
+                      <a
+                        href={preserveLocale(item.url)}
+                        className="lc-shell-recent-item-link"
+                        onClick={(e) => {
+                          navigateFromShell(e, activeBootstrap, item.url, ref, () => setPinnedOpen(false));
+                        }}
+                      >
+                        <span className="lc-shell-link-icon" aria-hidden="true">
+                          <Icon name={iconForRef(ref, item.kind)} size={15} />
+                        </span>
+                        <span className="lc-shell-link-label">{item.label}</span>
+                      </a>
+                      <button
+                        type="button"
+                        className="lc-shell-recent-item-remove"
+                        aria-label={tr(bootstrap, "Unpin", "取消固定")}
+                        title={tr(bootstrap, "Unpin", "取消固定")}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          e.preventDefault();
+                          setPreferences((cur) => ({ ...cur, pins: cur.pins.filter((r) => r !== ref) }));
+                        }}
+                      >
+                        <Icon name="close" size={13} />
+                      </button>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        ) : null}
+      </div>
+
+      <div className="lc-shell-recent-wrapper" ref={recentRef}>
+        <button
+          type="button"
+          className={`lc-shell-icon-button lc-shell-recent-button ${recentOpen ? "active" : ""}`}
+          aria-expanded={recentOpen}
+          aria-label={tr(bootstrap, "Recent pages", "最近访问")}
+          title={tr(bootstrap, "Recent pages", "最近访问")}
+          onClick={() => setRecentOpen((open) => !open)}
+        >
+          <Icon name="recent" />
+        </button>
+        {recentOpen ? (
+          <div className="lc-shell-recent-menu" role="menu">
+            <div className="lc-shell-recent-menu-header">
+              <span className="lc-shell-recent-menu-title">{tr(bootstrap, "Recent Pages", "最近访问")}</span>
+              {preferences.recent.length ? (
+                <button
+                  type="button"
+                  className="lc-shell-recent-clear-btn"
+                  onClick={() => {
+                    setPreferences((cur) => ({ ...cur, recent: [] }));
+                  }}
+                >
+                  {tr(bootstrap, "Clear all", "全部清空")}
+                </button>
+              ) : null}
+            </div>
+            <div className="lc-shell-recent-menu-body">
+              {preferences.recent.length === 0 ? (
+                <p className="lc-shell-recent-empty">{tr(bootstrap, "No recent pages yet", "暂无最近访问")}</p>
+              ) : (
+                preferences.recent.map((ref) => {
+                  const item = resolvedByReference.get(ref);
+                  if (!item) return null;
+                  return (
+                    <div key={ref} className="lc-shell-recent-item">
+                      <a
+                        href={preserveLocale(item.url)}
+                        className="lc-shell-recent-item-link"
+                        onClick={(e) => {
+                          navigateFromShell(e, activeBootstrap, item.url, ref, () => setRecentOpen(false));
+                        }}
+                      >
+                        <span className="lc-shell-link-icon" aria-hidden="true">
+                          <Icon name={iconForRef(ref, item.kind)} size={15} />
+                        </span>
+                        <span className="lc-shell-link-label">{item.label}</span>
+                      </a>
+                      <button
+                        type="button"
+                        className="lc-shell-recent-item-remove"
+                        aria-label={tr(bootstrap, "Remove from recent", "从最近访问中移除")}
+                        title={tr(bootstrap, "Remove from recent", "从最近访问中移除")}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          e.preventDefault();
+                          setPreferences((cur) => ({ ...cur, recent: cur.recent.filter((r) => r !== ref) }));
+                        }}
+                      >
+                        <Icon name="close" size={13} />
+                      </button>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        ) : null}
+      </div>
+
       {modes.length ? <label className="lc-shell-role"><span>{tr(bootstrap, "Role", "角色")}</span><select value={selectedMode} onChange={(event) => {
         const nextMode = event.target.value as "teaching" | "learning" | "student_preview";
         const destination = destinationForMode(activeBootstrap, nextMode);
@@ -375,11 +786,12 @@ function ShellHeader({ bootstrap }: { bootstrap: Bootstrap }) {
           window.location.assign(preserveLocale(destination));
         });
       }}>{modes.map((item) => <option value={item.value} key={item.value}>{item.label}</option>)}</select></label> : null}
-      <button type="button" className="lc-shell-icon-button lc-shell-pin-button" disabled={!activeBootstrap.current_ref} aria-label={pinned ? tr(activeBootstrap, "Unpin this page", "取消固定此页面") : tr(activeBootstrap, "Pin this page", "固定此页面")} title={pinned ? tr(activeBootstrap, "Unpin this page", "固定此页面") : tr(activeBootstrap, "Pin this page", "固定此页面")} onClick={pinCurrent}><Icon name="pin" /></button>
-      <button type="button" className="lc-shell-icon-button" aria-label={tr(bootstrap, "Switch language", "切换语言")} title={tr(bootstrap, "Switch language", "切换语言")} onClick={() => switchLocalePage(bootstrap.locale === "zh-Hans" ? "en" : "zh-Hans")}>{bootstrap.locale === "zh-Hans" ? "EN" : "ZH"}</button>
-      {bootstrap.authenticated && bootstrap.host_links.account_url ? <a className="lc-shell-user" href={bootstrap.host_links.account_url}>{bootstrap.user_label || tr(bootstrap, "Account", "账户")}</a> : null}
-      {bootstrap.authenticated && bootstrap.host_links.logout_url ? <form method="post" action={logoutUrl(bootstrap.host_links.logout_url)} className="lc-shell-logout"><input type="hidden" name="csrfmiddlewaretoken" value={csrfToken()} /><button type="submit" className="lc-shell-icon-button" title={tr(bootstrap, "Sign out", "退出登录")} aria-label={tr(bootstrap, "Sign out", "退出登录")}><Icon name="logout" /></button></form> : null}
-      {!bootstrap.authenticated && bootstrap.host_links.login_url ? <a className="lc-shell-user" href={bootstrap.host_links.login_url}>{tr(bootstrap, "Sign in", "登录")}</a> : null}
+      <button type="button" className="lc-shell-icon-button" aria-label="Switch language / 切换语言" title={tr(bootstrap, "Switch language", "切换语言")} onClick={() => switchLocalePage(bootstrap.locale === "zh-Hans" ? "en" : "zh-Hans")}>{bootstrap.locale === "zh-Hans" ? "EN" : "ZH"}</button>
+      <div className="lc-shell-user-group">
+        {bootstrap.authenticated && bootstrap.host_links.account_url ? <a className="lc-shell-user" href={bootstrap.host_links.account_url}>{bootstrap.user_label || tr(bootstrap, "Account", "账户")}</a> : null}
+        {bootstrap.authenticated && bootstrap.host_links.logout_url ? <form method="post" action={logoutUrl(bootstrap.host_links.logout_url)} className="lc-shell-logout"><input type="hidden" name="csrfmiddlewaretoken" value={csrfToken()} /><button type="submit" className="lc-shell-icon-button" title={tr(bootstrap, "Sign out", "退出登录")} aria-label={tr(bootstrap, "Sign out", "退出登录")}><Icon name="logout" /></button></form> : null}
+        {!bootstrap.authenticated && bootstrap.host_links.login_url ? <a className="lc-shell-user" href={bootstrap.host_links.login_url}>{tr(bootstrap, "Sign in", "登录")}</a> : null}
+      </div>
     </div>
   </>;
 }
@@ -515,6 +927,7 @@ function AppNavigation({ bootstrap }: { bootstrap: Bootstrap }) {
       if (controller.signal.aborted) return;
       const allowed = new Set(payload.resolved.map((item) => item.ref));
       setResolved(payload.resolved);
+      window.dispatchEvent(new CustomEvent<ResolvedDestination[]>(RESOLVED_EVENT, { detail: payload.resolved }));
       const context = contextForReference(payload.contexts, currentRef);
       if (currentRef.startsWith("course:") || currentRef.startsWith("class:")) setCurrentContext(context);
       window.dispatchEvent(new CustomEvent<CurrentShellEvent>(CURRENT_EVENT, { detail: { path: currentPath, reference: currentRef, context: (currentRef.startsWith("course:") || currentRef.startsWith("class:")) ? context : null } }));
@@ -529,6 +942,16 @@ function AppNavigation({ bootstrap }: { bootstrap: Bootstrap }) {
     });
     return () => controller.abort();
   }, [bootstrap.authenticated, bootstrap.links.navigation, referencesKey, currentRef, currentPath]);
+
+  React.useEffect(() => {
+    const syncFilter = (event: Event) => {
+      const detail = (event as CustomEvent<{ filter: string }>).detail;
+      if (typeof detail?.filter === "string") setFilter(detail.filter);
+    };
+    window.addEventListener(FILTER_EVENT, syncFilter);
+    return () => window.removeEventListener(FILTER_EVENT, syncFilter);
+  }, []);
+
   const resolvedByReference = new Map(resolved.map((item) => [item.ref, item]));
   const movePin = (reference: string, direction: -1 | 1) => setPreferences((current) => {
     const from = current.pins.indexOf(reference);
@@ -573,31 +996,12 @@ function AppNavigation({ bootstrap }: { bootstrap: Bootstrap }) {
       {expanded ? <div id={`lc-shell-group-${group.key}`} className="lc-shell-group-menu">{contents}</div> : null}
     </div>;
   };
-  const visiblePins = preferences.pins.filter((reference) => {
-    const item = resolvedByReference.get(reference);
-    return item && (!filterValue || item.label.toLocaleLowerCase().includes(filterValue));
-  });
-  const visibleRecent = preferences.recent.filter((reference) => {
-    const item = resolvedByReference.get(reference);
-    return item && (!filterValue || item.label.toLocaleLowerCase().includes(filterValue));
-  });
   return <nav ref={navigationRef} className="lc-shell-navigation" aria-label={tr(bootstrap, "Classroom navigation", "课堂导航")}>
     <div className="lc-shell-drawer-title"><span>{tr(bootstrap, "Navigation", "导航")}</span><button type="button" className="lc-shell-icon-button" aria-label={tr(bootstrap, "Close navigation", "关闭导航")} onClick={closeDrawer}><Icon name="close" /></button></div>
-    <label className="lc-shell-filter"><span>{tr(bootstrap, "Filter navigation", "筛选导航")}</span><input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder={tr(bootstrap, "Filter", "筛选")} /></label>
-    <a className="lc-shell-link" href={preserveLocale(bootstrap.links.home)} data-current={activeBootstrap.path === bootstrap.links.home ? "true" : undefined} title={tr(bootstrap, "Home", "首页")} onClick={(event) => navigateFromShell(event, activeBootstrap, bootstrap.links.home, "page:home", closeDrawer)}><span aria-hidden="true" className="lc-shell-link-icon"><Icon name="home" /></span><span className="lc-shell-link-label">{tr(bootstrap, "Home", "首页")}</span></a>
     {visibleGroups.map((group) => renderGroup(group))}
-    {visiblePins.length ? renderGroup(
-      { key: "pins", label: tr(bootstrap, "Pinned", "固定"), destinations: [] },
-      visiblePins.map((reference) => savedLink(reference, true)),
-    ) : null}
-    {visibleRecent.length ? renderGroup(
-      { key: "recent", label: tr(bootstrap, "Recent", "最近访问"), destinations: [] },
-      visibleRecent.map((reference) => savedLink(reference, false)),
-    ) : null}
     <div className="lc-shell-utility-links">
       {link({ key: "join", label: tr(bootstrap, "Join a session", "加入课堂"), href: bootstrap.links.join, icon: "join", ref: "page:join" })}
       {link({ key: "help", label: tr(bootstrap, "Help", "帮助"), href: bootstrap.links.help, icon: "help", ref: "page:help" })}
-      {bootstrap.host_links.home_url ? link({ key: "site", label: tr(bootstrap, "Back to site", "返回网站"), href: bootstrap.host_links.home_url, icon: "site" }) : null}
     </div>
   </nav>;
 }

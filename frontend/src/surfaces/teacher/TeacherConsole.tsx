@@ -40,9 +40,9 @@ type TeacherBootstrap = Bootstrap & {
   flowSteps: Array<{ id: number; position: number; title: string }>;
 };
 
-type ConsolePanel = "current" | "results" | "lesson" | "more" | "students";
+type ConsolePanel = "current" | "results" | "lesson" | "more" | "students" | "decks" | "content";
 
-const CONSOLE_PANELS: readonly ConsolePanel[] = ["current", "results", "lesson", "more", "students"];
+const CONSOLE_PANELS: readonly ConsolePanel[] = ["current", "results", "lesson", "more", "students", "decks", "content"];
 
 function isConsolePanel(value: string): value is ConsolePanel {
   return CONSOLE_PANELS.includes(value as ConsolePanel);
@@ -63,9 +63,15 @@ function readTeacherBootstrap(root: HTMLElement): TeacherBootstrap {
   } catch {
     flowSteps = [];
   }
+  let capabilities: string[] = [];
+  try {
+    capabilities = JSON.parse(d.capabilities ?? "[]") as string[];
+  } catch {
+    capabilities = [];
+  }
   return {
     ...base,
-    capabilities: JSON.parse(d.capabilities ?? "[]") as string[],
+    capabilities,
     workspaceUrl: d.workspaceUrl ?? "",
     sessionTitle: d.sessionTitle ?? "",
     flowTitle: d.flowTitle ?? "",
@@ -109,12 +115,35 @@ function useCommand(stateUrl: string, refresh: () => void) {
 function LifecycleControls({ state, run, startingStepId, pending, onStarted }: { state: SessionState | null; run: (s: string, body?: Record<string, unknown>) => Promise<boolean>; startingStepId: number | null; pending: boolean; onStarted: () => void }) {
   const t = useT();
   const status = state?.session.status ?? "draft";
-  if (status === "ended") return <p role="status">{t("teachingEnded")}</p>;
-  if (status === "paused") return <button id="start-session" className="lc-btn-primary" disabled={pending} onClick={() => void run("sessions/start").then((ok) => { if (ok) onStarted(); })}>{t("resumeClass")}</button>;
-  if (status === "live") return <div className="lc-actions"><span className="lc-live-status" role="status">{t("liveClass")}</span><details className="lc-class-menu"><summary>{t("classMenu")}</summary><div className="lc-actions"><button id="pause-session" disabled={pending} onClick={() => void run("sessions/pause")}>{t("pause")}</button><button id="end-session" className="lc-btn-danger" disabled={pending} onClick={() => { if (window.confirm(t("confirmEnd"))) void run("sessions/end"); }}>{t("endClass")}</button></div></details></div>;
+  if (status === "ended") return <div className="lc-lifecycle-bar"><p role="status" className="lc-ended-notice">{t("teachingEnded")}</p></div>;
+  if (status === "paused") {
+    return (
+      <div className="lc-lifecycle-bar">
+        <button id="start-session" className="lc-btn lc-btn-primary" disabled={pending} onClick={() => void run("sessions/start").then((ok) => { if (ok) onStarted(); })}>
+          <span aria-hidden="true">▶ </span>{t("resumeClass")}
+        </button>
+      </div>
+    );
+  }
+  if (status === "live") {
+    return (
+      <div className="lc-lifecycle-bar">
+        <div className="lc-lifecycle-group">
+          <button id="pause-session" className="lc-btn lc-btn-outline" disabled={pending} onClick={() => void run("sessions/pause")}>
+            <span aria-hidden="true">❚❚ </span>{t("pause")}
+          </button>
+          <button id="end-session" className="lc-btn lc-btn-outline lc-btn-end" disabled={pending} onClick={() => { if (window.confirm(t("confirmEnd"))) void run("sessions/end"); }}>
+            <span aria-hidden="true">■ </span>{t("endClass")}
+          </button>
+        </div>
+      </div>
+    );
+  }
   return (
-    <div className="lc-actions" aria-label={t("controls")}>
-      <button id="start-session" className="lc-btn-primary" disabled={pending} onClick={() => void run("sessions/start", startingStepId ? { plan_step_id: startingStepId } : {}).then((ok) => { if (ok) onStarted(); })}>{t("startClass")}</button>
+    <div className="lc-lifecycle-bar" aria-label={t("controls")}>
+      <button id="start-session" className="lc-btn lc-btn-primary" disabled={pending} onClick={() => void run("sessions/start", startingStepId ? { plan_step_id: startingStepId } : {}).then((ok) => { if (ok) onStarted(); })}>
+        <span aria-hidden="true">▶ </span>{t("startClass")}
+      </button>
     </div>
   );
 }
@@ -127,17 +156,30 @@ function InviteControls({ bootstrap }: { bootstrap: TeacherBootstrap }) {
       if (!navigator.clipboard?.writeText) throw new Error("Clipboard unavailable");
       await navigator.clipboard.writeText(value);
       setNotice(t("copied"));
+      setTimeout(() => setNotice(""), 2000);
     } catch {
       setNotice(`${t("unavailable")} ${value}`);
+      setTimeout(() => setNotice(""), 3000);
     }
   };
-  return <details className="lc-invite-controls"><summary>{t("inviteStudents")}</summary>
-    <figure className="lc-join-qr">
-      <img src={bootstrap.qrUrl} alt={`${t("joinCode")}: ${bootstrap.sessionTitle}`} />
-      <figcaption>{t("studentJoinCode")}: {bootstrap.joinCode}</figcaption>
-    </figure>
-    <div className="lc-actions"><button type="button" onClick={() => void copy(new URL(bootstrap.joinUrl, window.location.href).toString())}>{t("copyJoinLink")}</button><button type="button" onClick={() => void copy(bootstrap.joinCode)}>{t("copyJoinCode")}</button><a href={bootstrap.joinUrl}>{t("studentJoinPage")}</a>{bootstrap.capabilities.includes("view_display") ? <a href={bootstrap.displayUrl}>{t("openDisplay")}</a> : null}</div><p aria-live="polite">{notice}</p>
-  </details>;
+  return (
+    <details className="lc-invite-controls">
+      <summary>{t("inviteStudents")}</summary>
+      <div className="lc-invite-dropdown">
+        <figure className="lc-join-qr">
+          <img src={bootstrap.qrUrl} alt={`${t("joinCode")}: ${bootstrap.sessionTitle}`} />
+          <figcaption>{t("studentJoinCode")}: <strong>{bootstrap.joinCode}</strong></figcaption>
+        </figure>
+        <div className="lc-actions">
+          <button type="button" className="lc-btn lc-btn-sm" onClick={() => void copy(new URL(bootstrap.joinUrl, window.location.href).toString())}>{t("copyJoinLink")}</button>
+          <button type="button" className="lc-btn lc-btn-sm" onClick={() => void copy(bootstrap.joinCode)}>{t("copyJoinCode")}</button>
+          <a href={bootstrap.joinUrl} className="lc-btn lc-btn-sm lc-btn-outline" target="_blank" rel="noopener noreferrer">{t("studentJoinPage")}</a>
+          {bootstrap.capabilities.includes("view_display") ? <a href={bootstrap.displayUrl} className="lc-btn lc-btn-sm lc-btn-outline" target="_blank" rel="noopener noreferrer">{t("openDisplay")}</a> : null}
+        </div>
+        {notice ? <p className="lc-invite-notice" aria-live="polite">{notice}</p> : null}
+      </div>
+    </details>
+  );
 }
 
 function FlowSteps({
@@ -389,6 +431,7 @@ function PresenterStage({
   const [preview, setPreview] = useState<PresenterStep | null>(null);
   const [pending, setPending] = useState(false);
   const [failed, setFailed] = useState<{ step: PresenterStep; channel: "both" | "display" } | null>(null);
+  const [outlineOpen, setOutlineOpen] = useState(true);
   const intentKeys = useRef(new Map<string, string>());
   const stepButtons = useRef(new Map<number, HTMLButtonElement>());
   const choosePreview = (step: PresenterStep | null) => {
@@ -435,36 +478,118 @@ function PresenterStage({
     revision_id: 0,
     definition: renderedPreview.snapshot ?? { title: renderedPreview.title, type_key: "liveclassroom.markdown", content: {} },
   } : null;
-  return <section className="lc-presenter" aria-label={tr("Presenter workspace", "演示者工作区")}>
-    <div className="lc-presenter-current">
-      <p className="lc-presenter-label">{draftPreview ? tr("Private preview", "私有预览") : tr("Now showing", "当前展示")}</p>
-      <div className="lc-presenter-navigation" aria-label={tr("Lesson navigation", "教案导航")}>
-        <button type="button" disabled={!canManage || pending || !previous || state?.session.status !== "live"} onClick={() => previous && void present(previous, deliveryChannel)}>{tr("Previous", "上一项")}</button>
-        <span>{currentIndex >= 0 ? `${currentIndex + 1} / ${steps.length}` : `0 / ${steps.length}`}</span>
-        <button type="button" disabled={!canManage || pending || !next || state?.session.status !== "live"} onClick={() => next && void present(next, deliveryChannel)}>{tr("Next", "下一项")}</button>
+  return (
+    <section className={`lc-presenter${outlineOpen ? "" : " lc-outline-collapsed"}`} aria-label={tr("Presenter workspace", "演示者工作区")}>
+      {outlineOpen && (
+        <aside className="lc-presenter-drawer" aria-label={tr("Lesson outline", "教案目录")}>
+          <div className="lc-drawer-header">
+            <span className="lc-drawer-icon" aria-hidden="true">☰</span>
+            <span className="lc-drawer-title">{tr("Lesson items", "教案目录")}</span>
+            <span className="lc-drawer-badge">{steps.length}</span>
+            <button
+              type="button"
+              className="lc-drawer-collapse-btn"
+              title={tr("Hide outline", "折叠目录")}
+              aria-label={tr("Hide outline", "折叠目录")}
+              onClick={() => setOutlineOpen(false)}
+            >
+              ✕
+            </button>
+          </div>
+          <nav className="lc-presenter-strip" aria-label={tr("Lesson outline", "教案目录")}>
+            {steps.map((step) => (
+              <button
+                type="button"
+                ref={(element) => { if (element) stepButtons.current.set(step.id, element); else stepButtons.current.delete(step.id); }}
+                key={step.id}
+                aria-current={step.activity_id === currentId ? "step" : undefined}
+                disabled={!canManage || pending || state?.session.status === "ended" || step.activity_id === currentId}
+                onClick={() => state?.session.status === "live" ? void present(step, deliveryChannel) : choosePreview(step)}
+                className={step.activity_id === currentId ? "lc-presenter-step lc-presenter-step-current" : "lc-presenter-step"}
+              >
+                {step.position}. {presentationTitle(step.title)}
+              </button>
+            ))}
+          </nav>
+        </aside>
+      )}
+      <div className="lc-presenter-current">
+        <div className="lc-presenter-current-header">
+          <div className="lc-presenter-header-left">
+            <button
+              type="button"
+              className={`lc-btn lc-btn-outline lc-outline-toggle-btn ${outlineOpen ? "active" : ""}`}
+              onClick={() => setOutlineOpen((open) => !open)}
+              title={outlineOpen ? tr("Hide lesson outline", "折叠教案目录") : tr("Show lesson outline", "展开教案目录")}
+            >
+              <span aria-hidden="true">{outlineOpen ? "◧ " : "☰ "}</span>
+              {outlineOpen ? tr("Hide outline", "折叠目录") : tr("Outline", "教案目录")}
+            </button>
+            <p className="lc-presenter-label">{draftPreview ? tr("Private preview", "私有预览") : tr("Now showing", "当前展示")}</p>
+          </div>
+          <div className="lc-presenter-navigation" aria-label={tr("Lesson navigation", "教案导航")}>
+            <button
+              type="button"
+              className="lc-btn lc-btn-nav lc-btn-prev lc-btn-outline"
+              disabled={!canManage || pending || !previous || state?.session.status !== "live"}
+              onClick={() => previous && void present(previous, deliveryChannel)}
+              title={previous ? `${tr("Previous", "上一项")}: ${previous.position}. ${presentationTitle(previous.title)}` : tr("No previous item", "已是第一项")}
+            >
+              <span aria-hidden="true">◀ </span>{tr("Previous", "上一项")}
+            </button>
+            <span className="lc-presenter-step-count" title={tr("Current step / Total steps", "当前进度 / 总数")}>
+              {currentIndex >= 0 ? `${currentIndex + 1} / ${steps.length}` : `0 / ${steps.length}`}
+            </span>
+            <button
+              type="button"
+              className="lc-btn lc-btn-nav lc-btn-next lc-btn-primary"
+              disabled={!canManage || pending || !next || state?.session.status !== "live"}
+              onClick={() => next && void present(next, deliveryChannel)}
+              title={next ? `${tr("Next", "下一项")}: ${next.position}. ${presentationTitle(next.title)}` : tr("No next item", "已是最后一项")}
+            >
+              {tr("Next", "下一项")}<span aria-hidden="true"> ▶</span>
+            </button>
+          </div>
+        </div>
+        {draftPreview ? (
+          <>
+            <p>{tr("Students cannot see this item. Start class to publish it.", "学生看不到此项目。开始课堂后才会发布。")}</p>
+            <TeacherActivityView activity={previewActivity} aggregate={null} state={state} stateUrl={stateUrl} onRefresh={onRefresh} onError={onError} />
+          </>
+        ) : state?.current_deck && !state.current_activity ? (
+          <NativeDeckView deck={state.current_deck} state={state} audience="teacher" stateUrl={stateUrl} />
+        ) : (
+          <TeacherActivityView activity={state?.current_activity ?? null} aggregate={state?.aggregate ?? null} state={state} stateUrl={stateUrl} onRefresh={onRefresh} onError={onError} />
+        )}
       </div>
-      {draftPreview ? <>
-        <p>{tr("Students cannot see this item. Start class to publish it.", "学生看不到此项目。开始课堂后才会发布。")}</p>
-        <TeacherActivityView activity={previewActivity} aggregate={null} state={state} stateUrl={stateUrl} onRefresh={onRefresh} onError={onError} />
-      </> : state?.current_deck && !state.current_activity ? <NativeDeckView deck={state.current_deck} state={state} audience="teacher" stateUrl={stateUrl} /> : <TeacherActivityView activity={state?.current_activity ?? null} aggregate={state?.aggregate ?? null} state={state} stateUrl={stateUrl} onRefresh={onRefresh} onError={onError} />}
-    </div>
-    <aside className="lc-presenter-next">
-      <p className="lc-presenter-label">{tr("Up next", "下一项")}</p>
-      {draftPreview ? <p>{tr("Choose any lesson item to preview it before starting.", "开始前可选择任意教案项目进行预览。")}</p> : preview ? <><h2>{preview.position}. {presentationTitle(preview.title)}</h2><p>{tr("Private preview — students cannot see this item.", "私有预览——学生不会看到此项目。")}</p>
-        <TeacherActivityView activity={previewActivity} aggregate={null} state={state} stateUrl={stateUrl} onRefresh={onRefresh} onError={onError} />
-        <button className="lc-btn-primary" disabled={!canManage || pending || state?.session.status !== "live"} onClick={() => { void present(preview, deliveryChannel).then((published) => { if (published) choosePreview(null); }); }}>{tr("Show this item", "展示此项目")}</button>
-        <button onClick={() => choosePreview(null)}>{tr("Return", "返回")}</button></> : next ? <><h2>{next.position}. {presentationTitle(next.title)}</h2><p>{tr("Students follow by default.", "学生默认跟随演示。")}</p>
-        <button disabled={!canManage} onClick={() => choosePreview(next)}>{tr("Preview", "预览")}</button></> : <p>{tr("Last item.", "最后一项。")}</p>}
-      <p className="lc-presenter-status">{tr("Student channel", "学生端")}: {state?.channels?.participants?.activity?.id === currentId ? tr("following", "跟随") : state?.channels?.participants?.activity ? `${tr("held on", "停留在")} “${activityTitle(state.channels.participants.activity, t("activity"))}”` : tr("waiting", "等待中")}</p>
-    </aside>
-    <details className="lc-presenter-drawer" open>
-      <summary>{tr("Lesson items", "教案项目")}</summary>
-      <nav className="lc-presenter-strip" aria-label={tr("Lesson outline", "教案目录")}>
-      {steps.map((step) => <button type="button" ref={(element) => { if (element) stepButtons.current.set(step.id, element); else stepButtons.current.delete(step.id); }} key={step.id} aria-current={step.activity_id === currentId ? "step" : undefined} disabled={!canManage || pending || state?.session.status === "ended" || step.activity_id === currentId} onClick={() => state?.session.status === "live" ? void present(step, deliveryChannel) : choosePreview(step)} className={step.activity_id === currentId ? "lc-presenter-step lc-presenter-step-current" : "lc-presenter-step"}>{step.position}. {presentationTitle(step.title)}</button>)}
-      </nav>
-    </details>
-    {failed ? <p className="lc-builder-status-error" role="status">{tr("Could not publish this item.", "无法发布此项目。")} <button type="button" onClick={() => void present(failed.step, failed.channel)}>{tr("Retry", "重试")}</button></p> : null}
-  </section>;
+      <aside className="lc-presenter-next">
+        <p className="lc-presenter-label">{tr("Up next", "下一项")}</p>
+        {draftPreview ? (
+          <p>{tr("Choose any lesson item to preview it before starting.", "开始前可选择任意教案项目进行预览。")}</p>
+        ) : preview ? (
+          <>
+            <h2>{preview.position}. {presentationTitle(preview.title)}</h2>
+            <p>{tr("Private preview — students cannot see this item.", "私有预览——学生不会看到此项目。")}</p>
+            <TeacherActivityView activity={previewActivity} aggregate={null} state={state} stateUrl={stateUrl} onRefresh={onRefresh} onError={onError} />
+            <button className="lc-btn lc-btn-primary" disabled={!canManage || pending || state?.session.status !== "live"} onClick={() => { void present(preview, deliveryChannel).then((published) => { if (published) choosePreview(null); }); }}>{tr("Show this item", "展示此项目")}</button>
+            <button className="lc-btn lc-btn-outline" onClick={() => choosePreview(null)}>{tr("Return", "返回")}</button>
+          </>
+        ) : next ? (
+          <>
+            <h2>{next.position}. {presentationTitle(next.title)}</h2>
+            <p>{tr("Students follow by default.", "学生默认跟随演示。")}</p>
+            <button className="lc-btn lc-btn-outline" disabled={!canManage} onClick={() => choosePreview(next)}>{tr("Preview", "预览")}</button>
+          </>
+        ) : (
+          <p>{tr("Last item.", "最后一项。")}</p>
+        )}
+        <p className="lc-presenter-status">{tr("Student channel", "学生端")}: {state?.channels?.participants?.activity?.id === currentId ? tr("following", "跟随") : state?.channels?.participants?.activity ? `${tr("held on", "停留在")} “${activityTitle(state.channels.participants.activity, t("activity"))}”` : tr("waiting", "等待中")}</p>
+      </aside>
+      {failed ? (
+        <p className="lc-builder-status-error" role="status">{tr("Could not publish this item.", "无法发布此项目。")} <button type="button" onClick={() => void present(failed.step, failed.channel)}>{tr("Retry", "重试")}</button></p>
+      ) : null}
+    </section>
+  );
 }
 
 type DeckSummary = { id: number; title: string; version: number };
@@ -524,23 +649,26 @@ function NativeDeckPresenter({
     }
   };
 
-  return <>
-    <details className="lc-console-panel" data-native-deck-presenter>
-      <summary>{tr("Native decks", "原生幻灯片")}</summary>
-      <label>{tr("Deck", "幻灯片")}{" "}
-        <select value={deckId ?? ""} onChange={(event) => setDeckId(event.target.value ? Number(event.target.value) : null)}>
-          <option value="">{tr("Choose a deck", "选择幻灯片")}</option>
-          {decks.map((deck) => <option value={deck.id} key={deck.id}>{deck.title}</option>)}
-        </select>
-      </label>
-      {selectedDeck ? <div className="lc-actions">
-        {snapshots.map((snapshot) => <button type="button" key={snapshot.id} disabled={pending || state?.session.status !== "live"} onClick={() => void present(snapshot)}>{tr("Present", "展示")} {snapshot.title} ({snapshot.slides?.length ?? "?"})</button>)}
+  return (
+    <div className="lc-native-deck-presenter">
+      <div className="lc-form-row">
+        <label>{tr("Deck", "幻灯片")}{" "}
+          <select value={deckId ?? ""} onChange={(event) => setDeckId(event.target.value ? Number(event.target.value) : null)}>
+            <option value="">{tr("Choose a deck", "选择幻灯片")}</option>
+            {decks.map((deck) => <option value={deck.id} key={deck.id}>{deck.title}</option>)}
+          </select>
+        </label>
+      </div>
+      {selectedDeck ? <div className="lc-actions" style={{ marginTop: "0.5rem" }}>
+        {snapshots.map((snapshot) => <button type="button" key={snapshot.id} className="lc-btn lc-btn-primary" disabled={pending || state?.session.status !== "live"} onClick={() => void present(snapshot)}>{tr("Present", "展示")} {snapshot.title} ({snapshot.slides?.length ?? "?"})</button>)}
         {!snapshots.length ? <p>{tr("Create a snapshot from the deck editor first.", "请先在幻灯片编辑器中创建快照。")} </p> : null}
       </div> : null}
       {status ? <p role="status" className="lc-builder-status-error">{status}</p> : null}
-    </details>
-    <PresentationSourcePicker stateUrl={stateUrl} snapshots={snapshots} steps={planSteps} onRefresh={onRefresh} />
-  </>;
+      <div style={{ marginTop: "1rem" }}>
+        <PresentationSourcePicker stateUrl={stateUrl} snapshots={snapshots} steps={planSteps} onRefresh={onRefresh} />
+      </div>
+    </div>
+  );
 }
 
 function LiveResults({
@@ -784,21 +912,20 @@ function TeacherConsole({ bootstrap }: { bootstrap: TeacherBootstrap }) {
     if (!state) return;
     const generation = ++supportGeneration.current;
     setHistoryLoaded(false);
-    setSupportingError("");
-    const failed = () => {
-      if (supportGeneration.current === generation) setSupportingError(tr("Some classroom details could not be refreshed.", "部分课堂信息无法刷新。"));
+    const failed = (err?: unknown) => {
+      if (err) console.warn("Failed to load classroom details:", err);
     };
     void getJson<{activities:typeof history}>(apiEndpoint(stateUrl,"sessions/history")).then(d=>{ if (supportGeneration.current === generation) { setHistory(d.activities); setHistoryLoaded(true); } }).catch(failed);
-    void getJson<{steps: PresenterStep[]}>(apiEndpoint(stateUrl, "sessions/plan")).then(d => { if (supportGeneration.current === generation) setPlanSteps(d.steps ?? []); }).catch(failed);
+    void getJson<{steps: PresenterStep[]}>(apiEndpoint(stateUrl, "sessions/plan")).then(d => { if (supportGeneration.current === generation) setPlanSteps(d.steps ?? []); }).catch((err) => console.warn("Could not load plan steps:", err));
     void getJson<Record<string, unknown>>(apiEndpoint(stateUrl, "sessions/analytics"))
       .then((data) => { if (supportGeneration.current === generation) setAnalytics(data); })
-      .catch(failed);
+      .catch((err) => console.warn("Could not load analytics:", err));
     void getJson<{ participants: Array<Record<string, unknown>> }>(apiEndpoint(stateUrl, "sessions/participants"))
       .then((d) => { if (supportGeneration.current === generation) setParticipants(d.participants); })
-      .catch(failed);
+      .catch((err) => console.warn("Could not load participants:", err));
     void getJson<{ enabled: boolean; messages: Array<{ id: number; display_name: string; body: string }> }>(apiEndpoint(stateUrl, "sessions/chat"))
       .then((data) => { if (supportGeneration.current === generation) setChat(data); })
-      .catch(failed);
+      .catch((err) => console.warn("Could not load chat:", err));
   }, [stateUrl, stateVersion, supportRefresh]);
 
   useEffect(() => {
@@ -839,17 +966,68 @@ function TeacherConsole({ bootstrap }: { bootstrap: TeacherBootstrap }) {
     && state.channels.participants.activity.id !== state.channels.display?.activity?.id
   );
 
+  useEffect(() => {
+    if (state?.session.status) {
+      window.dispatchEvent(new CustomEvent("liveclassroom:session-state", {
+        detail: {
+          status: state.session.status,
+          joinCode: bootstrap.joinCode,
+          title: bootstrap.sessionTitle,
+        }
+      }));
+    }
+  }, [state?.session.status, bootstrap.joinCode, bootstrap.sessionTitle]);
+
+  const [codeCopied, setCodeCopied] = useState(false);
+  const copyJoinCode = async () => {
+    if (bootstrap.joinCode && navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(bootstrap.joinCode);
+        setCodeCopied(true);
+        setTimeout(() => setCodeCopied(false), 2000);
+      } catch {
+        // clipboard unavailable
+      }
+    }
+  };
+
   return (
     <>
-      <header className="lc-session-header">
-        <div><a href={bootstrap.workspaceUrl}>{tr("Teacher home","教师首页")}</a><p className="lc-kicker">{t("teacher")} · {bootstrap.sessionTitle}</p><h1>{bootstrap.flowTitle || t("instantSession")}</h1></div>
-        <div className="lc-session-actions"><p id="session-status" className="lc-kicker">{state?.session.status === "live" ? t("liveClass") : state?.session.status === "paused" ? t("classPaused") : state?.session.status === "ended" ? t("teachingEnded") : t("startClass")}</p><InviteControls bootstrap={bootstrap} />{canManage ? <a href={bootstrap.studentViewUrl}>{t("studentView")}</a> : null}</div>
+      <header className="lc-session-command-bar">
+        <div className="lc-session-header-primary">
+          <div className="lc-session-title-group">
+            <h1 className="lc-session-title">{bootstrap.sessionTitle || bootstrap.flowTitle || t("instantSession")}</h1>
+            {bootstrap.flowTitle && bootstrap.flowTitle !== bootstrap.sessionTitle ? (
+              <span className="lc-session-flow-tag">{bootstrap.flowTitle}</span>
+            ) : null}
+          </div>
+        </div>
+        <div className="lc-session-header-actions">
+          <span
+            id="session-status"
+            className={`lc-status-pill lc-status-${state?.session.status ?? "draft"}`}
+            role="status"
+          >
+            {state?.session.status === "live" ? (
+              <><span className="lc-live-dot" aria-hidden="true" />{t("liveClass")}</>
+            ) : state?.session.status === "paused" ? (
+              <><span aria-hidden="true">❚❚ </span>{t("classPaused")}</>
+            ) : state?.session.status === "ended" ? (
+              <>{t("teachingEnded")}</>
+            ) : (
+              <>{t("startClass")}</>
+            )}
+          </span>
+          {canManage && <LifecycleControls state={state} run={run} startingStepId={previewStep?.id ?? planSteps[0]?.id ?? null} pending={commandPending} onStarted={() => setPreviewStep(null)} />}
+          <InviteControls bootstrap={bootstrap} />
+          {canManage ? (
+            <a href={bootstrap.studentViewUrl} className="lc-btn lc-btn-outline lc-student-view-btn" target="_blank" rel="noopener noreferrer">
+              {t("studentView")}<span aria-hidden="true"> ↗</span>
+            </a>
+          ) : null}
+        </div>
       </header>
-      {state?.session.status === "draft" ? <p>{t("startClassHint")}</p> : null}
-      {canManage && <LifecycleControls state={state} run={run} startingStepId={previewStep?.id ?? planSteps[0]?.id ?? null} pending={commandPending} onStarted={() => setPreviewStep(null)} />}
-      {state?.session.status === "paused" ? <p role="status">{t("classPaused")}</p> : null}
       <PresenterStage state={state} steps={planSteps} stateUrl={stateUrl} onRefresh={sync.refresh} canManage={canManage} onError={setStatus} onPreviewChange={setPreviewStep} deliveryChannel={studentsHeld ? "display" : "both"} />
-      {canManage ? <NativeDeckPresenter bootstrap={bootstrap} state={state} stateUrl={stateUrl} onRefresh={sync.refresh} planSteps={planSteps} /> : null}
       {studentsHeld && state?.channels?.participants?.activity ? <div className="lc-audience-held" role="status">
         <span>{t("studentsHeld")} <strong>{activityTitle(state.channels.participants.activity, t("activity"))}</strong></span>
         <button type="button" disabled={commandPending || state.session.status !== "live"} onClick={() => {
@@ -858,95 +1036,200 @@ function TeacherConsole({ bootstrap }: { bootstrap: TeacherBootstrap }) {
           if (step) void run(`sessions/plan/${step.id}/launch`, { channel: "both" }).then((ok) => { if (ok) setHoldStudents(false); });
         }}>{t("bringStudents")}</button>
       </div> : null}
-      {canManage && state?.session.status==="live" && <details className="lc-console-panel lc-add-content"><summary>{tr("Add content", "添加内容")}</summary><FilePicker
-        endpoint={apiEndpoint(stateUrl, "sessions/files")}
-        isSuperuser={bootstrap.isSuperuser}
-        includeChannels
-        onSuccess={() => void sync.refresh()}
-      /></details>}
-      {status ? <p className="lc-builder-status-error">{status}</p> : null}
+      {status ? <p className="lc-builder-status-error" role="status">{status} <button type="button" className="lc-dismiss-btn" onClick={() => setStatus("")}>✕</button></p> : null}
       {sync.error ? <p className="lc-builder-status-error" role="status">{sync.error} <button type="button" onClick={() => void sync.refresh()}>{tr("Retry", "重试")}</button></p> : sync.reconnecting ? <p role="status">{t("reconnecting")}</p> : null}
-      {supportingError ? <p className="lc-builder-status-error" role="status">{supportingError} <button type="button" onClick={() => setSupportRefresh((value) => value + 1)}>{tr("Retry", "重试")}</button></p> : null}
       {canManage && <LiveResults state={state} analytics={analytics} run={run} pending={commandPending} />}
       {state?.session.status === "ended" ? <div className="lc-actions"><a href="#results">{t("viewResults")}</a><button type="button" onClick={() => { const endpoint = new URL(stateUrl, window.location.href); endpoint.pathname = endpoint.pathname.replace(/sessions\/\d+\/state\/?$/, "sessions/"); void postJson<{ console_url: string }>(endpoint.toString(), { title: `${bootstrap.sessionTitle} — ${t("teachAgain")}`, source_session_id: state.session.id }, idempotencyKey("teach-again")).then(({ console_url }) => window.location.assign(console_url)).catch((error) => setStatus(error instanceof Error ? error.message : t("unavailable"))); }}>{t("teachAgain")}</button></div> : null}
-      {canAdmit && pending.length ? <button type="button" className="lc-pending-notice" onClick={() => {
-        selectPanel("students");
-        window.requestAnimationFrame(() => document.getElementById("students-panel")?.scrollIntoView({ block: "nearest" }));
-      }}>{pending.length} {t("pending")}</button> : null}
-      <details className="lc-console-panel" data-console-panel="results" open={panelSelection === "results"} onToggle={handlePanelToggle("results")}>
-        <summary>{tr("Results", "结果")}</summary>
-        <label>{tr("Activity to inspect", "选择查看的活动")}<select value={activitySelection || (serverCurrentActivityId === null ? "" : String(serverCurrentActivityId))} onChange={(event) => selectActivity(event.target.value)}><option value="">{tr("Current display activity","当前投屏活动")}</option>{history.filter((activity) => activity.id !== serverCurrentActivityId).map((activity) => <option key={activity.id} value={activity.id}>{activityTitle(activity,t("activity"))}</option>)}</select></label>
-        <div className="lc-actions">{canAdmit && <>{["summary","responses","participants","chat"].map(dataset=><a key={dataset} href={`${bootstrap.exportUrl}?format=csv&dataset=${dataset}`}>{({summary:tr("Summary","汇总"),responses:tr("Responses","答案"),participants:tr("Attendance","出席"),chat:tr("Chat","聊天")} as Record<string,string>)[dataset]} CSV</a>)}<a href={bootstrap.exportUrl}>JSON</a></>}</div>
-        <AnalyticsPanel stateUrl={stateUrl} analytics={analytics} activity={focused} />
-      </details>
-      <details className="lc-console-panel" data-console-panel="lesson" open={panelSelection === "lesson"} onToggle={handlePanelToggle("lesson")}><summary>{tr("Edit lesson", "编辑教案")}</summary><SessionPlanPanel stateUrl={stateUrl} state={state} onRefresh={sync.refresh}/></details>
-      {canManage && <details className="lc-console-panel" data-console-panel="more" open={panelSelection === "more"} onToggle={handlePanelToggle("more")}><summary>{tr("More", "更多")}</summary>
-        <AudienceControls state={state} steps={planSteps} holdStudents={holdStudents} setHoldStudents={setHoldStudents} run={run} />
-        <h2>{tr("Advanced audience and review", "高级受众与复习设置")}</h2>
-        <ChannelControls state={state} run={run} />{focused && <fieldset><legend>{tr("Student review access","学生复习权限")}</legend>
-        <label><input type="checkbox" checked={Boolean((focused as typeof history[number]).reviewable)} onChange={e=>void run(`activities/${focused.id}/review`,{reviewable:e.target.checked})}/>{tr("Allow review","允许复习")}</label>
-        {(["show_answer","show_explanation"] as const).map(field=><label key={field}><input type="checkbox" checked={Boolean((focused as typeof history[number]).review_visibility?.[field])} onChange={e=>void run(`activities/${focused.id}/review`,{[field]:e.target.checked})}/>{field==="show_answer"?t("showAnswer"):t("showExplanation")}</label>)}
-        </fieldset>}
-        {["draft", "ended"].includes(state?.session.status ?? "") && <button className="lc-btn-danger" onClick={()=>{if(window.confirm(tr("Delete this classroom permanently? Its classroom records will be removed; its reusable lesson remains.","永久删除本次课堂吗？课堂记录将被移除，教案会保留。"))) void postJson(apiEndpoint(stateUrl,"sessions/delete"),{confirm:true},idempotencyKey("delete-classroom")).then(()=>window.location.assign(bootstrap.workspaceUrl)).catch(error=>window.alert(error instanceof Error?error.message:tr("Delete failed","删除失败")));}}>{tr("Delete classroom","删除课堂")}</button>}
-      </details>}
-      <details id="students-panel" className="lc-console-panel" data-console-panel="students" open={panelSelection === "students"} onToggle={handlePanelToggle("students")}><summary>{tr("Students", "学生")}{pending.length ? ` (${pending.length})` : ""}</summary>
-      <ParticipantPreview state={state} stateUrl={stateUrl} />
-      {canAdmit && pending.length ? (
-        <section data-liveclassroom-admission>
-          <h2>
-            {t("participants")} ({pending.length} {t("pending")})
-          </h2>
-          {pending.map((participant) => (
+
+      <div className="lc-console-tabs-section">
+        <div className="lc-console-tabs-bar" role="tablist" aria-label={tr("Classroom management tabs", "课堂管理功能区")}>
+          {canManage && (
             <button
-              key={String(participant.id)}
-              onClick={() => void run(`sessions/participants/${participant.id}/admission`, { admitted: true })}
+              type="button"
+              role="tab"
+              id="tab-btn-decks"
+              aria-selected={panelSelection === "decks"}
+              className={`lc-console-tab-btn ${panelSelection === "decks" ? "active" : ""}`}
+              onClick={() => selectPanel(panelSelection === "decks" ? "current" : "decks")}
             >
-              {t("admit")} {stringValue(participant.display_name)}
+              <span aria-hidden="true">🎞️ </span>{tr("Slide decks", "原生幻灯片")}
             </button>
-          ))}
-        </section>
-      ) : null}
-      <section className="lc-chat" data-liveclassroom-chat aria-labelledby="chat-heading">
-        <h2 id="chat-heading">{t("chat")}</h2>
-        <p data-liveclassroom-chat-status aria-live="polite">{chat ? (chat.enabled ? "" : t("chatDisabled")) : ""}</p>
-        <ul data-liveclassroom-chat-messages aria-live="polite">
-          {chat && chat.messages.length
-            ? chat.messages.map((m) => (
-                <li key={m.id}>
-                  <strong>{m.display_name}: </strong>
-                  {m.body}
-                </li>
-              ))
-            : <li>{chat?.enabled ? t("noMessages") : t("chatDisabled")}</li>}
-        </ul>
-        {canAdmit && <div data-liveclassroom-chat-settings>
-          <label>
-            <input
-              type="checkbox"
-              checked={chat?.enabled ?? false}
-              disabled={state?.session.status === "ended"}
-              onChange={(e) => void run("sessions/chat/settings", { enabled: e.target.checked })}
-            />{" "}
-            {t("enableChat")}
-          </label>
-        </div>}
-        <form
-          hidden={!canAdmit || state?.session.status!=="live"}
-          data-liveclassroom-chat-form
-          onSubmit={(e) => {
-            e.preventDefault();
-            const body = chatBody.trim();
-            if (!body) return;
-            void run("sessions/chat/send", { body }).then(() => setChatBody(""));
-          }}
-        >
-          <label>
-            {t("message")} <textarea name="body" rows={2} maxLength={4000} value={chatBody} onChange={(e) => setChatBody(e.target.value)} />
-          </label>
-          <button type="submit">{t("send")}</button>
-        </form>
-      </section>
-      </details>
+          )}
+          {canManage && state?.session.status === "live" && (
+            <button
+              type="button"
+              role="tab"
+              id="tab-btn-content"
+              aria-selected={panelSelection === "content"}
+              className={`lc-console-tab-btn ${panelSelection === "content" ? "active" : ""}`}
+              onClick={() => selectPanel(panelSelection === "content" ? "current" : "content")}
+            >
+              <span aria-hidden="true">➕ </span>{tr("Add content", "添加内容")}
+            </button>
+          )}
+          <button
+            type="button"
+            role="tab"
+            id="tab-btn-results"
+            aria-selected={panelSelection === "results"}
+            className={`lc-console-tab-btn ${panelSelection === "results" ? "active" : ""}`}
+            onClick={() => selectPanel(panelSelection === "results" ? "current" : "results")}
+          >
+            <span aria-hidden="true">📊 </span>{tr("Results", "结果")}
+          </button>
+          <button
+            type="button"
+            role="tab"
+            id="tab-btn-lesson"
+            aria-selected={panelSelection === "lesson"}
+            className={`lc-console-tab-btn ${panelSelection === "lesson" ? "active" : ""}`}
+            onClick={() => selectPanel(panelSelection === "lesson" ? "current" : "lesson")}
+          >
+            <span aria-hidden="true">📝 </span>{tr("Edit lesson", "编辑教案")}
+          </button>
+          <button
+            type="button"
+            role="tab"
+            id="tab-btn-students"
+            aria-selected={panelSelection === "students"}
+            className={`lc-console-tab-btn ${panelSelection === "students" ? "active" : ""}`}
+            onClick={() => selectPanel(panelSelection === "students" ? "current" : "students")}
+          >
+            <span aria-hidden="true">👥 </span>{tr("Students", "学生")}
+            {pending.length > 0 ? <span className="lc-tab-badge">({pending.length})</span> : null}
+          </button>
+          {canManage && (
+            <button
+              type="button"
+              role="tab"
+              id="tab-btn-more"
+              aria-selected={panelSelection === "more"}
+              className={`lc-console-tab-btn ${panelSelection === "more" ? "active" : ""}`}
+              onClick={() => selectPanel(panelSelection === "more" ? "current" : "more")}
+            >
+              <span aria-hidden="true">⚙️ </span>{tr("Settings", "设置")}
+            </button>
+          )}
+        </div>
+
+        {panelSelection !== "current" && (
+          <div className="lc-console-tab-pane" role="tabpanel">
+            <div className="lc-console-tab-pane-header">
+              <h3 className="lc-console-tab-pane-title">
+                {panelSelection === "decks" && <><span aria-hidden="true">🎞️ </span>{tr("Slide decks", "原生幻灯片")}</>}
+                {panelSelection === "content" && <><span aria-hidden="true">➕ </span>{tr("Add content", "添加内容")}</>}
+                {panelSelection === "results" && <><span aria-hidden="true">📊 </span>{tr("Results", "结果")}</>}
+                {panelSelection === "lesson" && <><span aria-hidden="true">📝 </span>{tr("Edit lesson", "编辑教案")}</>}
+                {panelSelection === "students" && <><span aria-hidden="true">👥 </span>{tr("Students", "学生")}{pending.length ? ` (${pending.length})` : ""}</>}
+                {panelSelection === "more" && <><span aria-hidden="true">⚙️ </span>{tr("Session settings", "课堂设置")}</>}
+              </h3>
+              <button
+                type="button"
+                className="lc-console-tab-close-btn"
+                aria-label={tr("Close panel", "关闭面板")}
+                title={tr("Close panel", "关闭面板")}
+                onClick={() => selectPanel("current")}
+              >
+                ✕
+              </button>
+            </div>
+            <div className="lc-console-tab-pane-content">
+              {panelSelection === "decks" && canManage && (
+                <NativeDeckPresenter bootstrap={bootstrap} state={state} stateUrl={stateUrl} onRefresh={sync.refresh} planSteps={planSteps} />
+              )}
+              {panelSelection === "content" && canManage && state?.session.status === "live" && (
+                <FilePicker
+                  endpoint={apiEndpoint(stateUrl, "sessions/files")}
+                  isSuperuser={bootstrap.isSuperuser}
+                  includeChannels
+                  onSuccess={() => void sync.refresh()}
+                />
+              )}
+              {panelSelection === "results" && (
+                <>
+                  <label>{tr("Activity to inspect", "选择查看的活动")}<select value={activitySelection || (serverCurrentActivityId === null ? "" : String(serverCurrentActivityId))} onChange={(event) => selectActivity(event.target.value)}><option value="">{tr("Current display activity","当前投屏活动")}</option>{history.filter((activity) => activity.id !== serverCurrentActivityId).map((activity) => <option key={activity.id} value={activity.id}>{activityTitle(activity,t("activity"))}</option>)}</select></label>
+                  <div className="lc-actions">{canAdmit && <>{["summary","responses","participants","chat"].map(dataset=><a key={dataset} href={`${bootstrap.exportUrl}?format=csv&dataset=${dataset}`}>{({summary:tr("Summary","汇总"),responses:tr("Responses","答案"),participants:tr("Attendance","出席"),chat:tr("Chat","聊天")} as Record<string,string>)[dataset]} CSV</a>)}<a href={bootstrap.exportUrl}>JSON</a></>}</div>
+                  <AnalyticsPanel stateUrl={stateUrl} analytics={analytics} activity={focused} />
+                </>
+              )}
+              {panelSelection === "lesson" && (
+                <SessionPlanPanel stateUrl={stateUrl} state={state} onRefresh={sync.refresh}/>
+              )}
+              {panelSelection === "students" && (
+                <div id="students-panel">
+                  <ParticipantPreview state={state} stateUrl={stateUrl} />
+                  {canAdmit && pending.length ? (
+                    <section data-liveclassroom-admission>
+                      <h2>
+                        {t("participants")} ({pending.length} {t("pending")})
+                      </h2>
+                      {pending.map((participant) => (
+                        <button
+                          key={String(participant.id)}
+                          onClick={() => void run(`sessions/participants/${participant.id}/admission`, { admitted: true })}
+                        >
+                          {t("admit")} {stringValue(participant.display_name)}
+                        </button>
+                      ))}
+                    </section>
+                  ) : null}
+                  <section className="lc-chat" data-liveclassroom-chat aria-labelledby="chat-heading">
+                    <h2 id="chat-heading">{t("chat")}</h2>
+                    <p data-liveclassroom-chat-status aria-live="polite">{chat ? (chat.enabled ? "" : t("chatDisabled")) : ""}</p>
+                    <ul data-liveclassroom-chat-messages aria-live="polite">
+                      {chat && chat.messages.length
+                        ? chat.messages.map((m) => (
+                            <li key={m.id}>
+                              <strong>{m.display_name}: </strong>
+                              {m.body}
+                            </li>
+                          ))
+                        : <li>{chat?.enabled ? t("noMessages") : t("chatDisabled")}</li>}
+                    </ul>
+                    {canAdmit && <div data-liveclassroom-chat-settings>
+                      <label>
+                        <input
+                          type="checkbox"
+                          checked={chat?.enabled ?? false}
+                          disabled={state?.session.status === "ended"}
+                          onChange={(e) => void run("sessions/chat/settings", { enabled: e.target.checked })}
+                        />{" "}
+                        {t("enableChat")}
+                      </label>
+                    </div>}
+                    <form
+                      hidden={!canAdmit || state?.session.status!=="live"}
+                      data-liveclassroom-chat-form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        const body = chatBody.trim();
+                        if (!body) return;
+                        void run("sessions/chat/send", { body }).then(() => setChatBody(""));
+                      }}
+                    >
+                      <label>
+                        {t("message")} <textarea name="body" rows={2} maxLength={4000} value={chatBody} onChange={(e) => setChatBody(e.target.value)} />
+                      </label>
+                      <button type="submit">{t("send")}</button>
+                    </form>
+                  </section>
+                </div>
+              )}
+              {panelSelection === "more" && canManage && (
+                <div className="lc-console-panel-content">
+                  <AudienceControls state={state} steps={planSteps} holdStudents={holdStudents} setHoldStudents={setHoldStudents} run={run} />
+                  <h2>{tr("Advanced audience and review", "高级受众与复习设置")}</h2>
+                  <ChannelControls state={state} run={run} />{focused && <fieldset><legend>{tr("Student review access","学生复习权限")}</legend>
+                  <label><input type="checkbox" checked={Boolean((focused as typeof history[number]).reviewable)} onChange={e=>void run(`activities/${focused.id}/review`,{reviewable:e.target.checked})}/>{tr("Allow review","允许复习")}</label>
+                  {(["show_answer","show_explanation"] as const).map(field=><label key={field}><input type="checkbox" checked={Boolean((focused as typeof history[number]).review_visibility?.[field])} onChange={e=>void run(`activities/${focused.id}/review`,{[field]:e.target.checked})}/>{field==="show_answer"?t("showAnswer"):t("showExplanation")}</label>)}
+                  </fieldset>}
+                  {["draft", "ended"].includes(state?.session.status ?? "") && <button className="lc-btn lc-btn-outline lc-btn-end" onClick={()=>{if(window.confirm(tr("Delete this classroom permanently? Its classroom records will be removed; its reusable lesson remains.","永久删除本次课堂吗？课堂记录将被移除，教案会保留。"))) void postJson(apiEndpoint(stateUrl,"sessions/delete"),{confirm:true},idempotencyKey("delete-classroom")).then(()=>window.location.assign(bootstrap.workspaceUrl)).catch(error=>window.alert(error instanceof Error?error.message:tr("Delete failed","删除失败")));}}>{tr("Delete classroom","删除课堂")}</button>}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
     </>
   );
 }

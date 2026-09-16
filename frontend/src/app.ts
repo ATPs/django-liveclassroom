@@ -19,29 +19,48 @@ import { mountHomeWorkspace } from "./surfaces/workspace/HomeWorkspace.js";
 import { installHistoryRestoration } from "./navigation.js";
 import { installBrowseForms } from "./surfaces/navigation/BrowseForms.js";
 
-if (typeof document !== "undefined") {
-  installHistoryRestoration();
-  installBrowseForms();
-  mountAppShell();
-  for (const el of document.querySelectorAll<HTMLElement>("[data-home-workspace]")) mountHomeWorkspace(el);
-  for (const el of document.querySelectorAll<HTMLElement>("[data-teacher-workspace]")) mountTeacherWorkspace(el);
-  for (const el of document.querySelectorAll<HTMLElement>("[data-deck-workspace]")) mountDeckWorkspace(el);
-  for (const el of document.querySelectorAll<HTMLElement>("[data-assessment-builder]")) mountAssessmentBuilder(el);
-  for (const el of document.querySelectorAll<HTMLElement>("[data-student-assessment]")) mountStudentAssessment(el);
-  for (const el of document.querySelectorAll<HTMLElement>("[data-student-review]")) mountStudentReview(el);
-  for (const el of document.querySelectorAll<HTMLElement>("[data-learning-workspace]")) mountLearningWorkspace(el);
-  for (const el of document.querySelectorAll<HTMLElement>("[data-teaching-courses]")) mountTeachingCourses(el);
-  for (const el of document.querySelectorAll<HTMLElement>("[data-question-bank-workspace]")) mountQuestionBankWorkspace(el);
-  for (const el of document.querySelectorAll<HTMLElement>("[data-results-workspace]")) mountResultsWorkspace(el);
+function initLiveClassroom() {
+  const safe = (name: string, fn: () => void) => {
+    try {
+      fn();
+    } catch (err) {
+      console.error(`[LiveClassroom] Failed to mount ${name}:`, err);
+    }
+  };
+
+  safe("HistoryRestoration", () => installHistoryRestoration());
+  safe("BrowseForms", () => installBrowseForms());
+  safe("AppShell", () => mountAppShell());
+
+  for (const el of document.querySelectorAll<HTMLElement>("[data-home-workspace]")) safe("HomeWorkspace", () => mountHomeWorkspace(el));
+  for (const el of document.querySelectorAll<HTMLElement>("[data-teacher-workspace]")) safe("TeacherWorkspace", () => mountTeacherWorkspace(el));
+  for (const el of document.querySelectorAll<HTMLElement>("[data-deck-workspace]")) safe("DeckWorkspace", () => mountDeckWorkspace(el));
+  for (const el of document.querySelectorAll<HTMLElement>("[data-assessment-builder]")) safe("AssessmentBuilder", () => mountAssessmentBuilder(el));
+  for (const el of document.querySelectorAll<HTMLElement>("[data-student-assessment]")) safe("StudentAssessment", () => mountStudentAssessment(el));
+  for (const el of document.querySelectorAll<HTMLElement>("[data-student-review]")) safe("StudentReview", () => mountStudentReview(el));
+  for (const el of document.querySelectorAll<HTMLElement>("[data-learning-workspace]")) safe("LearningWorkspace", () => mountLearningWorkspace(el));
+  for (const el of document.querySelectorAll<HTMLElement>("[data-teaching-courses]")) safe("TeachingCourses", () => mountTeachingCourses(el));
+  for (const el of document.querySelectorAll<HTMLElement>("[data-question-bank-workspace]")) safe("QuestionBankWorkspace", () => mountQuestionBankWorkspace(el));
+  for (const el of document.querySelectorAll<HTMLElement>("[data-results-workspace]")) safe("ResultsWorkspace", () => mountResultsWorkspace(el));
+
   for (const element of document.querySelectorAll<HTMLElement>("[data-liveclassroom-app]")) {
     const audience = element.dataset.audience;
-    if (audience === "student" && element.dataset.stateUrl) mountStudentSession(element);
-    else if (audience === "display" && element.dataset.stateUrl) mountClassroomDisplay(element);
-    else if (audience === "teacher" && element.dataset.stateUrl) mountTeacherConsole(element);
+    if (audience === "student" && element.dataset.stateUrl) safe("StudentSession", () => mountStudentSession(element));
+    else if (audience === "display" && element.dataset.stateUrl) safe("ClassroomDisplay", () => mountClassroomDisplay(element));
+    else if (audience === "teacher" && element.dataset.stateUrl) safe("TeacherConsole", () => mountTeacherConsole(element));
   }
-  for (const element of document.querySelectorAll<HTMLElement>("[data-liveclassroom-builder]")) void mountBuilder(element);
-  for (const element of document.querySelectorAll<HTMLElement>("[data-liveclassroom-ai-chat]")) void mountAiChat(element);
-  for (const element of document.querySelectorAll<HTMLElement>("[data-student-view]")) mountStudentView(element);
+
+  for (const element of document.querySelectorAll<HTMLElement>("[data-liveclassroom-builder]")) safe("Builder", () => void mountBuilder(element));
+  for (const element of document.querySelectorAll<HTMLElement>("[data-liveclassroom-ai-chat]")) safe("AiChat", () => void mountAiChat(element));
+  for (const element of document.querySelectorAll<HTMLElement>("[data-student-view]")) safe("StudentView", () => mountStudentView(element));
+}
+
+if (typeof document !== "undefined") {
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", initLiveClassroom);
+  } else {
+    initLiveClassroom();
+  }
 }
 
 export {
