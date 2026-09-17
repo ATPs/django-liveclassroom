@@ -37,10 +37,10 @@ def test_teacher_console_uses_compact_shell_actions_and_responses_ribbon(live_se
         utilities_box = page.locator("[data-liveclassroom-shell-header-utilities] .lc-shell-header-actions").bounding_box()
         assert header_box and slot_box and utilities_box
         assert header_box["height"] <= 48
-        # Global utilities sit after the identity; classroom actions stay as
-        # the final right-aligned group for quick access during teaching.
-        assert slot_box["x"] >= utilities_box["x"] + utilities_box["width"] + 4
-        assert slot_box["x"] + slot_box["width"] >= header_box["x"] + header_box["width"] - 12
+        # During teaching, classroom actions precede Search and the remaining
+        # global utilities while both groups remain right aligned.
+        assert slot_box["x"] + slot_box["width"] <= utilities_box["x"] - 4
+        assert utilities_box["x"] + utilities_box["width"] >= header_box["x"] + header_box["width"] - 12
         page.set_viewport_size({"width": 1024, "height": 768})
         tablet_overflow = page.evaluate("""() => ({
           width: document.documentElement.scrollWidth,
@@ -49,11 +49,32 @@ def test_teacher_console_uses_compact_shell_actions_and_responses_ribbon(live_se
         })""")
         assert tablet_overflow["width"] <= tablet_overflow["viewport"], tablet_overflow
         assert tablet_overflow["headerRight"] >= tablet_overflow["viewport"] - 24
+        tablet_order = page.evaluate("""() => {
+          const slot = document.querySelector('#lc-session-action-slot')?.getBoundingClientRect();
+          const utilities = document.querySelector('[data-liveclassroom-shell-header-utilities]')?.getBoundingClientRect();
+          return slot && utilities ? { slotTop: slot.top, utilitiesTop: utilities.top } : null;
+        }""")
+        assert tablet_order and tablet_order["slotTop"] <= tablet_order["utilitiesTop"] + 1
         page.screenshot(path=".local/screenshots/2026-09-16-ui-refresh-teacher-tablet.png", full_page=True)
         page.set_viewport_size({"width": 1440, "height": 900})
+        cdp = page.context.new_cdp_session(page)
+        cdp.send("Emulation.setPageScaleFactor", {"pageScaleFactor": 2})
+        page.wait_for_function("window.visualViewport && window.visualViewport.scale >= 1.9")
+        assert slot.get_by_role("button", name="Pause").is_visible()
+        assert page.evaluate("document.documentElement.scrollWidth <= document.documentElement.clientWidth")
+        cdp.send("Emulation.setPageScaleFactor", {"pageScaleFactor": 1})
+        current_box = page.locator(".lc-presenter-current").bounding_box()
+        assert current_box
         next_toggle = page.get_by_role("button", name="Hide next item")
         next_toggle.click()
         assert not page.locator("#lc-presenter-next").is_visible()
+        next_hidden_box = page.locator(".lc-presenter-current").bounding_box()
+        assert next_hidden_box and next_hidden_box["width"] > current_box["width"] + 100
+        outline_toggle = page.locator(".lc-presenter-current .lc-outline-toggle-btn")
+        outline_toggle.click()
+        both_hidden_box = page.locator(".lc-presenter-current").bounding_box()
+        assert both_hidden_box and both_hidden_box["width"] > next_hidden_box["width"] + 100
+        outline_toggle.click()
         page.get_by_role("button", name="Show next item").click()
         assert page.locator("#lc-presenter-next").is_visible()
         invite = slot.get_by_role("button", name="Invite students")
@@ -159,6 +180,39 @@ def test_teacher_console_uses_chinese_dark_theme(live_server):
         })""")
         assert narrow_overflow["width"] <= narrow_overflow["viewport"], narrow_overflow
         page.screenshot(path="/tmp/liveclassroom-teacher-dark-zh-720.png", full_page=True)
+    finally:
+        browser.close()
+        manager.stop()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_invite_copy_falls_back_to_selectable_text_on_ordinary_http(live_server):
+    teacher = get_user_model().objects.create_user(username="ui-refresh-clipboard", password="password")
+    session = create_instant_session(owner=teacher, title="Clipboard fallback classroom")
+    start_session(session=session, actor=teacher)
+    client = Client()
+    client.force_login(teacher)
+    cookie = client.cookies[settings.SESSION_COOKIE_NAME].value
+    manager, browser = _chromium_or_skip()
+    try:
+        page = browser.new_page(viewport={"width": 390, "height": 844})
+        page.add_init_script("Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true });")
+        page.context.add_cookies([{"name": settings.SESSION_COOKIE_NAME, "value": cookie, "url": live_server.url}])
+        for language, link_label, code_label, notice in (
+            ("en", "Copy join link", "Copy code", "Clipboard access is unavailable. Select and copy the text below."),
+            ("zh-Hans", "复制加入链接", "复制加入码", "剪贴板不可用。请选中下方文字后复制。"),
+        ):
+            page.goto(f"{live_server.url}{reverse('liveclassroom:teacher-console', args=[session.id])}?lang={language}")
+            invite = page.locator("#lc-session-action-slot").get_by_role("button", name="Invite students" if language == "en" else "邀请学生")
+            invite.wait_for()
+            invite.click()
+            page.get_by_role("button", name=link_label).click()
+            fallback = page.locator(".lc-invite-copy-fallback input")
+            fallback.wait_for()
+            assert fallback.input_value()
+            assert page.get_by_text(notice, exact=True).is_visible()
+            page.get_by_role("button", name=code_label).click()
+            assert fallback.input_value()
     finally:
         browser.close()
         manager.stop()

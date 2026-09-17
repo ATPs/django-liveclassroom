@@ -6,7 +6,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}LiveClassroom{% endblock %}</title>
     <link rel="stylesheet" href="{% static 'liveclassroom/liveclassroom.css' %}">
-    <link rel="stylesheet" href="{% static 'liveclassroom/ui-refresh.css' %}">
+    <link rel="stylesheet" href="{% static 'liveclassroom/liveclassroom-surfaces.css' %}">
+    <link rel="stylesheet" href="{% static 'liveclassroom/liveclassroom-authoring.css' %}">
+    <link rel="stylesheet" href="{% static 'liveclassroom/liveclassroom-teaching.css' %}">
+    <link rel="stylesheet" href="{% static 'liveclassroom/liveclassroom-responsive.css' %}">
     <script type="module" src="{% static 'liveclassroom/app.js' %}"></script>
   </head>
   <body data-liveclassroom-static-url="{% get_static_prefix %}">
@@ -20,8 +23,8 @@
           <header class="lc-shell-header" data-liveclassroom-shell-header>
             <div class="lc-shell-header-identity" data-liveclassroom-shell-header-content></div>
             <div class="lc-shell-header-right">
-              <div class="lc-shell-header-utilities" data-liveclassroom-shell-header-utilities></div>
               <div id="lc-session-action-slot" class="lc-session-action-slot" aria-live="polite"></div>
+              <div class="lc-shell-header-utilities" data-liveclassroom-shell-header-utilities></div>
             </div>
           </header>
           <div class="lc-shell-body">

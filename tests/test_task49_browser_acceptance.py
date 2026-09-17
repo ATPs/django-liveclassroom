@@ -168,6 +168,7 @@ def test_teacher_generates_reviews_and_accepts_ai_draft_in_bilingual_builder(liv
                 f"{live_server.url}{reverse('liveclassroom:flow-builder-detail', args=[flow.id])}?lang=zh-Hans"
             )
             page.get_by_role("heading", name="教学教案可视化编辑器", exact=True).wait_for()
+            page.get_by_role("button", name="预览", exact=True).click()
             page.get_by_role("heading", name="AI 课件助手", exact=True).wait_for()
             assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
             page.screenshot(path=str(SCREENSHOTS / "2026-09-10-task49-ai-review-zh-mobile.png"), full_page=True)

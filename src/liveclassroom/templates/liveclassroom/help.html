@@ -19,7 +19,7 @@
         <ol class="lc-help-steps">
           <li><strong>准备组织：</strong>打开<a href="{% url 'liveclassroom:teacher-dashboard' %}?lang={{ active_lang|urlencode }}">教师工作区</a>，可选地创建 Course（课程主题）和 Class（学生班级）。保存的内容需要账号；即时课堂仍可让访客使用加入码进入。</li>
           <li><strong>编写内容：</strong>在<a href="{% url 'liveclassroom:flow-builder' %}?lang={{ active_lang|urlencode }}">教案编辑器</a>添加活动，或导入 Markdown / YAML。要写幻灯片可打开<a href="{% url 'liveclassroom:deck-workspace' %}?lang={{ active_lang|urlencode }}">幻灯片工作区</a>；启用主机适配器后，可使用 VaultPub 的笔记和 Slide View。</li>
-          <li><strong>共享或复制：</strong>在内容编辑器中使用共享控件，或从“与我共享”打开已授权内容。复制得到独立副本。</li>
+          <li><strong>共享或复制：</strong>在内容编辑器中使用共享控件，或从“与我共享”打开已授权内容。需要集成时可使用已授权的<a href="{% url 'liveclassroom:api-v1-content-shares' %}">共享接口</a>；复制得到独立副本。</li>
           <li><strong>开始授课：</strong>回到<a href="{% url 'liveclassroom:teacher-dashboard' %}?lang={{ active_lang|urlencode }}">教师工作区</a>，从教案创建课堂，再在教师控制台开始课堂、发布活动和控制大屏/学生端。学生可从<a href="{% url 'liveclassroom:join' %}?lang={{ active_lang|urlencode }}">加入页面</a>输入加入码。</li>
           <li><strong>创建测验：</strong>在<a href="{% url 'liveclassroom:assessment-workspace' %}?lang={{ active_lang|urlencode }}">测验编辑器</a>选择题目、预览固定版本并发布。学生使用教师分享的测验链接开始或继续作答，答案会保存到其账号，完成后提交。</li>
           <li><strong>复盘结果：</strong>打开<a href="{% url 'liveclassroom:teacher-results' %}?lang={{ active_lang|urlencode }}">结果与评分</a>，选择测验、提交和题目，或打开人工评分队列。学生从“我的作答与结果”查看教师已发布的结果。</li>
@@ -65,11 +65,11 @@
         <h1>LiveClassroom help</h1>
         <p class="lc-help-lead">Follow this path to prepare content, start class, deliver an assessment, and review results. Each step states what is available now and what requires another setup.</p>
 
-        <h2 id="help-start">Getting started</h2>
+        <h2 id="help-start">Simple teacher path</h2>
         <ol class="lc-help-steps">
           <li><strong>Set up organization:</strong> Open the <a href="{% url 'liveclassroom:teacher-dashboard' %}?lang={{ active_lang|urlencode }}">teacher workspace</a> and optionally create a Course (subject) and Class (learner cohort). Saved content uses an account; an instant classroom still supports guest entry with a join code.</li>
           <li><strong>Author content:</strong> Use the <a href="{% url 'liveclassroom:flow-builder' %}?lang={{ active_lang|urlencode }}">lesson builder</a> to add activities or import Markdown / YAML. Use the <a href="{% url 'liveclassroom:deck-workspace' %}?lang={{ active_lang|urlencode }}">slide-deck workspace</a> for native slides. VaultPub note and Slide View rendering is available when the host adapter is enabled.</li>
-          <li><strong>Share or copy:</strong> Use the sharing controls in content editors, or open authorized content from Shared with me. Copying creates an independent copy.</li>
+          <li><strong>Share or copy:</strong> Use the sharing controls in content editors, or open authorized content from Shared with me. Integrations can use the authorized <a href="{% url 'liveclassroom:api-v1-content-shares' %}">sharing API</a>; copying creates an independent copy.</li>
           <li><strong>Teach:</strong> Return to the <a href="{% url 'liveclassroom:teacher-dashboard' %}?lang={{ active_lang|urlencode }}">teacher workspace</a>, create a classroom from a lesson, then start class, publish activities, and control the display and student channels in the console. Students can enter through the <a href="{% url 'liveclassroom:join' %}?lang={{ active_lang|urlencode }}">join page</a> with the code.</li>
           <li><strong>Create an assessment:</strong> Open the <a href="{% url 'liveclassroom:assessment-workspace' %}?lang={{ active_lang|urlencode }}">assessment builder</a> to choose questions, preview pinned versions, and publish. Students use the run link you provide to start or resume; answers save to their account and can then be submitted.</li>
           <li><strong>Review results:</strong> Open <a href="{% url 'liveclassroom:teacher-results' %}?lang={{ active_lang|urlencode }}">Results and grading</a>, select an assessment, submission, and question, or open the manual grading queue. Students use My attempts and results to view results released by their teacher.</li>

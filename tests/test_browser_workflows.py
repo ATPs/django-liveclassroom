@@ -96,7 +96,9 @@ def test_student_join_and_teacher_console_render_without_mobile_overflow(live_se
         teacher_page.locator("#lc-session-action-slot").get_by_role("button", name="Invite students").wait_for()
         teacher_page.locator("#lc-session-action-slot").get_by_role("button", name="Invite students").click()
         assert teacher_page.get_by_role("dialog", name="Invite students").is_visible()
-        assert teacher_page.locator(".lc-join-qr img").is_visible()
+        qr = teacher_page.locator(".lc-join-qr img")
+        qr.wait_for(state="visible")
+        assert qr.evaluate("node => node.complete && node.naturalWidth > 0")
         assert teacher_page.locator(".lc-presenter").is_visible()
         teacher_page.screenshot(path="/tmp/liveclassroom-teacher-desktop.png", full_page=True)
 

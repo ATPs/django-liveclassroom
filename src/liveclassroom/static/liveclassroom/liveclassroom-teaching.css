@@ -1,0 +1,1056 @@
+/* Presenter Workspace */
+#liveclassroom-root .lc-presenter {
+  display: grid;
+  grid-template-columns: 16rem minmax(0, 1.8fr) minmax(15rem, 1fr);
+  grid-template-areas: "strip current next";
+  gap: 1.25rem;
+  align-items: start;
+  margin: 1.25rem 0;
+}
+
+#liveclassroom-root .lc-presenter.lc-outline-collapsed {
+  grid-template-columns: minmax(0, 1.8fr) minmax(15rem, 1fr);
+  grid-template-areas: "current next";
+}
+
+
+#liveclassroom-root .lc-presenter-drawer {
+  grid-area: strip;
+  background: var(--lc-surface);
+  border: 1px solid var(--lc-border);
+  border-radius: var(--lc-radius-lg);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+#liveclassroom-root .lc-drawer-header,
+#liveclassroom-root .lc-presenter-drawer > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .5rem;
+  padding: .65rem .85rem;
+  background: var(--lc-surface-2);
+  border-bottom: 1px solid var(--lc-border);
+  cursor: pointer;
+  font-weight: 650;
+  font-size: .88rem;
+  user-select: none;
+  list-style: none;
+  transition: background var(--lc-transition);
+}
+
+#liveclassroom-root .lc-drawer-collapse-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border: 0;
+  background: transparent;
+  color: var(--lc-text-3);
+  cursor: pointer;
+  border-radius: var(--lc-radius-sm);
+  font-size: .88rem;
+  transition: all var(--lc-transition);
+}
+
+#liveclassroom-root .lc-drawer-collapse-btn:hover {
+  background: var(--lc-surface-3);
+  color: var(--lc-text);
+}
+
+#liveclassroom-root .lc-presenter-drawer:not([open]) > summary {
+  border-bottom: none;
+}
+
+#liveclassroom-root .lc-presenter-drawer > summary::-webkit-details-marker {
+  display: none;
+}
+
+#liveclassroom-root .lc-presenter-drawer > summary:hover {
+  background: var(--lc-surface-3);
+}
+
+#liveclassroom-root .lc-drawer-icon {
+  font-size: 1rem;
+  opacity: .8;
+}
+
+#liveclassroom-root .lc-drawer-title {
+  flex: 1;
+}
+
+#liveclassroom-root .lc-drawer-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.35rem;
+  height: 1.35rem;
+  padding: 0 .35rem;
+  font-size: .72rem;
+  font-weight: 700;
+  border-radius: 9999px;
+  background: var(--lc-border-strong);
+  color: var(--lc-text);
+}
+
+#liveclassroom-root .lc-presenter-strip {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  max-height: 28rem;
+  gap: .25rem;
+  padding: .5rem;
+}
+
+#liveclassroom-root .lc-presenter-step {
+  min-height: 2.35rem;
+  padding: .5rem .75rem;
+  border: 0;
+  border-radius: var(--lc-radius-sm);
+  background: transparent;
+  color: var(--lc-text);
+  text-align: left;
+  font-size: .84rem;
+  font-weight: 500;
+  line-height: 1.3;
+  cursor: pointer;
+  transition: all var(--lc-transition);
+}
+
+#liveclassroom-root .lc-presenter-step:hover:not(:disabled) {
+  background: var(--lc-surface-2);
+}
+
+#liveclassroom-root .lc-presenter-step-current,
+#liveclassroom-root .lc-presenter-step[aria-current="step"] {
+  background: var(--lc-accent-soft);
+  color: var(--lc-accent);
+  font-weight: 700;
+}
+
+#liveclassroom-root .lc-presenter-current {
+  grid-area: current;
+  background: var(--lc-surface);
+  border: 1px solid var(--lc-border);
+  border-radius: var(--lc-radius-lg);
+  padding: 1.25rem;
+  min-height: 24rem;
+}
+
+#liveclassroom-root .lc-presenter-current-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: .75rem;
+  margin-bottom: 1rem;
+  padding-bottom: .75rem;
+  border-bottom: 1px solid var(--lc-border);
+}
+
+#liveclassroom-root .lc-presenter-header-left {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+}
+
+#liveclassroom-root .lc-outline-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+  font-size: .84rem;
+  padding: .35rem .75rem;
+  min-height: 2.15rem;
+  font-weight: 600;
+  border-radius: var(--lc-radius-sm);
+  background: var(--lc-surface);
+  color: var(--lc-text);
+  border: 1px solid var(--lc-border-strong);
+  cursor: pointer;
+  transition: all var(--lc-transition);
+}
+
+#liveclassroom-root .lc-outline-toggle-btn:hover {
+  background: var(--lc-surface-2);
+  border-color: var(--lc-accent);
+  color: var(--lc-accent);
+}
+
+#liveclassroom-root .lc-outline-toggle-btn.active {
+  background: var(--lc-surface-2);
+  border-color: var(--lc-border-strong);
+}
+
+#liveclassroom-root .lc-presenter-label {
+  font-size: .8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--lc-text-3);
+  margin: 0;
+}
+
+#liveclassroom-root .lc-presenter-navigation {
+  display: flex;
+  align-items: center;
+  gap: .65rem;
+}
+
+#liveclassroom-root .lc-btn-nav {
+  min-height: 2.45rem;
+  padding: .45rem 1.15rem;
+  font-size: .92rem;
+  font-weight: 700;
+  border-radius: var(--lc-radius-md);
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+  transition: all var(--lc-transition);
+}
+
+#liveclassroom-root .lc-btn-next {
+  background: var(--lc-accent);
+  color: #fff;
+  border: 1px solid var(--lc-accent);
+}
+
+#liveclassroom-root .lc-btn-next:hover:not(:disabled) {
+  background: var(--lc-accent-strong);
+  border-color: var(--lc-accent-strong);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+  transform: translateY(-1px);
+}
+
+#liveclassroom-root .lc-btn-prev {
+  background: var(--lc-surface);
+  color: var(--lc-text);
+  border: 1px solid var(--lc-border-strong);
+}
+
+#liveclassroom-root .lc-btn-prev:hover:not(:disabled) {
+  background: var(--lc-surface-2);
+  border-color: var(--lc-text-2);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+  transform: translateY(-1px);
+}
+
+#liveclassroom-root .lc-btn-nav:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
+}
+
+#liveclassroom-root .lc-presenter-step-count {
+  font-size: .85rem;
+  font-weight: 650;
+  color: var(--lc-text-2);
+  min-width: 3.5rem;
+  text-align: center;
+  user-select: none;
+}
+
+#liveclassroom-root .lc-presenter-next {
+  grid-area: next;
+  background: var(--lc-surface-2);
+  border: 1px solid var(--lc-border);
+  border-radius: var(--lc-radius-lg);
+  padding: 1rem 1.15rem;
+}
+
+#liveclassroom-root .lc-presenter-status {
+  margin-top: 1rem;
+  padding-top: .75rem;
+  border-top: 1px solid var(--lc-border);
+  font-size: .8rem;
+  color: var(--lc-text-3);
+}
+
+@keyframes lc-pulse {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.03);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Activity renderers — media
+ * ------------------------------------------------------------------------- */
+#liveclassroom-root .lc-media-container {
+  margin: 1.25rem auto;
+  text-align: center;
+  width: 100%;
+}
+
+#liveclassroom-root .lc-media-container img,
+#liveclassroom-root .lc-media-container video {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--lc-radius);
+  box-shadow: var(--lc-shadow-md);
+}
+
+#liveclassroom-root .lc-media-container audio {
+  width: 100%;
+  max-width: 32rem;
+  margin: 0.5rem 0;
+}
+
+#liveclassroom-root .lc-media-container iframe {
+  width: 100%;
+  min-height: 400px;
+  border: none;
+  border-radius: var(--lc-radius);
+  box-shadow: var(--lc-shadow-md);
+}
+
+#liveclassroom-root .lc-media-caption {
+  margin-top: 0.5rem;
+  font-size: 0.9rem;
+  color: var(--lc-text-2);
+  font-style: italic;
+}
+
+/* ---------------------------------------------------------------------------
+ * Activity renderers — teacher-provided files
+ * ------------------------------------------------------------------------- */
+#liveclassroom-root .lc-file-activity { margin: 1.25rem 0; }
+#liveclassroom-root .lc-file-status { color: var(--lc-text-2); }
+#liveclassroom-root .lc-file-pages { width: 100%; }
+#liveclassroom-root .lc-file-pages-scroll { display: grid; gap: 1rem; }
+#liveclassroom-root .lc-file-page {
+  display: grid;
+  place-items: center;
+  min-height: 8rem;
+  overflow: auto;
+  background: var(--lc-surface-2);
+  border: 1px solid var(--lc-border);
+  border-radius: var(--lc-radius);
+}
+#liveclassroom-root .lc-file-pdf-page { display: block; max-width: 100%; height: auto !important; }
+#liveclassroom-root .lc-file-pptx-page { display: block; width: 100%; aspect-ratio: 16 / 9; border: 0; background: #fff; }
+#liveclassroom-root .lc-file-video { display: block; width: 100%; max-height: 70vh; background: #000; }
+#liveclassroom-root .lc-file-pagination,
+#liveclassroom-root .lc-file-teacher-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem;
+  align-items: center;
+  margin-top: .75rem;
+}
+#liveclassroom-root .lc-file-teacher-controls { border: 1px solid var(--lc-border); padding: .65rem .8rem; }
+#liveclassroom-root .lc-file-teacher-controls label { display: inline-flex; align-items: center; gap: .35rem; }
+#liveclassroom-root .lc-file-teacher-controls select { font: inherit; max-width: 13rem; }
+#liveclassroom-root .lc-file-download { display: inline-block; margin-bottom: .75rem; }
+#liveclassroom-root .lc-file-vaultpub-toolbar { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: .75rem; }
+#liveclassroom-root .lc-file-vaultpub-frame { display: block; width: 100%; min-height: min(70vh, 48rem); border: 1px solid var(--lc-border); background: var(--lc-surface); }
+#liveclassroom-root .lc-file-picker-form { margin: .75rem 0; }
+#liveclassroom-root .lc-file-picker-form input, #liveclassroom-root .lc-file-picker-form select { min-width: 0; max-width: 100%; font: inherit; }
+
+/* ---------------------------------------------------------------------------
+ * Activity renderers — markdown
+ * ------------------------------------------------------------------------- */
+#liveclassroom-root .lc-markdown-body {
+  margin: 1rem 0;
+  line-height: 1.6;
+  color: var(--lc-text);
+  text-align: left;
+}
+
+#liveclassroom-root .lc-markdown-body h1,
+#liveclassroom-root .lc-markdown-body h2,
+#liveclassroom-root .lc-markdown-body h3,
+#liveclassroom-root .lc-markdown-body h4 {
+  color: var(--lc-accent);
+  margin-top: 1.25rem;
+  margin-bottom: 0.5rem;
+}
+
+#liveclassroom-root .lc-markdown-body pre {
+  background: var(--lc-surface-2);
+  padding: 0.75rem 1rem;
+  border-radius: var(--lc-radius);
+  overflow-x: auto;
+  border: 1px solid var(--lc-border);
+}
+
+#liveclassroom-root .lc-markdown-body code {
+  font-family: var(--lc-font-mono);
+  background: var(--lc-surface-2);
+  padding: 0.15rem 0.35rem;
+  border-radius: var(--lc-radius-sm);
+}
+
+#liveclassroom-root .lc-markdown-body pre code {
+  background: transparent;
+  padding: 0;
+}
+
+#liveclassroom-root .lc-markdown-body blockquote {
+  border-left: 4px solid var(--lc-accent);
+  margin: 0.75rem 0;
+  padding-left: 1rem;
+  color: var(--lc-text-2);
+  font-style: italic;
+}
+
+#liveclassroom-root .lc-markdown-body ul,
+#liveclassroom-root .lc-markdown-body ol {
+  padding-left: 1.5rem;
+  margin: 0.5rem 0;
+}
+
+/* VaultPub fragments arrive as already-sanitized article HTML. Keep their
+ * content inside the activity surface on narrow screens and avoid importing
+ * VaultPub's document-level layout into the host page. */
+#liveclassroom-root .lc-markdown-vaultpub article,
+#liveclassroom-root .lc-markdown-vaultpub .markdown-body {
+  max-width: 100%;
+}
+#liveclassroom-root .lc-markdown-vaultpub table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+}
+#liveclassroom-root .lc-markdown-vaultpub img,
+#liveclassroom-root .lc-markdown-vaultpub video {
+  max-width: 100%;
+  height: auto;
+}
+#liveclassroom-root .lc-markdown-vaultpub pre {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+/* ---------------------------------------------------------------------------
+ * Activity renderers — word cloud
+ * ------------------------------------------------------------------------- */
+#liveclassroom-root .lc-word-cloud {
+  margin: 1.25rem 0;
+  padding: 1.25rem;
+  background: var(--lc-surface);
+  border: 1px solid var(--lc-border);
+  border-radius: var(--lc-radius-lg);
+  text-align: center;
+}
+
+#liveclassroom-root .lc-word-cloud-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: center;
+  justify-content: center;
+  min-height: 4.5rem;
+  padding: 0.5rem;
+}
+
+#liveclassroom-root .lc-word-tag {
+  display: inline-block;
+  padding: 0.25rem 0.65rem;
+  background: var(--lc-accent-soft);
+  color: var(--lc-accent);
+  border-radius: 2rem;
+  font-weight: 600;
+  line-height: 1.2;
+  transition: transform 0.15s ease, background 0.15s ease;
+  user-select: none;
+}
+
+#liveclassroom-root .lc-word-tag:hover {
+  background: var(--lc-accent-border);
+  transform: scale(1.05);
+}
+
+#liveclassroom-root .lc-word-cloud-moderation {
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px dashed var(--lc-border-strong);
+  text-align: left;
+}
+
+#liveclassroom-root .lc-word-cloud-moderation h4 {
+  margin: 0 0 0.5rem 0;
+  font-size: 0.95rem;
+  color: var(--lc-accent);
+}
+
+#liveclassroom-root .lc-moderation-list {
+  max-height: 10rem;
+  overflow-y: auto;
+  padding-left: 1.25rem;
+  font-size: 0.88rem;
+  margin: 0;
+}
+
+/* ---------------------------------------------------------------------------
+ * Activity renderers — aggregate choice bars
+ * ------------------------------------------------------------------------- */
+#liveclassroom-root .lc-choice-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  margin-top: 0.85rem;
+  width: 100%;
+}
+
+#liveclassroom-root .lc-choice-bar-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+#liveclassroom-root .lc-choice-bar-header {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.85rem;
+  color: var(--lc-text-2);
+}
+
+#liveclassroom-root .lc-bar-container {
+  position: relative;
+  width: 100%;
+  height: 0.875rem;
+  background: var(--lc-surface-3);
+  border-radius: 0.5rem;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+}
+
+#liveclassroom-root .lc-bar {
+  height: 100%;
+  background: var(--lc-accent);
+  border-radius: 0.5rem;
+  transition: width 0.3s ease;
+  min-width: 2px;
+}
+
+#liveclassroom-root .lc-bar-text {
+  position: absolute;
+  left: 0.75rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--lc-text);
+  white-space: nowrap;
+  z-index: 1;
+}
+
+#liveclassroom-root .lc-rate-badge {
+  display: inline-block;
+  padding: 0.25rem 0.65rem;
+  background: var(--lc-accent-soft);
+  color: var(--lc-accent);
+  border-radius: var(--lc-radius-sm);
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin-bottom: 0.75rem;
+}
+
+/* ---------------------------------------------------------------------------
+ * Responsive tweaks
+ * ------------------------------------------------------------------------- */
+@media (max-width: 44rem) {
+  #liveclassroom-root {
+    padding: 1rem;
+  }
+
+  #liveclassroom-root :is(.lc-builder-root, .lc-builder-layout, .lc-builder-main, .lc-builder-topbar, .lc-builder-title-group, .lc-builder-actions) {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  #liveclassroom-root :is(.lc-builder-flow-select-label, .lc-builder-flow-select, .lc-form input, .lc-form select, .lc-form textarea) {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  #liveclassroom-root .lc-lang-switch {
+    position: static;
+    display: flex;
+    width: max-content;
+    margin: 0 0 1rem auto;
+  }
+
+  #liveclassroom-root .lc-analytics-header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Reduced motion
+ * ------------------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  #liveclassroom-root *,
+  #liveclassroom-root *::before,
+  #liveclassroom-root *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Presenter surfaces use the available desktop space. Grouping comes from
+ * layout and quiet surfaces rather than a stack of card outlines. */
+#liveclassroom-root:has([data-audience="teacher"]) { place-items: stretch; }
+#liveclassroom-root:has([data-audience="teacher"]) .lc-card.lc-wide { width: 100%; max-width: none; border: 0; box-shadow: none; padding: 0; background: transparent; }
+#liveclassroom-root .lc-session-command-bar,
+#liveclassroom-root .lc-session-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: .85rem;
+  padding: .85rem 1.25rem;
+  margin-bottom: 1.25rem;
+  border: 1px solid var(--lc-border);
+  border-radius: var(--lc-radius-md);
+  background: var(--lc-surface);
+  box-shadow: var(--lc-shadow-sm);
+}
+
+#liveclassroom-root .lc-session-header-primary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .75rem;
+  min-width: 0;
+}
+
+#liveclassroom-root .lc-session-back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  padding: .35rem .7rem;
+  border-radius: var(--lc-radius-sm);
+  background: var(--lc-surface-2);
+  color: var(--lc-text-2) !important;
+  font-size: .82rem;
+  font-weight: 650;
+  text-decoration: none !important;
+  transition: all var(--lc-transition);
+}
+
+#liveclassroom-root .lc-session-back-link:hover {
+  background: var(--lc-surface-3);
+  color: var(--lc-accent) !important;
+}
+
+#liveclassroom-root .lc-session-title-group {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  min-width: 0;
+}
+
+#liveclassroom-root .lc-session-title,
+#liveclassroom-root .lc-session-header h1 {
+  font-size: 1.25rem;
+  font-weight: 750;
+  color: var(--lc-text);
+  margin: 0;
+  line-height: 1.3;
+}
+
+#liveclassroom-root .lc-session-flow-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: .15rem .5rem;
+  border-radius: var(--lc-radius-sm);
+  background: var(--lc-surface-2);
+  border: 1px solid var(--lc-border);
+  color: var(--lc-text-2);
+  font-size: .78rem;
+  font-weight: 600;
+}
+
+#liveclassroom-root .lc-join-code-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+  padding: .25rem .65rem;
+  border: 1px dashed var(--lc-border-strong);
+  border-radius: 9999px;
+  background: var(--lc-surface-2);
+  color: var(--lc-text);
+  font: inherit;
+  font-size: .8rem;
+  cursor: pointer;
+  transition: all var(--lc-transition);
+}
+
+#liveclassroom-root .lc-join-code-chip:hover {
+  background: var(--lc-surface-3);
+  border-color: var(--lc-accent);
+}
+
+#liveclassroom-root .lc-join-code-label {
+  color: var(--lc-text-3);
+  font-weight: 600;
+}
+
+#liveclassroom-root .lc-join-code-val {
+  font-family: var(--lc-font-mono, monospace);
+  font-weight: 750;
+  letter-spacing: .06em;
+  color: var(--lc-accent);
+}
+
+#liveclassroom-root .lc-copy-tooltip {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: .15rem .45rem;
+  border-radius: var(--lc-radius-sm);
+  background: var(--lc-text);
+  color: var(--lc-surface);
+  font-size: .72rem;
+  font-weight: 600;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 20;
+}
+
+#liveclassroom-root .lc-session-header-actions,
+#liveclassroom-root .lc-session-actions {
+  display: flex;
+  align-items: center;
+  gap: .65rem;
+  flex-shrink: 0;
+}
+
+#liveclassroom-root .lc-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+  padding: .3rem .75rem;
+  border-radius: 9999px;
+  font-size: .82rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+#liveclassroom-root .lc-status-live {
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.4);
+  color: #065f46;
+}
+
+#liveclassroom-root .lc-status-paused {
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  color: #92400e;
+}
+
+#liveclassroom-root .lc-status-ended {
+  background: var(--lc-surface-2);
+  border: 1px solid var(--lc-border);
+  color: var(--lc-text-3);
+}
+
+#liveclassroom-root .lc-status-draft {
+  background: var(--lc-surface-2);
+  border: 1px dashed var(--lc-border-strong);
+  color: var(--lc-text-2);
+}
+
+#liveclassroom-root .lc-student-view-btn {
+  font-size: .82rem;
+  font-weight: 650;
+  padding: .35rem .75rem;
+}
+
+#liveclassroom-root .lc-invite-controls {
+  position: relative;
+  display: inline-block;
+}
+
+#liveclassroom-root .lc-invite-dropdown {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 50;
+  min-width: 18rem;
+  padding: 1.15rem;
+  border: 1px solid var(--lc-border);
+  border-radius: var(--lc-radius-md);
+  background: var(--lc-surface);
+  box-shadow: var(--lc-shadow-lg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: .85rem;
+}
+
+#liveclassroom-root .lc-invite-notice {
+  font-size: .78rem;
+  color: var(--lc-accent);
+  font-weight: 600;
+  margin: 0;
+}
+
+#liveclassroom-root .lc-invite-copy-fallback {
+  display: grid;
+  width: 100%;
+  gap: .375rem;
+  color: var(--lc-text-2);
+  font-size: .8125rem;
+  font-weight: 650;
+}
+
+#liveclassroom-root .lc-invite-copy-fallback input {
+  width: 100%;
+  min-width: 0;
+}
+
+#liveclassroom-root .lc-lifecycle-bar {
+  display: flex;
+  align-items: center;
+  gap: .65rem;
+  margin-bottom: 1.25rem;
+}
+
+#liveclassroom-root .lc-lifecycle-group {
+  display: inline-flex;
+  align-items: center;
+  gap: .5rem;
+}
+
+#liveclassroom-root .lc-btn-pause {
+  background: var(--lc-surface);
+  border-color: var(--lc-border-strong);
+  color: var(--lc-text);
+}
+
+#liveclassroom-root .lc-btn-pause:hover {
+  background: var(--lc-surface-2);
+  border-color: var(--lc-accent);
+  color: var(--lc-accent);
+}
+
+#liveclassroom-root .lc-btn-end {
+  background: transparent;
+  border-color: rgba(239, 68, 68, 0.5);
+  color: var(--lc-danger, #ef4444);
+}
+
+#liveclassroom-root .lc-btn-end:hover {
+  background: rgba(239, 68, 68, 0.08);
+  border-color: var(--lc-danger, #ef4444);
+}
+
+#liveclassroom-root .lc-ended-notice {
+  font-size: .9rem;
+  color: var(--lc-text-3);
+  font-weight: 600;
+  margin: 0;
+}
+
+#liveclassroom-root .lc-start-hint {
+  font-size: .88rem;
+  color: var(--lc-text-2);
+  margin-bottom: .85rem;
+}
+#liveclassroom-root .lc-audience-panel > label { display: flex; align-items: center; gap: .5rem; margin: .75rem 0; }
+#liveclassroom-root .lc-audience-held { display: flex; align-items: center; justify-content: space-between; gap: .75rem; margin: 1rem 0; padding: .75rem 1rem; border-radius: var(--lc-radius); background: var(--lc-accent-soft); }
+#liveclassroom-root .lc-pending-notice { min-height: 44px; margin-top: 1rem; color: var(--lc-accent); border-color: currentColor; }
+#liveclassroom-root .lc-btn-end {
+  color: var(--lc-danger);
+  border-color: var(--lc-border-strong);
+  background: transparent;
+}
+#liveclassroom-root .lc-btn-end:hover:not(:disabled) {
+  background: var(--lc-danger-soft);
+  border-color: var(--lc-danger);
+  color: var(--lc-danger);
+}
+
+#liveclassroom-root .lc-console-tabs-section {
+  margin-top: 1.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+#liveclassroom-root .lc-console-tabs-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: .5rem;
+  padding: .5rem .65rem;
+  background: var(--lc-surface-2);
+  border: 1px solid var(--lc-border);
+  border-radius: var(--lc-radius-lg);
+}
+
+#liveclassroom-root .lc-console-tab-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: .45rem;
+  padding: .5rem 1rem;
+  font-size: .9rem;
+  font-weight: 600;
+  color: var(--lc-text-2);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--lc-radius-md);
+  cursor: pointer;
+  transition: all var(--lc-transition);
+  user-select: none;
+}
+
+#liveclassroom-root .lc-console-tab-btn:hover {
+  background: var(--lc-surface);
+  color: var(--lc-text);
+  border-color: var(--lc-border);
+}
+
+#liveclassroom-root .lc-console-tab-btn.active,
+#liveclassroom-root .lc-console-tab-btn[aria-selected="true"] {
+  background: var(--lc-surface);
+  color: var(--lc-accent);
+  border-color: var(--lc-border);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  font-weight: 700;
+}
+
+#liveclassroom-root .lc-console-tab-pane {
+  margin-top: .75rem;
+  background: var(--lc-surface);
+  border: 1px solid var(--lc-border);
+  border-radius: var(--lc-radius-xl);
+  padding: 1.25rem 1.5rem;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+  animation: lc-tab-appear .15s ease-out;
+}
+
+@keyframes lc-tab-appear {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+#liveclassroom-root .lc-console-tab-pane-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: .75rem;
+  margin-bottom: 1rem;
+  border-bottom: 1px solid var(--lc-border);
+}
+
+#liveclassroom-root .lc-console-tab-pane-title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--lc-text);
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+}
+
+#liveclassroom-root .lc-console-tab-close-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.85rem;
+  height: 1.85rem;
+  border: 1px solid var(--lc-border);
+  border-radius: var(--lc-radius-sm);
+  background: transparent;
+  color: var(--lc-text-2);
+  cursor: pointer;
+  font-size: .9rem;
+  transition: all var(--lc-transition);
+}
+
+#liveclassroom-root .lc-console-tab-close-btn:hover {
+  background: var(--lc-surface-2);
+  color: var(--lc-text);
+  border-color: var(--lc-border-strong);
+}
+
+#liveclassroom-root .lc-console-tab-pane-content {
+  width: 100%;
+}
+
+#liveclassroom-root .lc-tab-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  padding: 0 .35rem;
+  font-size: .72rem;
+  font-weight: 700;
+  border-radius: 9999px;
+  background: var(--lc-danger, #ef4444);
+  color: #fff;
+  line-height: 1;
+}
+
+#liveclassroom-root .lc-console-panel:not(.lc-console-bottom-region > .lc-console-panel) {
+  margin: 1.5rem 0;
+  padding-top: 1rem;
+  border-top: 1px solid var(--lc-border);
+}
+#liveclassroom-root .lc-console-panel:not(.lc-console-bottom-region > .lc-console-panel) > summary {
+  cursor: pointer;
+  font-weight: 650;
+}
+#liveclassroom-root .lc-btn-danger { color: var(--lc-danger); border-color: currentColor; background: transparent; }
+#liveclassroom-root .lc-editor-workspace { display: grid; grid-template-columns: minmax(13rem, .65fr) minmax(25rem, 1.5fr) minmax(16rem, .8fr); gap: 1.5rem; margin: 1.25rem 0; padding: 1.25rem; border-radius: var(--lc-radius-xl); background: var(--lc-surface-2); }
+#liveclassroom-root .lc-editor-outline { display: flex; flex-direction: column; gap: .3rem; }
+#liveclassroom-root .lc-editor-outline button { text-align: left; border: 0; background: transparent; padding: .5rem .65rem; color: var(--lc-text-2); }
+#liveclassroom-root .lc-editor-outline .lc-editor-outline-current { color: var(--lc-accent); background: var(--lc-accent-soft); border-radius: var(--lc-radius); font-weight: 650; }
+#liveclassroom-root .lc-editor-form { min-width: 0; background: var(--lc-surface); border-radius: var(--lc-radius-lg); padding: 1.25rem; }
+#liveclassroom-root .lc-editor-preview { min-width: 0; color: var(--lc-text-2); overflow-wrap: anywhere; }
+#liveclassroom-root .lc-vaultpub-frame { min-height: 0; height: 100%; display: flex; flex-direction: column; gap: .65rem; }
+#liveclassroom-root .lc-vaultpub-frame iframe { width: 100%; flex: 1 1 auto; min-height: 28rem; border: 0; border-radius: var(--lc-radius-lg); background: #111; }
+#liveclassroom-root .lc-vaultpub-controls { justify-content: flex-end; align-items: center; margin: 0; }
+@media (max-width: 62rem) { #liveclassroom-root .lc-session-header { display: grid; } #liveclassroom-root .lc-session-actions { justify-content: flex-start; } #liveclassroom-root .lc-presenter { grid-template-columns: 14rem minmax(0, 1fr); grid-template-areas: "strip current" "strip next"; } #liveclassroom-root .lc-presenter.lc-outline-collapsed { grid-template-columns: 1fr; grid-template-areas: "current" "next"; } #liveclassroom-root .lc-presenter-current { min-height: auto; } #liveclassroom-root .lc-editor-workspace { grid-template-columns: 1fr; } }
+#liveclassroom-root .lc-question-bank-workspace { margin-top: 1rem; }
+#liveclassroom-root .lc-question-bank-header,
+#liveclassroom-root .lc-question-preview-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+#liveclassroom-root .lc-question-bank-layout { display: grid; grid-template-columns: minmax(12rem, 18rem) minmax(0, 1fr); gap: 1rem; margin-top: 1rem; }
+#liveclassroom-root .lc-question-bank-list ul { list-style: none; margin: 0; padding: 0; }
+#liveclassroom-root .lc-question-bank-item { display: flex; justify-content: space-between; width: 100%; min-height: 44px; padding: .6rem .7rem; border: 0; border-radius: var(--lc-radius); background: transparent; text-align: left; }
+#liveclassroom-root .lc-question-bank-item-selected { background: var(--lc-accent-soft); color: var(--lc-accent); font-weight: 650; }
+#liveclassroom-root .lc-question-list { display: grid; gap: .75rem; }
+#liveclassroom-root .lc-question-card { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+#liveclassroom-root .lc-question-card h3 { margin: 0 0 .35rem; }
+#liveclassroom-root .lc-question-card .lc-badge { margin-left: .35rem; }
+#liveclassroom-root .lc-question-filters .lc-form-row { align-items: end; }
+#liveclassroom-root .lc-question-filters label,
+#liveclassroom-root .lc-question-metadata-form label { display: grid; gap: .3rem; min-width: 8rem; }
+#liveclassroom-root .lc-question-metadata-form { display: grid; grid-template-columns: repeat(3, minmax(8rem, 1fr)); gap: .75rem; margin-bottom: 1rem; }
+#liveclassroom-root .lc-question-editor { margin-top: 1rem; }
+#liveclassroom-root .lc-question-preview { margin-top: 1rem; }
+#liveclassroom-root .lc-question-prompt { white-space: pre-wrap; overflow-wrap: anywhere; }
+#liveclassroom-root .lc-question-options { padding-left: 1.5rem; }
+#liveclassroom-root .lc-question-answer { padding: .65rem .8rem; border-radius: var(--lc-radius); background: var(--lc-accent-soft); }
+#liveclassroom-root .lc-question-metadata { display: grid; grid-template-columns: max-content 1fr; gap: .25rem .75rem; }
+#liveclassroom-root .lc-question-metadata dt { color: var(--lc-text-2); }
+#liveclassroom-root .lc-question-metadata dd { margin: 0; }
+@media (max-width: 48rem) {
+  #liveclassroom-root .lc-question-bank-layout { grid-template-columns: 1fr; }
+  #liveclassroom-root .lc-question-card,
+  #liveclassroom-root .lc-question-bank-header { align-items: flex-start; flex-direction: column; }
+  #liveclassroom-root .lc-question-metadata-form { grid-template-columns: 1fr; }
+  #liveclassroom-root .lc-question-filters .lc-form-row { flex-direction: column; align-items: stretch; }
+}
+

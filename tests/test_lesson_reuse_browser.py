@@ -61,7 +61,7 @@ def test_teacher_saves_lesson_improvements_and_reuses_full_classroom(live_server
 
         page.get_by_text("Edit lesson", exact=True).click()
         plan = page.locator("[data-session-plan]")
-        step_card = plan.locator(":scope > div.lc-plan-step").filter(has_text="Question 2").first
+        step_card = plan.locator(":scope > .lc-plan-step").filter(has_text="Question 2").first
         step_card.get_by_role("button", name="Edit this classroom", exact=True).click()
         editor = page.locator(".lc-editor-workspace form").filter(has_text="Prompt").first
         editor.get_by_label("Title", exact=True).fill("Revised question 2")

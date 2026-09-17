@@ -757,6 +757,7 @@ function LiveResults({
   return (
     <section id="results" className="lc-live-responses">
       <p id="activity-status">{activity ? t("responsesForCurrentActivity") : t("noActivityPublished")}</p>
+      {activity ? <h4 className="lc-live-response-activity">{activityTitle(activity, t("activity"))}</h4> : null}
       {activity && activityKind(activity) === "essay" ? <p className="lc-manual-grading-notice" role="status">{t("manualGradingRequired")}</p> : null}
       <div id="result-summary">
         {current ? (
@@ -776,7 +777,7 @@ function LiveResults({
             )}
           </>
         ) : (
-          <p>{t("noActivityPublished")}</p>
+          <p>{activity ? t("noResponses") : t("noActivityPublished")}</p>
         )}
       </div>
       {canManage ? <div className="lc-actions lc-response-actions">
@@ -1216,7 +1217,7 @@ function TeacherConsole({ bootstrap }: { bootstrap: TeacherBootstrap }) {
               )}
               {panelSelection === "results" && (
                 <>
-                  <label className="lc-field lc-results-activity-field">{tr("Activity to inspect", "选择查看的活动")}<select value={activitySelection || (serverCurrentActivityId === null ? "" : String(serverCurrentActivityId))} onChange={(event) => selectActivity(event.target.value)}><option value="">{tr("Current display activity","当前投屏活动")}</option>{serverCurrentActivityId !== null && state?.current_activity && !history.some((activity) => activity.id === serverCurrentActivityId) ? <option value={String(serverCurrentActivityId)}>{activityTitle(state.current_activity, t("activity"))}</option> : null}{history.filter((activity) => activity.id !== serverCurrentActivityId).map((activity) => <option key={activity.id} value={activity.id}>{activityTitle(activity,t("activity"))}</option>)}</select></label>
+                  <label className="lc-field lc-results-activity-field">{tr("Activity to inspect", "选择查看的活动")}<select value={activitySelection || (serverCurrentActivityId === null ? "" : String(serverCurrentActivityId))} onChange={(event) => selectActivity(event.target.value)}>{serverCurrentActivityId !== null && state?.current_activity ? <option value={String(serverCurrentActivityId)}>{activityTitle(state.current_activity, t("activity"))}</option> : <option value="" disabled>{tr("No current display activity", "当前没有投屏活动")}</option>}{history.filter((activity) => activity.id !== serverCurrentActivityId).map((activity) => <option key={activity.id} value={activity.id}>{activityTitle(activity,t("activity"))}</option>)}</select></label>
                   <div className="lc-actions lc-export-actions">{canAdmit && <>{["summary","responses","participants","chat"].map(dataset=><a className="lc-btn lc-btn-outline lc-btn-sm" key={dataset} href={`${bootstrap.exportUrl}?format=csv&dataset=${dataset}`}><Icon name="download" size={14} />{({summary:tr("Summary","汇总"),responses:tr("Responses","答案"),participants:tr("Attendance","出席"),chat:tr("Chat","聊天")} as Record<string,string>)[dataset]} CSV</a>)}<a className="lc-btn lc-btn-outline lc-btn-sm" href={bootstrap.exportUrl}><Icon name="download" size={14} />JSON</a></>}</div>
                   <AnalyticsPanel analytics={analytics} activity={focused} />
                 </>

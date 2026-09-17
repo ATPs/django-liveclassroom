@@ -111,12 +111,13 @@ def test_named_lesson_sharing_preview_and_independent_copy(live_server):
 
         teacher_b_page.set_viewport_size({"width": 390, "height": 844})
         assert teacher_b_page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
-        language_box = teacher_b_page.locator(".lc-lang-switch").bounding_box()
+        language_switch = teacher_b_page.get_by_role("button", name="Switch language / 切换语言")
+        language_box = language_switch.bounding_box()
         title_box = teacher_b_page.locator(".lc-kicker").bounding_box()
         assert language_box and title_box
         assert language_box["y"] + language_box["height"] <= title_box["y"]
         teacher_b_page.screenshot(path="/tmp/liveclassroom-workspace-mobile.png", full_page=True)
-        teacher_b_page.locator(".lc-lang-switch").click()
+        language_switch.click()
         teacher_b_page.get_by_role("heading", name="\u6559\u5e08\u5de5\u4f5c\u53f0", exact=True).wait_for()
         assert teacher_b_page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
         teacher_b_page.screenshot(path="/tmp/liveclassroom-workspace-mobile-zh.png", full_page=True)
