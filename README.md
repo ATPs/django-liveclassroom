@@ -5,6 +5,9 @@ content and collecting real-time student responses.  The package and the
 included standalone project share the same models, routes, templates, and ASGI
 application.
 
+For installation, teaching workflows, host integration, production operations,
+and security guidance, see the [usage guide](docs/usage.md).
+
 ## Prepare once, teach independently
 
 The teacher workspace organizes **My lessons**, **Shared with me**, **Classes**, and **Recent sessions**. A lesson is reusable content; each classroom receives its own complete snapshot and teaching plan. Editing a lesson never silently changes a classroom already created from it.
@@ -62,13 +65,17 @@ EN/zh-Hans coverage including the server-rendered pages. Browser workflows and
 local PostgreSQL multi-worker acceptance have executable tests. Provider-specific
 AI adapters and production host wiring remain separate integration work.
 
-## Quick start
+## Quick start from source
 
 ```bash
 git clone https://github.com/ATPs/django-liveclassroom.git
 cd django-liveclassroom
 python -m venv .venv
 . .venv/bin/activate
+cd frontend
+bun install --frozen-lockfile
+bun run bundle
+cd ..
 pip install -e '.[dev]'
 python standalone/manage.py migrate
 python standalone/manage.py createsuperuser
@@ -77,6 +84,11 @@ python standalone/manage.py runserver
 
 Open <http://127.0.0.1:8000/>. The Django admin is available at
 `/admin/`.
+
+The source checkout deliberately does not track the generated `app.js` entry
+bundle. The attached release wheel and Python source distribution include it;
+GitHub's automatically generated source archives do not, so generate it before
+installing from a checkout.
 
 To install the optional common examples after migrating, run this explicitly:
 
@@ -162,8 +174,8 @@ LIVECLASSROOM = {
 }
 ```
 
-All public HTTP endpoints are versioned under `/api/v1/`; unversioned API
-aliases are not supported.
+JSON API endpoints are versioned under `/api/v1/`; browser routes such as
+`/teacher/`, `/join/`, and `/sessions/...` are ordinary Django pages.
 
 ## Staff Student view
 
@@ -186,11 +198,16 @@ participant or changes attendance or presence simply by being opened.
   in-memory channel layer; PostgreSQL deployments can enable the notification
   relay and clients refetch authoritative state over HTTP.
 
-## Development Database
+## Migrations
 
-The current development migration history is a single fresh `0001_initial`.
-Recreate disposable development databases when moving from the earlier schema;
-this reset is not an upgrade migration for an existing populated installation.
+Run normal additive migrations for every installation:
+
+```bash
+python manage.py migrate liveclassroom
+```
+
+The package currently ships migrations `0001` through `0021`. Never reset or
+recreate a populated production database to apply them.
 
 ## Optional VaultPub provider
 
@@ -209,11 +226,10 @@ including percent-encoded Unicode paths, and adds the explicit `embed=1` mode.
 Protected participant grants remain host-owned callbacks so portal permissions
 are checked on every use.
 
-For the `xcWebServer` installation with `vaultpub_portal`, configure
-`vaultpub_portal.liveclassroom_provider.XcWebServerVaultPubProvider` instead of
-the generic adapter. It rechecks the portal's registered-vault and share rules
-and returns teacher-safe note descriptors; student grants remain disabled until
-the host adds scoped grant storage and routes.
+The generic provider uses the conventional `/database/vaultpub` portal prefix.
+Hosts with a different route or protected-content policy should provide a
+configured subclass or host adapter that reauthorizes discovery and participant
+grants for every use.
 
 ## Optional AI authoring backend
 

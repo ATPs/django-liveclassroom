@@ -1,3 +1,5 @@
+"""Development-only standalone settings; do not use these values in production."""
+
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -55,5 +57,8 @@ USE_TZ = True
 STATIC_URL = "/static/"
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
-LIVECLASSROOM = {"ALLOW_SERVER_FILE_PATHS": True}
+# Private uploads are served through LiveClassroom's authorized endpoints.
+# Enable server-path references only in a trusted deployment that explicitly
+# accepts the risk of exposing current filesystem bytes to a superuser.
+LIVECLASSROOM = {"ALLOW_SERVER_FILE_PATHS": False}
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"

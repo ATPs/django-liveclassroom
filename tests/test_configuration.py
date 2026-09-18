@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 from django.contrib.auth import get_user_model
 from django.core.checks import Tags, run_checks
@@ -108,3 +110,11 @@ def test_shell_links_reject_external_urls():
     messages = run_checks(tags=[Tags.compatibility])
 
     assert any(message.id == "liveclassroom.E004" for message in messages)
+
+
+def test_standalone_urlconf_has_one_package_mount_and_no_public_media_route():
+    urlconf = Path("standalone/liveclassroom_site/urls.py").read_text(encoding="utf-8")
+
+    assert urlconf.count('include("liveclassroom.urls")') == 1
+    assert "django.conf.urls.static" not in urlconf
+    assert "static(settings.MEDIA_URL" not in urlconf

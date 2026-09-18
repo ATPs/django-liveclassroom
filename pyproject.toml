@@ -4,14 +4,14 @@ build-backend = "hatchling.build"
 
 [project]
 name = "django-liveclassroom"
-version = "0.1.0"
+version = "1.0.0"
 description = "Reusable Django app for live, real-time classrooms."
 readme = "README.md"
 requires-python = ">=3.12"
 license = { file = "LICENSE" }
 authors = [{ name = "LiveClassroom contributors" }]
 classifiers = [
-  "Development Status :: 2 - Pre-Alpha",
+  "Development Status :: 5 - Production/Stable",
   "Framework :: Django",
   "Framework :: Django :: 5.2",
   "Framework :: Django :: 6.0",
@@ -47,6 +47,10 @@ Issues = "https://github.com/ATPs/django-liveclassroom/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/liveclassroom"]
+force-include = { "src/liveclassroom/static/liveclassroom/app.js" = "liveclassroom/static/liveclassroom/app.js" }
+
+[tool.hatch.build.targets.sdist]
+force-include = { "src/liveclassroom/static/liveclassroom/app.js" = "src/liveclassroom/static/liveclassroom/app.js" }
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "liveclassroom_test_settings"

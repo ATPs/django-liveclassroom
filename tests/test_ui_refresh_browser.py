@@ -34,7 +34,9 @@ def test_teacher_console_uses_compact_shell_actions_and_responses_ribbon(live_se
         assert slot.get_by_role("link", name="Student view").get_attribute("target") == "_blank"
         header_box = page.locator(".lc-shell-header").bounding_box()
         slot_box = slot.bounding_box()
-        utilities_box = page.locator("[data-liveclassroom-shell-header-utilities] .lc-shell-header-actions").bounding_box()
+        utilities_box = page.locator(
+            "[data-liveclassroom-shell-header-utilities] .lc-shell-header-actions"
+        ).bounding_box()
         assert header_box and slot_box and utilities_box
         assert header_box["height"] <= 48
         # During teaching, classroom actions precede Search and the remaining
@@ -51,7 +53,9 @@ def test_teacher_console_uses_compact_shell_actions_and_responses_ribbon(live_se
         assert tablet_overflow["headerRight"] >= tablet_overflow["viewport"] - 24
         tablet_order = page.evaluate("""() => {
           const slot = document.querySelector('#lc-session-action-slot')?.getBoundingClientRect();
-          const utilities = document.querySelector('[data-liveclassroom-shell-header-utilities]')?.getBoundingClientRect();
+          const utilities = document.querySelector(
+            '[data-liveclassroom-shell-header-utilities]'
+          )?.getBoundingClientRect();
           return slot && utilities ? { slotTop: slot.top, utilitiesTop: utilities.top } : null;
         }""")
         assert tablet_order and tablet_order["slotTop"] <= tablet_order["utilitiesTop"] + 1
@@ -82,7 +86,11 @@ def test_teacher_console_uses_compact_shell_actions_and_responses_ribbon(live_se
         popover = page.get_by_role("dialog", name="Invite students")
         assert popover.is_visible()
         assert popover.locator(".lc-btn").count() == 4
-        assert popover.evaluate("node => Math.abs(node.querySelector('.lc-btn').getBoundingClientRect().height - node.querySelectorAll('.lc-btn')[1].getBoundingClientRect().height) <= 1")
+        equal_button_heights = (
+            "node => Math.abs(node.querySelector('.lc-btn').getBoundingClientRect().height - "
+            "node.querySelectorAll('.lc-btn')[1].getBoundingClientRect().height) <= 1"
+        )
+        assert popover.evaluate(equal_button_heights)
         page.keyboard.press("Escape")
         assert not popover.is_visible()
         assert invite.evaluate("node => document.activeElement === node")
@@ -108,12 +116,19 @@ def test_teacher_console_uses_compact_shell_actions_and_responses_ribbon(live_se
         assert box and box["width"] <= 34 and box["height"] <= 34
         assert page.locator(".lc-shell-header").evaluate("node => getComputedStyle(node).borderBottomWidth") == "0px"
         assert collapse.evaluate("node => getComputedStyle(node).borderTopWidth") == "0px"
-        assert page.locator(".lc-shell-sidebar").evaluate("node => getComputedStyle(node).backgroundColor") == "rgba(0, 0, 0, 0)"
+        assert (
+            page.locator(".lc-shell-sidebar").evaluate("node => getComputedStyle(node).backgroundColor")
+            == "rgba(0, 0, 0, 0)"
+        )
         page.screenshot(path=".local/screenshots/2026-09-16-ui-refresh-teacher-final.png", full_page=True)
         page.locator(".lc-shell-sidebar-toggle").click()
-        page.wait_for_function("document.querySelector('[data-classroom-shell]')?.dataset.sidebar === 'expanded'")
+        page.wait_for_function(
+            "document.querySelector('[data-classroom-shell]')?.dataset.sidebar === 'expanded'"
+        )
         assert slot.get_by_role("button", name="Pause").is_visible()
-        page.locator("[data-audience='teacher']").evaluate("element => element.dispatchEvent(new Event('liveclassroom:unmount'))")
+        page.locator("[data-audience='teacher']").evaluate(
+            "element => element.dispatchEvent(new Event('liveclassroom:unmount'))"
+        )
         page.wait_for_function("document.querySelector('#lc-session-action-slot')?.childElementCount === 0")
     finally:
         browser.close()
@@ -170,7 +185,10 @@ def test_teacher_console_uses_chinese_dark_theme(live_server):
         slot = page.locator("#lc-session-action-slot")
         slot.get_by_text("课堂进行中", exact=True).wait_for()
         page.get_by_role("tab", name="答题情况", exact=True).wait_for()
-        assert page.locator("#liveclassroom-root").evaluate("node => getComputedStyle(node).getPropertyValue('--lc-bg').trim()") == "#191c1a"
+        background_color = page.locator("#liveclassroom-root").evaluate(
+            "node => getComputedStyle(node).getPropertyValue('--lc-bg').trim()"
+        )
+        assert background_color == "#191c1a"
         page.screenshot(path="/tmp/liveclassroom-teacher-dark-zh.png", full_page=True)
         page.set_viewport_size({"width": 720, "height": 900})
         page.wait_for_function("document.querySelector('.lc-shell-header')?.getBoundingClientRect().height > 44")
@@ -202,8 +220,12 @@ def test_invite_copy_falls_back_to_selectable_text_on_ordinary_http(live_server)
             ("en", "Copy join link", "Copy code", "Clipboard access is unavailable. Select and copy the text below."),
             ("zh-Hans", "复制加入链接", "复制加入码", "剪贴板不可用。请选中下方文字后复制。"),
         ):
-            page.goto(f"{live_server.url}{reverse('liveclassroom:teacher-console', args=[session.id])}?lang={language}")
-            invite = page.locator("#lc-session-action-slot").get_by_role("button", name="Invite students" if language == "en" else "邀请学生")
+            teacher_console_url = reverse("liveclassroom:teacher-console", args=[session.id])
+            page.goto(f"{live_server.url}{teacher_console_url}?lang={language}")
+            invite_label = "Invite students" if language == "en" else "邀请学生"
+            invite = page.locator("#lc-session-action-slot").get_by_role(
+                "button", name=invite_label
+            )
             invite.wait_for()
             invite.click()
             page.get_by_role("button", name=link_label).click()
@@ -223,7 +245,10 @@ def test_classroom_display_keeps_long_titles_and_utilities_readable(live_server)
     teacher = get_user_model().objects.create_user(username="ui-refresh-display", password="password")
     session = create_instant_session(
         owner=teacher,
-        title="Long bilingual classroom title for a projector display with enough words to verify safe wrapping 长标题课堂展示",
+        title=(
+            "Long bilingual classroom title for a projector display with enough words to verify safe wrapping "
+            "长标题课堂展示"
+        ),
     )
     start_session(session=session, actor=teacher)
     client = Client()

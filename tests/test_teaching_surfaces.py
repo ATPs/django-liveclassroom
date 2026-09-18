@@ -48,11 +48,12 @@ def test_base_template_lang_attribute_and_fallback(client):
 def test_server_rendered_pages_are_bilingual(client, teacher_user):
     # English default
     home_en = client.get(reverse("liveclassroom:home"))
-    assert "Teacher console" in home_en.content.decode()
+    assert "Join a session" in home_en.content.decode()
+    assert "data-home-workspace" in home_en.content.decode()
 
     # Chinese via ?lang=
     home_zh = client.get(f"{reverse('liveclassroom:home')}?lang=zh-Hans")
-    assert "教师控制台" in home_zh.content.decode()
+    assert "加入课堂" in home_zh.content.decode()
 
     join_zh = client.get(f"{reverse('liveclassroom:join')}?lang=zh-Hans")
     assert "加入课堂" in join_zh.content.decode()
@@ -83,9 +84,9 @@ def test_teacher_console_bilingual_and_lang_switch(client, teacher_user, session
     content_en = resp_en.content.decode()
     assert 'data-locale="en"' in content_en
     assert 'data-audience="teacher"' in content_en
-    assert 'data-flow-steps=' in content_en
-    assert 'data-qr-url=' in content_en
-    assert 'data-session-title=' in content_en
+    assert "data-flow-steps=" in content_en
+    assert "data-qr-url=" in content_en
+    assert "data-session-title=" in content_en
 
     # 2. Simplified Chinese
     resp_zh = client.get(f"{reverse('liveclassroom:teacher-console', args=[session_with_flow.id])}?lang=zh-Hans")
@@ -119,7 +120,7 @@ def test_student_session_bilingual_and_lang_switch(client, session_with_flow):
     assert '<html lang="zh-Hans">' in content
     assert 'data-locale="zh-Hans"' in content
     assert 'data-audience="student"' in content
-    assert 'class="lc-lang-switch"' in content
+    assert 'id="liveclassroom-navigation-bootstrap"' in content
     assert 'id="student-content"' in content
 
 
@@ -132,8 +133,8 @@ def test_flow_builder_bilingual_and_lang_switch(client, teacher_user, session_wi
     content = resp.content.decode()
     assert '<html lang="zh-Hans">' in content
     assert 'data-locale="zh-Hans"' in content
-    assert 'data-liveclassroom-builder' in content
-    assert 'class="lc-lang-switch"' in content
+    assert "data-liveclassroom-builder" in content
+    assert 'id="liveclassroom-navigation-bootstrap"' in content
 
 
 def test_frontend_bundle_contains_all_renderers_and_locales():
@@ -190,9 +191,10 @@ def test_frontend_bundle_contains_all_renderers_and_locales():
 
 
 def test_css_contains_teaching_surface_styles():
-    css_path = Path("src/liveclassroom/static/liveclassroom/liveclassroom.css")
-    assert css_path.exists(), "liveclassroom.css must exist"
-    css = css_path.read_text(encoding="utf-8")
+    static_root = Path("src/liveclassroom/static/liveclassroom")
+    css_paths = sorted(static_root.glob("*.css"))
+    assert css_paths, "LiveClassroom CSS files must exist"
+    css = "\n".join(path.read_text(encoding="utf-8") for path in css_paths)
 
     # Design tokens and theming
     assert "--lc-accent" in css
@@ -229,6 +231,7 @@ def test_locales_ts_key_parity_and_coverage():
 
     # Extract keys in en block and zh-Hans block
     import re
+
     en_match = re.search(
         r"en:\s*\{([^}]+(?:\{[^}]+\}[^}]+)*)\},\s*[\"']zh-Hans[\"']:\s*\{([^}]+(?:\{[^}]+\}[^}]+)*)\}",
         content,
@@ -249,13 +252,38 @@ def test_locales_ts_key_parity_and_coverage():
 
     # Ensure critical activity renderer keys exist
     critical_keys = {
-        "timer", "timerRemaining", "timerFinished", "seconds",
-        "wordCloud", "wordFrequencies", "moderation",
-        "markdownContent", "mediaContent",
-        "singleChoice", "multipleChoice", "trueFalse", "poll", "shortText", "numeric", "rating", "ranking",
-        "responseRate", "admitted", "connected", "attended",
-        "publish", "display", "participants", "displayPreview", "participantPreview",
-        "save", "cancel", "submit", "update", "saved", "stale",
+        "timer",
+        "timerRemaining",
+        "timerFinished",
+        "seconds",
+        "wordCloud",
+        "wordFrequencies",
+        "moderation",
+        "markdownContent",
+        "mediaContent",
+        "singleChoice",
+        "multipleChoice",
+        "trueFalse",
+        "poll",
+        "shortText",
+        "numeric",
+        "rating",
+        "ranking",
+        "responseRate",
+        "admitted",
+        "connected",
+        "attended",
+        "publish",
+        "display",
+        "participants",
+        "displayPreview",
+        "participantPreview",
+        "save",
+        "cancel",
+        "submit",
+        "update",
+        "saved",
+        "stale",
     }
     assert critical_keys.issubset(en_keys)
 
@@ -272,8 +300,8 @@ def test_mobile_first_student_route_structure(client, session_with_flow):
     assert 'data-audience="student"' in content
     assert 'data-access-mode="guest"' in content
     assert 'id="student-content"' in content
-    assert 'data-liveclassroom-chat' in content
-    assert 'data-liveclassroom-history' in content
+    assert "data-liveclassroom-chat" in content
+    assert "data-liveclassroom-history" in content
 
 
 @pytest.mark.django_db

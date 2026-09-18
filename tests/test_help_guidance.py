@@ -14,7 +14,7 @@ def test_help_page_explains_tasks_and_high_impact_actions(client):
     content = response.content.decode()
     assert "LiveClassroom help" in content
     assert "What each surface is for" in content
-    assert "A safe sequence for starting class" in content
+    assert "Simple teacher path" in content
     assert "Check before publishing, sharing, or ending" in content
     assert "Create a reusable lesson" in content
     assert reverse("liveclassroom:help") in content
@@ -41,7 +41,7 @@ def test_help_page_and_context_link_keep_the_mount_prefix(client):
     assert response.status_code == 200
     content = response.content.decode()
     assert 'href="/classroom/help/?lang=en"' in content
-    assert 'href="/classroom/?lang=en"' in content
+    assert response.context["navigation_bootstrap"]["links"]["home"] == "/classroom/"
 
 
 @pytest.mark.django_db
@@ -65,7 +65,7 @@ def test_teacher_surfaces_show_contextual_guidance_and_help_links(client):
     assert "Action check:" in builder_content
     assert 'href="/help/?lang=en"' in builder_content
     assert "Confirm the target channel before publishing" not in console_content
-    assert 'href="/help/?lang=en"' in console_content
+    assert console.context["navigation_bootstrap"]["links"]["help"] == "/help/"
 
 
 @pytest.mark.django_db

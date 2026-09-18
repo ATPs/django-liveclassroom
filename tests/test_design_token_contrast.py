@@ -5,8 +5,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-
-CSS = (Path(__file__).resolve().parents[1] / "src/liveclassroom/static/liveclassroom/liveclassroom.css").read_text(encoding="utf-8")
+CSS_PATH = Path(__file__).resolve().parents[1] / "src/liveclassroom/static/liveclassroom/liveclassroom.css"
+CSS = CSS_PATH.read_text(encoding="utf-8")
 
 
 def _luminance(color: str) -> float:
@@ -26,7 +26,14 @@ def _tokens(block: str) -> dict[str, str]:
 
 def test_shared_tokens_meet_text_focus_and_interactive_boundary_contrast():
     light = _tokens(re.search(r"#liveclassroom-root \{\n  color-scheme:.*?\n\}", CSS, re.DOTALL).group(0))
-    dark = _tokens(re.search(r"@media \(prefers-color-scheme: dark\) \{\n  #liveclassroom-root \{(?P<tokens>.*?)\n  \}\n\}", CSS, re.DOTALL).group("tokens"))
+    dark_pattern = r"@media \(prefers-color-scheme: dark\) \{\n  #liveclassroom-root \{(?P<tokens>.*?)\n  \}\n\}"
+    dark = _tokens(
+        re.search(
+            dark_pattern,
+            CSS,
+            re.DOTALL,
+        ).group("tokens")
+    )
     for tokens in (light, dark):
         assert _contrast(tokens["--lc-text"], tokens["--lc-surface"]) >= 4.5
         assert _contrast(tokens["--lc-text-2"], tokens["--lc-surface"]) >= 4.5

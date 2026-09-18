@@ -19,24 +19,30 @@ jobs:
           python-version: ${{ matrix.python }}
       - uses: oven-sh/setup-bun@v2
       - run: python -m pip install --upgrade pip
-      - run: python -m pip install -e '.[dev]' "${{ matrix.django }}"
-      - run: PYTHONPATH=.:src python standalone/manage.py check
-      - run: PYTHONPATH=.:src python standalone/manage.py makemigrations --check --dry-run
-      - run: ruff check .
-      - run: python -m compileall -q src tests standalone
-      - run: PYTHONPATH=.:src pytest -q
       - run: bun install --frozen-lockfile
         working-directory: frontend
       - run: bun run check
         working-directory: frontend
       - run: bun run bundle
         working-directory: frontend
-      - run: git diff --exit-code -- src/liveclassroom/static/liveclassroom/app.js
-      - run: python -m pip wheel --no-deps --wheel-dir /tmp/liveclassroom-wheel .
+      - run: test -s src/liveclassroom/static/liveclassroom/app.js
+      - run: git check-ignore -q src/liveclassroom/static/liveclassroom/app.js
+      - run: '! git ls-files --error-unmatch src/liveclassroom/static/liveclassroom/app.js'
+      - run: git diff --exit-code -- src/liveclassroom/static/liveclassroom/chunks src/liveclassroom/static/liveclassroom/pdf.worker.min.mjs
+      - run: test -z "$(git status --porcelain --untracked-files=all -- src/liveclassroom/static/liveclassroom/chunks src/liveclassroom/static/liveclassroom/pdf.worker.min.mjs)"
+      - run: python -m pip install -e '.[dev]' "${{ matrix.django }}" build
+      - run: PYTHONPATH=.:src python standalone/manage.py check
+      - run: PYTHONPATH=.:src python standalone/manage.py makemigrations --check --dry-run
+      - run: ruff check .
+      - run: python -m compileall -q src tests standalone
+      - run: PYTHONPATH=.:src pytest -q
+      - run: python -m build --outdir /tmp/liveclassroom-dist
+      - run: tar -tzf /tmp/liveclassroom-dist/django_liveclassroom-*.tar.gz | grep -qx 'django_liveclassroom-1.0.0/src/liveclassroom/static/liveclassroom/app.js'
       - run: |
-          python -m pip install --no-deps --target /tmp/liveclassroom-wheel-site /tmp/liveclassroom-wheel/*.whl
+          python -m pip install --no-deps --target /tmp/liveclassroom-wheel-site /tmp/liveclassroom-dist/*.whl
           cd /tmp
           PYTHONPATH=/tmp/liveclassroom-wheel-site python - <<'PY'
+          from importlib.metadata import version
           import sys
           import tempfile
           import types
@@ -60,6 +66,10 @@ jobs:
               STATIC_URL="/static/",
               STATIC_ROOT=tempfile.mkdtemp(prefix="liveclassroom-static-"),
               TEMPLATES=[{"BACKEND": "django.template.backends.django.DjangoTemplates", "APP_DIRS": True}],
+              MIDDLEWARE=[
+                  "django.contrib.sessions.middleware.SessionMiddleware",
+                  "django.contrib.auth.middleware.AuthenticationMiddleware",
+              ],
               DATABASES={"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": ":memory:"}},
               DEFAULT_AUTO_FIELD="django.db.models.BigAutoField",
           )
@@ -70,8 +80,12 @@ jobs:
 
           django.setup()
           urls.urlpatterns = [path("classroom/", include("liveclassroom.urls"))]
+          assert version("django-liveclassroom") == "1.0.0"
           assert Client().get("/classroom/").status_code == 200
+          asset = Path(__import__("liveclassroom").__file__).parent / "static/liveclassroom/app.js"
+          assert asset.is_file() and asset.stat().st_size > 100_000
           call_command("collectstatic", interactive=False, verbosity=0)
-          assert Path(settings.STATIC_ROOT, "liveclassroom", "app.js").is_file()
+          collected = Path(settings.STATIC_ROOT, "liveclassroom", "app.js")
+          assert collected.is_file() and collected.read_bytes() == asset.read_bytes()
           PY
       - run: git diff --check
